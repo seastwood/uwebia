@@ -1,0 +1,214 @@
+{# ── Live presence for admin editors ──────────────────────────────────────────
+   Include once per editor page, then:
+
+       UwebiaPresence.start({
+           type: 'quiz',                 // guide | quiz | page | post | newsletter
+           id: QUIZ_ID,
+           container: 'qePresence',      // an empty <div> you place in the page
+           context: () => ({ id: currentQuestionId, label: 'Question 3' }),
+       });
+
+   `context` is polled on every beat, so it can just read whatever the editor
+   already tracks — nothing to keep in sync.
+
+   Polling, not push. The app runs on sync gunicorn workers with no Redis and
+   no websocket layer, so in-memory presence would be per-worker (and therefore
+   wrong), and a held-open SSE stream would occupy one of three workers for as
+   long as somebody left an editor open. A small query every few seconds is
+   what this deployment actually supports. #}
+<style>
+.uwp-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08); flex-wrap: wrap; }
+.uwp-label { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: rgba(255,255,255,0.4); }
+.uwp-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.uwp-peer { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px 4px 4px; border-radius: 999px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); font-size: 0.8rem; color: rgba(255,255,255,0.8); }
+.uwp-dot { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.66rem; font-weight: 850; color: #10101a; flex: none; }
+.uwp-where { color: rgba(255,255,255,0.45); font-size: 0.76rem; }
+/* Pulses only while they are actually typing, so a row of people with the tab
+   merely open doesn't look like a row of people all editing. */
+.uwp-peer.is-editing .uwp-dot { box-shadow: 0 0 0 0 rgba(94,238,248,0.7); animation: uwpPulse 1.8s ease-out infinite; }
+@keyframes uwpPulse { 70% { box-shadow: 0 0 0 7px rgba(94,238,248,0); } 100% { box-shadow: 0 0 0 0 rgba(94,238,248,0); } }
+.uwp-warn { display: flex; align-items: flex-start; gap: 9px; margin-bottom: 14px; padding: 10px 13px; border-radius: 9px; font-size: 0.86rem; background: rgba(255,196,84,0.1); border: 1px solid rgba(255,196,84,0.32); color: #ffd08a; }
+@media (prefers-reduced-motion: reduce) { .uwp-peer.is-editing .uwp-dot { animation: none; } }
+</style>
+<script>
+window.UwebiaPresence = (function () {
+    'use strict';
+    var INTERVAL_MS = 5000;
+    var esc = function (s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    };
+
+    // Colour derives from the user id, so the same person is the same colour
+    // on everyone's screen with no palette to allocate or store.
+    function colorFor(id) {
+        var hues = [190, 275, 330, 45, 150, 15, 230, 95];
+        return 'hsl(' + hues[Math.abs(id) % hues.length] + ', 70%, 62%)';
+    }
+
+    function start(opts) {
+        var host = document.getElementById(opts.container);
+        if (!host || !opts.id) return null;
+
+        var bar = document.createElement('div');
+        bar.className = 'uwp-bar';
+        bar.style.display = 'none';
+        bar.innerHTML = '<span class="uwp-label">Also here:</span><div class="uwp-chips"></div>';
+        var warn = document.createElement('div');
+        warn.className = 'uwp-warn';
+        warn.style.display = 'none';
+        host.appendChild(bar);
+        host.appendChild(warn);
+        var chips = bar.querySelector('.uwp-chips');
+
+        var typingUntil = 0;
+        var noun = opts.noun || 'section';
+
+        function render(peers) {
+            if (!peers.length) {
+                bar.style.display = 'none';
+                warn.style.display = 'none';
+                return;
+            }
+            bar.style.display = 'flex';
+            chips.innerHTML = peers.map(function (p) {
+                var where = p.context_label
+                    ? '<span class="uwp-where">' + (p.is_editing ? 'editing' : 'in') + ' ' + esc(p.context_label) + '</span>'
+                    : '<span class="uwp-where">browsing</span>';
+                return '<span class="uwp-peer' + (p.is_editing ? ' is-editing' : '') + '" title="' + esc(p.name) + '">'
+                     + '<span class="uwp-dot" style="background:' + colorFor(p.user_id) + '">' + esc(p.initials) + '</span>'
+                     + esc(p.name) + ' ' + where + '</span>';
+            }).join('');
+
+            // The part that actually prevents lost work: warn BEFORE they type
+            // into something somebody else already has open.
+            var here = (opts.context ? (opts.context() || {}) : {});
+            var same = here.id ? peers.filter(function (p) { return p.context_id === here.id; }) : [];
+            if (same.length) {
+                var names = same.map(function (p) { return p.name; }).join(', ');
+                warn.innerHTML = '<i class="fas fa-triangle-exclamation"></i><span><strong>'
+                    + esc(names) + '</strong> ' + (same.length > 1 ? 'are' : 'is')
+                    + ' in this same ' + esc(noun) + '. Whoever saves last is asked to resolve it — '
+                    + 'nothing is overwritten silently, but it is easier to take different ones.</span>';
+                warn.style.display = 'flex';
+            } else {
+                warn.style.display = 'none';
+            }
+        }
+
+        function beat() {
+            var here = (opts.context ? (opts.context() || {}) : {});
+            return fetch('/admin/presence/ping', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    resource_type: opts.type,
+                    resource_id: opts.id,
+                    context_id: here.id || null,
+                    context_label: here.label || null,
+                    is_editing: Date.now() < typingUntil,
+                }),
+            }).then(function (r) {
+                return r.ok ? r.json() : null;
+            }).then(function (d) {
+                if (d && d.success) render(d.peers || []);
+            }).catch(function () { /* a blip is not worth an error on screen */ });
+        }
+
+        beat();
+        setInterval(function () {
+            // A backgrounded tab shouldn't keep a chip warm for someone who
+            // walked away.
+            if (!document.hidden) beat();
+        }, INTERVAL_MS);
+        document.addEventListener('visibilitychange', function () {
+            if (!document.hidden) beat();
+        });
+
+        // Best effort. The server ages rows out anyway, because a crashed
+        // browser never gets to say goodbye.
+        //
+        // fetch(keepalive), NOT sendBeacon: beacons bypass the patched
+        // window.fetch in components/csrf.html, so they arrive with no
+        // X-CSRFToken and CSRFProtect rejects them.
+        window.addEventListener('pagehide', function () {
+            try {
+                fetch('/admin/presence/leave', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ resource_type: opts.type, resource_id: opts.id }),
+                    keepalive: true,
+                });
+            } catch (e) { /* it ages out */ }
+        });
+
+        var api = {
+            beat: beat,
+            // Call from a Quill 'text-change' (source === 'user') or an input
+            // handler so the chip pulses while somebody is really typing.
+            typing: function () { typingUntil = Date.now() + 4000; },
+        };
+        if (opts.quill) {
+            opts.quill.on('text-change', function (_d, _o, source) {
+                if (source === 'user') api.typing();
+            });
+        }
+        return api;
+    }
+
+    return { start: start, colorFor: colorFor };
+})();
+
+/* ── Save conflicts ─────────────────────────────────────────────────────────
+   Shared by every editor whose save posts a whole document. Nothing is decided
+   automatically: overwriting silently is the bug being fixed, and discarding
+   silently is the same bug pointing the other way. The person who hit save
+   chooses, and their text is never dropped without being put somewhere first.
+
+       if (r.status === 409 && d.conflict) {
+           UwebiaConflict.handle(d, {
+               label: 'lesson',
+               mine: myHtml,
+               applyTheirs: function (d) { ...load d.current_content... },
+               retryForce: function () { ...save again with force:true... },
+           });
+       }
+*/
+window.UwebiaConflict = (function () {
+    'use strict';
+    function handle(d, opts) {
+        var who = d.saved_by || 'Someone else';
+        var label = opts.label || 'item';
+        var answer = prompt(
+            who + ' saved this ' + label + ' while you were editing it.\n\n'
+            + 'Your version has NOT been saved — nothing was overwritten.\n\n'
+            + 'Type one of:\n'
+            + '  theirs  — load their version (yours is copied to the clipboard first)\n'
+            + '  mine    — overwrite with yours (their changes are lost)\n'
+            + '  cancel  — leave everything as it is\n',
+            'theirs');
+        var pick = (answer || '').trim().toLowerCase();
+
+        if (pick === 'mine') {
+            if (opts.retryForce) opts.retryForce();
+            return;
+        }
+        if (pick !== 'theirs') return;   // cancel: nothing saved, nothing replaced
+
+        var load = function () {
+            if (opts.applyTheirs) opts.applyTheirs(d);
+            alert('Loaded their version. Your text was copied to the clipboard.');
+        };
+        if (navigator.clipboard && opts.mine) {
+            navigator.clipboard.writeText(opts.mine).then(load, function () {
+                if (confirm('Could not copy your text to the clipboard. '
+                          + 'Load their version anyway and lose yours?')) load();
+            });
+        } else {
+            load();
+        }
+    }
+    return { handle: handle };
+})();
+</script>

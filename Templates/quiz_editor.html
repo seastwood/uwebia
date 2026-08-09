@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+{% include 'components/presence.html' %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
@@ -141,6 +142,8 @@
         </a>
     </div>
 
+    <div id="qePresence"></div>
+
     <!-- Question list -->
     <div class="qe-card">
         <p class="qe-panel-title">Questions</p>
@@ -217,6 +220,7 @@
 
 <script>
 const QUIZ_ID = {{ quiz.id }};
+let _forceNextSave = false;
 let QUESTIONS = {{ questions | tojson }};
 let _editing = null;       // current question object in the form (may be unsaved)
 let _sortable = null;
@@ -1000,11 +1004,29 @@ async function saveQuestion() {
         id: _editing.id, question_type: t, prompt, config,
         points: parseInt(document.getElementById('qPoints').value) || 1,
     };
+    // The version this question had when it was opened. The server refuses a
+    // save built on a copy somebody has already replaced.
+    if (_editing.version) body.base_version = _editing.version;
+    if (_forceNextSave) { body.force = true; _forceNextSave = false; }
     const r = await fetch(`/admin/quizzes/${QUIZ_ID}/questions/save`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
     });
     const d = await r.json();
+    if (r.status === 409 && d.conflict) {
+        UwebiaConflict.handle(d, {
+            label: 'question',
+            mine: prompt,
+            applyTheirs: function (c) {
+                _editing.version = c.current_version;
+                _editing.prompt = c.current_content || '';
+                if (_quill) _quill.root.innerHTML = _editing.prompt;
+                showForm();
+            },
+            retryForce: function () { _forceNextSave = true; saveQuestion(); },
+        });
+        return;
+    }
     if (!d.success) { alert(d.error || 'Failed to save'); return; }
     const q = d.question;
     const idx = QUESTIONS.findIndex(x => x.id === q.id);
@@ -1039,5 +1061,22 @@ async function deleteQuestion() {
     document.getElementById('qPlaceholder').style.display = 'block';
     renderList();
 }
+</script>
+
+<script>
+// Presence: who else has this quiz open, and which question they are on.
+window.addEventListener('DOMContentLoaded', function () {
+    UwebiaPresence.start({
+        type: 'quiz',
+        id: QUIZ_ID,
+        container: 'qePresence',
+        noun: 'question',
+        context: function () {
+            if (!_editing || !_editing.id) return {};
+            var n = QUESTIONS.findIndex(function (x) { return x.id === _editing.id; });
+            return { id: _editing.id, label: 'Question ' + (n >= 0 ? n + 1 : '?') };
+        },
+    });
+});
 </script>
 {% endblock %}

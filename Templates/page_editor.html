@@ -43,6 +43,7 @@
 
 {% extends 'base.html' %}
 {% block content %}
+{% include 'components/presence.html' %}
 {% include 'components/navbar.html' %}
 
 {% include 'components/photo_library_modal.html' %}
@@ -18575,6 +18576,48 @@ function moderatePageComment(sectionId, commentId, action) {
     </div>
 </div>
 
+
+<script>
+/* Presence only for the page builder.
+   No version check here, deliberately: unlike a lesson or an article, this
+   editor never posts the whole document. It saves through dozens of granular
+   endpoints (create_section_group, add_row_to_group, save_custom_code …), so
+   there is no single "the page as I loaded it" to compare against. Guarding it
+   properly means versioning each section — a different job. Knowing somebody
+   else is in here is the part worth having now, and it is what stops the
+   collision in the first place.
+
+   The container is created here rather than placed in the markup: this
+   template is ~15k lines of tightly-coupled builder chrome and injecting a
+   floating element is far safer than editing its layout. */
+window.addEventListener('DOMContentLoaded', function () {
+    var PAGE_ID = parseInt("{{ page_content.id }}", 10);
+    if (!PAGE_ID) return;
+    var host = document.createElement('div');
+    host.id = 'pgPresence';
+    host.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99999;max-width:min(560px,92vw);'
+        + 'background:rgba(18,18,26,0.95);border:1px solid rgba(255,255,255,0.12);border-radius:12px;'
+        + 'padding:10px 12px 2px;backdrop-filter:blur(10px);box-shadow:0 12px 30px rgba(0,0,0,0.4);'
+        + 'display:none;';
+    document.body.appendChild(host);
+
+    UwebiaPresence.start({
+        type: 'page',
+        id: PAGE_ID,
+        container: 'pgPresence',
+        noun: 'page',
+        context: function () { return { id: PAGE_ID, label: 'this page' }; },
+    });
+
+    // The panel only earns its space once somebody else is actually here.
+    var show = function () {
+        host.style.display = host.querySelector('.uwp-bar')
+            && host.querySelector('.uwp-bar').style.display !== 'none' ? 'block' : 'none';
+    };
+    new MutationObserver(show).observe(host, { attributes: true, subtree: true,
+                                               attributeFilter: ['style'] });
+});
+</script>
     {% endblock %}
 </body>
 

@@ -213,7 +213,73 @@ def main_test():
     check('an explicit overwrite is still possible when chosen',
           r_force.status_code == 200)
 
-    print('\n[8] older editors keep working')
+    print('\n[8] the same guard on quiz questions, articles and campaigns')
+    with app.app_context():
+        site = db.session.get(main.Website, site_id)
+        quiz = main.Quiz(website_id=site.id, title='Safety check')
+        coll = main.PostCollection(website_id=site.id, user_id=owner_id,
+                                   name='Blog', slug='blog')
+        news = main.Newsletter(website_id=site.id, user_id=owner_id,
+                               name='News', slug='news')
+        db.session.add_all([quiz, coll, news])
+        db.session.commit()
+        # true_false is validated server-side: exactly two options, one correct.
+        question = main.QuizQuestion(quiz_id=quiz.id, question_type='true_false',
+                                     prompt='<p>original</p>',
+                                     config={'options': [{'id': 1, 'text': 'True', 'correct': True},
+                        {'id': 2, 'text': 'False', 'correct': False}]}, points=1)
+        article = main.Post(collection_id=coll.id, website_id=site.id,
+                            title='Draft', slug='draft', content='<p>original</p>')
+        campaign = main.NewsletterCampaign(newsletter_id=news.id, subject='Hello',
+                                           html_body='<p>original</p>')
+        db.session.add_all([question, article, campaign])
+        db.session.commit()
+        qz_id, qq_id = quiz.id, question.id
+        coll_id, art_id = coll.id, article.id
+        nl_id, camp_id = news.id, campaign.id
+
+    cases = [
+        ('quiz question',
+         f'/admin/quizzes/{qz_id}/questions/save',
+         {'id': qq_id, 'question_type': 'true_false', 'prompt': '<p>{who} wrote this</p>',
+          'config': {'options': [{'id': 1, 'text': 'True', 'correct': True},
+                        {'id': 2, 'text': 'False', 'correct': False}]}, 'points': 1}),
+        ('article',
+         f'/admin/posts/{coll_id}/articles/save',
+         {'id': art_id, 'title': 'Draft', 'content': '<p>{who} wrote this</p>'}),
+        ('campaign',
+         f'/admin/newsletters/{nl_id}/campaigns/save',
+         {'id': camp_id, 'subject': 'Hello', 'html_body': '<p>{who} wrote this</p>'}),
+    ]
+    for label, url, payload in cases:
+        first = dict(payload, base_version=1)
+        first = {k: (v.format(who='rowan') if isinstance(v, str) else v)
+                 for k, v in first.items()}
+        r1 = a.post(url, json=first)
+        check(f'{label}: the first save lands — got {r1.status_code}',
+              r1.status_code == 200)
+
+        second = dict(payload, base_version=1)
+        second = {k: (v.format(who='owner') if isinstance(v, str) else v)
+                  for k, v in second.items()}
+        r2 = a.post(url, json=second)
+        d2 = r2.get_json() or {}
+        check(f'{label}: the stale save is refused — got {r2.status_code}',
+              r2.status_code == 409 and d2.get('conflict') is True)
+        check(f'{label}: it hands back the current text',
+              'rowan wrote this' in (d2.get('current_content') or ''))
+
+        forced = dict(second, base_version=1, force=True)
+        check(f'{label}: an explicit overwrite still works',
+              a.post(url, json=forced).status_code == 200)
+
+    print('\n[9] presence works for every editor type')
+    for rtype in ('guide', 'quiz', 'page', 'post', 'newsletter', 'resource'):
+        rr = a.post('/admin/presence/ping',
+                    json={'resource_type': rtype, 'resource_id': 1})
+        check(f'{rtype} is an accepted presence type', rr.status_code == 200)
+
+    print('\n[10] older editors keep working')
     # A page loaded before this shipped sends no base_version and must not be
     # locked out of saving.
     r_old = a.post(f'/admin/guides/{guide_id}/nodes/save', json={

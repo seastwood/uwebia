@@ -3593,6 +3593,10 @@ class PostCollection(db.Model):
 
 class Post(db.Model):
     __tablename__ = 'post'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id              = db.Column(db.Integer, primary_key=True)
     collection_id   = db.Column(db.Integer, db.ForeignKey('post_collection.id', ondelete='CASCADE'), nullable=False, index=True)
     website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -3861,6 +3865,10 @@ class Quiz(db.Model):
 
 class QuizQuestion(db.Model):
     __tablename__ = 'quiz_question'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id            = db.Column(db.Integer, primary_key=True)
     quiz_id       = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
                               nullable=False, index=True)
@@ -3892,6 +3900,8 @@ class QuizQuestion(db.Model):
             'config': self._config(),
             'points': self.points,
             'sort_order': self.sort_order,
+            # Echoed back on save so a write built on a stale copy is caught.
+            'version': self.version or 1,
         }
 
     def to_public_dict(self):
@@ -4233,6 +4243,10 @@ class NewsletterSubscriber(db.Model):
 
 class NewsletterCampaign(db.Model):
     __tablename__ = 'newsletter_campaign'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id = db.Column(db.Integer, primary_key=True)
     newsletter_id = db.Column(db.Integer, db.ForeignKey('newsletter.id', ondelete='CASCADE'), nullable=False, index=True)
     subject = db.Column(db.String(300), nullable=False)
@@ -38219,6 +38233,9 @@ def admin_post_save(cid):
     pid = data.get('id')
     if pid:
         post = Post.query.filter_by(id=int(pid), collection_id=cid).first_or_404()
+        conflict = _conflict_response(post, data, label='article', content_attr='content')
+        if conflict:
+            return conflict
         # Slug: use provided or keep existing
         raw_slug = (data.get('slug') or '').strip()
         if raw_slug:
@@ -38231,7 +38248,7 @@ def admin_post_save(cid):
         post.comments_enabled = comments_enabled
         post.comments_require_login = comments_require_login
         post.comments_moderation    = comments_moderation
-        post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        _bump_version(post)
         # Apply the publish-date override last so it survives any of the
         # field assignments above. A set value backdates (or future-dates) a
         # draft as well — clearing reverts to "publish action will set it".
@@ -38264,6 +38281,9 @@ def admin_post_save(cid):
         'id': post.id,
         'slug': post.slug,
         'status': post.status,
+        # The editor keeps this and sends it back, so the next save can be
+        # checked against what is actually stored.
+        'version': post.version or 1,
     }})
 
 
@@ -38520,7 +38540,62 @@ def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
 # two dropped beats before someone is shown as gone — long enough to survive a
 # slow request, short enough that a closed laptop clears within a few seconds.
 PRESENCE_STALE_SECONDS = 16
-PRESENCE_TYPES = ('guide', 'quiz', 'page')
+PRESENCE_TYPES = ('guide', 'quiz', 'page', 'post', 'newsletter', 'resource')
+
+
+def _conflict_response(obj, data, label='item', content_attr=None, title_attr='title'):
+    """Refuse a save built on a copy somebody has already replaced.
+
+    These editors post the whole document in one request, so without a check
+    the later save simply lands on top and the earlier one is gone with nothing
+    on screen to say so. The client sends back the version it loaded; if the
+    stored one has moved, hand back who moved it and what it now says, and let
+    a person decide.
+
+    Returns a 409 response to return, or None when the save may proceed.
+    `base_version` is optional so a page loaded before this shipped keeps
+    working, and `force` is the deliberate "yes, overwrite them" path.
+    """
+    base = data.get('base_version')
+    if base in ('', None) or data.get('force'):
+        return None
+    try:
+        base = int(base)
+    except (TypeError, ValueError):
+        return None
+    current = getattr(obj, 'version', None) or 1
+    if base == current:
+        return None
+
+    other = None
+    if getattr(obj, 'updated_by_id', None):
+        other = db.session.get(User, obj.updated_by_id)
+    updated_at = getattr(obj, 'updated_at', None)
+    payload = {
+        'success': False,
+        'conflict': True,
+        'error': (f'{other.username if other else "Someone else"} saved this {label} '
+                  f'while you were editing it. Your copy is out of date.'),
+        'saved_by': (other.username if other else None),
+        'saved_at': (updated_at.isoformat() if updated_at else None),
+        'current_version': current,
+        'current_title': getattr(obj, title_attr, None) if title_attr else None,
+    }
+    if content_attr:
+        payload['current_content'] = getattr(obj, content_attr, None) or ''
+    return _utf8_json(payload, 409)
+
+
+def _bump_version(obj):
+    """Record a save: new version, when, and by whom."""
+    obj.version = (getattr(obj, 'version', None) or 1) + 1
+    if hasattr(obj, 'updated_at'):
+        obj.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        if hasattr(obj, 'updated_by_id') and current_user.is_authenticated:
+            obj.updated_by_id = current_user.id
+    except Exception:
+        pass
 
 
 def _presence_prune():
@@ -43265,10 +43340,15 @@ def admin_quiz_question_save(qid):
     qq_id = data.get('id')
     if qq_id:
         qq = QuizQuestion.query.filter_by(id=int(qq_id), quiz_id=qid).first_or_404()
+        conflict = _conflict_response(qq, data, label='question', content_attr='prompt',
+                                      title_attr='prompt')
+        if conflict:
+            return conflict
         qq.question_type = qtype
         qq.prompt = prompt
         qq.config = cfg
         qq.points = points
+        _bump_version(qq)
     else:
         max_sort = db.session.query(db.func.max(QuizQuestion.sort_order)).filter_by(quiz_id=qid).scalar()
         qq = QuizQuestion(quiz_id=qid, question_type=qtype, prompt=prompt, config=cfg,
@@ -50053,12 +50133,16 @@ def admin_newsletter_campaign_save(nid):
             return _utf8_json({'success': False, 'error': 'Campaign not found'}, 404)
         if campaign.status == 'sent':
             return _utf8_json({'success': False, 'error': 'Cannot edit a sent campaign'}, 400)
+        conflict = _conflict_response(campaign, data, label='campaign',
+                                      content_attr='html_body', title_attr='subject')
+        if conflict:
+            return conflict
         subject_changed = (campaign.subject != subject)
         campaign.subject = subject
         campaign.html_body = html
         campaign.plain_body = _html_to_plain(html)
         campaign.email_server_id = int(server_id) if server_id else None
-        campaign.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        _bump_version(campaign)
         if sent_at_override is not None:
             campaign.sent_at = sent_at_override
         elif clear_sent_at:
@@ -50082,6 +50166,7 @@ def admin_newsletter_campaign_save(nid):
     return _utf8_json({'success': True, 'campaign': {
         'id': campaign.id, 'status': campaign.status,
         'subject': campaign.subject, 'slug': campaign.slug,
+        'version': campaign.version or 1,
     }})
 
 
