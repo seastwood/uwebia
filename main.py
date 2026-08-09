@@ -14677,7 +14677,9 @@ def get_sections(page_content_id):
 
     # Convert each PageSection object to a dictionary
     sections_data = [section.to_dict() for section in sections]
-    print("get sections data: ", sections_data)
+    # Same leak as update_section had: this printed every section's full
+    # content on every call. The count is the useful part.
+    app.logger.debug('get_sections page=%s count=%d', page_content_id, len(sections_data))
 
     # Return the sections data as JSON
     return jsonify(sections_data)  # Directly return the list of sections
@@ -22997,9 +22999,11 @@ def update_section():
     section_id = request.form.get('section_id')
     section_type = request.form.get('section_type')
 
-    # Debug logging to see what data is being received
-    print(f"Received section_id: {section_id}, section_type: {section_type}")
-    print(f"Form data: {request.form}")
+    # Was two print()s, one of which dumped the whole form on every save: the
+    # section's text, its custom code, contact-form settings — straight to
+    # stdout and into the gunicorn logs, for every keystroke-triggered autosave.
+    # The identifiers are the part worth having; the payload never was.
+    app.logger.debug('update_section id=%s type=%s', section_id, section_type)
 
     section = db.session.get(PageSection, section_id)
     if section is None:
