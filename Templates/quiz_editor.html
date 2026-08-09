@@ -15,6 +15,17 @@
 @media (max-width: 820px) { .qe-page { grid-template-columns: 1fr; } }
 
 .qe-subnav { grid-column: 1 / -1; display: flex; align-items: center; gap: 14px; margin-bottom: 4px; flex-wrap: wrap; }
+/* Spans both columns like the subnav. Without this it takes the 300px left
+   column as a grid item of its own and shunts the question list into the wide
+   column and the editor onto the next row — which is exactly what it did. */
+#qePresence { grid-column: 1 / -1; }
+/* Who is on which question, on the row itself — the list is where you pick
+   what to open, so it is where knowing matters. */
+.qe-peers { display: flex; align-items: center; gap: 3px; margin-left: auto; flex: none; }
+.qe-peer-dot { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.56rem; font-weight: 850; color: #10101a; border: 1.5px solid rgba(18,18,26,0.85); }
+.qe-peer-dot.is-editing { animation: qePeerPulse 1.8s ease-out infinite; }
+@keyframes qePeerPulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.5); } 70% { box-shadow: 0 0 0 5px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
+@media (prefers-reduced-motion: reduce) { .qe-peer-dot.is-editing { animation: none; } }
 .qe-back { display: inline-flex; align-items: center; gap: 7px; color: rgba(255,255,255,0.5); font-size: 0.85rem; text-decoration: none; }
 .qe-back:hover { color: rgba(255,255,255,0.85); }
 .qe-title { font-size: 1.25rem; font-weight: 800; color: #fff; margin: 0; }
@@ -401,6 +412,47 @@ function renderList() {
     document.getElementById('qEmpty').style.display = QUESTIONS.length ? 'none' : 'block';
     if (_sortable) _sortable.destroy();
     _sortable = Sortable.create(ul, { handle: '.qe-handle', animation: 150, onEnd: persistOrder });
+    // renderList() rebuilds every row, so the chips have to go back on.
+    paintQuestionPeers(_lastPeers);
+}
+
+// Everyone in this quiz, drawn at the right end of the question they are on.
+// Kept so a list re-render can restore them without waiting for the next beat.
+let _lastPeers = [];
+function paintQuestionPeers(peers) {
+    _lastPeers = peers || [];
+    document.querySelectorAll('.qe-peers').forEach(el => el.remove());
+    const byQuestion = {};
+    _lastPeers.forEach(p => {
+        if (!p.context_id) return;
+        (byQuestion[p.context_id] = byQuestion[p.context_id] || []).push(p);
+    });
+    Object.keys(byQuestion).forEach(qid => {
+        const row = document.querySelector(`.qe-qitem[data-id="${qid}"]`);
+        if (!row) return;
+        const wrap = document.createElement('span');
+        wrap.className = 'qe-peers';
+        // A crowded row would squeeze the prompt out; past three, count the rest.
+        byQuestion[qid].slice(0, 3).forEach(p => {
+            const dot = document.createElement('span');
+            dot.className = 'qe-peer-dot' + (p.is_editing ? ' is-editing' : '');
+            dot.style.background = UwebiaPresence.colorFor(p.user_id);
+            dot.textContent = p.initials;
+            dot.title = p.name + (p.is_editing ? ' — editing' : ' — viewing');
+            wrap.appendChild(dot);
+        });
+        const extra = byQuestion[qid].length - 3;
+        if (extra > 0) {
+            const more = document.createElement('span');
+            more.className = 'qe-peer-dot';
+            more.style.background = 'rgba(255,255,255,0.28)';
+            more.style.color = '#fff';
+            more.textContent = '+' + extra;
+            more.title = byQuestion[qid].slice(3).map(p => p.name).join(', ');
+            wrap.appendChild(more);
+        }
+        row.appendChild(wrap);
+    });
 }
 
 function qItemEl(q) {
@@ -1099,6 +1151,7 @@ window.addEventListener('DOMContentLoaded', function () {
             var n = QUESTIONS.findIndex(function (x) { return x.id === _editing.id; });
             return { id: _editing.id, label: 'Question ' + (n >= 0 ? n + 1 : '?') };
         },
+        onPeers: paintQuestionPeers,
     });
 });
 </script>
