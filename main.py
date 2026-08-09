@@ -31433,11 +31433,20 @@ def public_account_settings(prefix=None):
     if (prefix or None) != (website.url_prefix or None):
         return redirect(url_for('public_account_settings', prefix=website.url_prefix))
     setup_pending = session.get('pub_2fa_user_id') == public_user.id and session.get('pub_2fa_purpose') == 'setup'
+    # A staff profile mirrors an admin account, and closing it closes that
+    # account too — which is allowed, and is how an admin leaves the
+    # organisation without having to ask somebody else to remove them. The one
+    # account that cannot go this way is the primary owner's: deleting the root
+    # of the admin panel is an ownership transfer, not an account closure.
+    _mirrored_admin = (db.session.get(User, public_user.mirrored_admin_user_id)
+                       if public_user.is_admin_mirror else None)
     return render_template(
         'public_account_settings.html',
         website=website,
         public_user=public_user,
         setup_pending=setup_pending,
+        mirror_is_primary_owner=bool(_mirrored_admin is not None
+                                     and _mirrored_admin.parent_user_id is None),
         # Already on but no longer offerable (the site turned 2FA off, or the
         # address went away) still shows the card — otherwise the only switch
         # that turns it back off would be out of reach.
@@ -31608,15 +31617,13 @@ def public_account_delete(prefix=None):
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
-    # A staff mirror is a projection of an admin account, not an account in its
-    # own right — deleting the row here removes nothing (the next sign-in
-    # recreates it) while looking like it worked. Say so instead of pretending.
     # A staff mirror is a projection of an admin account: deleting this row on
     # its own removes nothing, because the next sign-in recreates it. That used
     # to be the end of the matter — "ask an owner" — which left an admin unable
-    # to close their own account from the page that offers to close accounts.
+    # to leave the organisation from the page that offers to close accounts.
     # Now it closes the account the mirror belongs to, which takes the mirror
-    # with it.
+    # with it. Only the primary owner is refused, because removing the root of
+    # the admin panel is an ownership transfer, not an account closure.
     if public_user.is_admin_mirror:
         admin = db.session.get(User, public_user.mirrored_admin_user_id)
         if admin is None:

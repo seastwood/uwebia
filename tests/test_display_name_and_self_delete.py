@@ -155,6 +155,9 @@ def main_test():
           after.status_code in (301, 302, 401, 403, 404))
 
     print('\n[5] and from the public account settings page too')
+    # The route allowed it but the page still said "ask an owner" and rendered
+    # no button, so the only way to reach the route was to call it by hand.
+
     with app.app_context():
         helper2 = main.User(username='helper2', parent_user_id=owner_id)
         helper2.set_password('x')
@@ -177,6 +180,15 @@ def main_test():
     with pc.session_transaction() as s:
         s['public_user_id'] = mirror_id
         s['public_user_website_id'] = site_id
+
+    page = pc.get('/account/settings').get_data(as_text=True)
+    check('the page no longer tells them to ask an owner',
+          'Ask an owner to remove your staff account' not in page)
+    check('it offers the Delete button',
+          'btn-danger" onclick="openDeleteModal()' in page)
+    check('and warns that the admin account goes with it',
+          'also closes your admin account' in page)
+
     r = pc.post('/account/delete')
     d = r.get_json() or {}
     check(f'a staff mirror can close its admin account — got {r.status_code}',
@@ -198,7 +210,29 @@ def main_test():
         check("the owner's own message is untouched",
               msgs.get('from the owner') == owner_id)
 
-    print('\n[7] the primary owner still cannot delete themselves')
+    print('\n[7] but the primary owner is still refused, on that page too')
+    with app.app_context():
+        owner_mirror = main.PublicUser(website_id=site_id, username='owner',
+                                       mirrored_admin_user_id=owner_id)
+        db.session.add(owner_mirror)
+        db.session.commit()
+        owner_mirror_id = owner_mirror.id
+    oc = app.test_client()
+    with oc.session_transaction() as s:
+        s['public_user_id'] = owner_mirror_id
+        s['public_user_website_id'] = site_id
+    page = oc.get('/account/settings').get_data(as_text=True)
+    check('the owner gets no Delete button',
+          'btn-danger" onclick="openDeleteModal()' not in page)
+    check('and is told to transfer ownership first',
+          'Transfer ownership' in page)
+    ro = oc.post('/account/delete')
+    check(f'calling it directly is refused too — got {ro.status_code}',
+          ro.status_code == 403)
+    with app.app_context():
+        check('the owner survives', db.session.get(main.User, owner_id) is not None)
+
+    print('\n[8] the primary owner still cannot delete themselves')
     o = app.test_client()
     with o.session_transaction() as s:
         s['_user_id'] = str(owner_id)
