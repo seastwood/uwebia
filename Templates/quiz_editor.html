@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
@@ -521,6 +522,10 @@ function showForm() {
     // handler (see ensureQuill) now that the prompt lives in Quill.
     renderBody();
     _dirty = false;   // form now mirrors the saved/loaded question
+    // The prompt editor is reused as you move between questions, so the shared
+    // document has to follow the selection. After the prompt is loaded, so the
+    // seed is this question's text and not the previous one's.
+    syncQuestionCoedit();
 }
 
 function renderBody() {
@@ -1065,6 +1070,24 @@ async function deleteQuestion() {
 
 <script>
 // Presence: who else has this quiz open, and which question they are on.
+// Co-edit the prompt of whichever question is open. Only the prompt: a
+// question's options and settings are structured fields, not rich text, and
+// merging those is a different problem — they still go through the version
+// check on save.
+function syncQuestionCoedit() {
+    if (!window.UwebiaCoedit) return;
+    UwebiaCoedit.detach();
+    if (!_editing || !_editing.id || !_quill) return;
+    UwebiaCoedit.attach({
+        quill: _quill,
+        docKey: 'quiz_question:' + _editing.id,
+        seed: _editing.prompt || '',
+        name: {{ (current_user.username or 'Someone') | tojson }},
+        color: UwebiaPresence.colorFor({{ current_user.id }}),
+        onVersion: function (v) { _editing.version = v; },
+    });
+}
+
 window.addEventListener('DOMContentLoaded', function () {
     UwebiaPresence.start({
         type: 'quiz',

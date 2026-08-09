@@ -1,6 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
@@ -1183,6 +1184,19 @@ window.addEventListener('DOMContentLoaded', function () {
     if (pres && _quill) {
         _quill.on('text-change', function (_d, _o, source) {
             if (source === 'user') pres.typing();
+        });
+    }
+
+    // Live co-editing of the article body. Autosave keeps working: it just
+    // saves whatever the merged document currently says.
+    if (window.UwebiaCoedit && _quill) {
+        UwebiaCoedit.attach({
+            quill: _quill,
+            docKey: 'post:' + _postId,
+            seed: _quill.root.innerHTML,
+            name: {{ (current_user.username or 'Someone') | tojson }},
+            color: UwebiaPresence.colorFor({{ current_user.id }}),
+            onVersion: function (v) { _baseVersion = v; _conflictPending = false; },
         });
     }
 });

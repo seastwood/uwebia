@@ -447,7 +447,84 @@ def main_test():
     rescued = b.post('/admin/collab/sync', json={'doc_key': fresh_key, 'since': 0}).get_json() or {}
     check('the grant expires so someone else can seed', rescued.get('may_seed') is True)
 
-    print('\n[18] older editors keep working')
+    print('\n[18] every editor type can open a shared document')
+    with app.app_context():
+        site = db.session.get(main.Website, site_id)
+        qz = main.Quiz(website_id=site.id, title='Q2')
+        coll2 = main.PostCollection(website_id=site.id, user_id=owner_id,
+                                    name='Blog2', slug='blog2')
+        nl2 = main.Newsletter(website_id=site.id, user_id=owner_id,
+                              name='N2', slug='n2')
+        pg2 = main.PublicPageContent(website_id=site.id, name='P2', slug='p2')
+        db.session.add_all([qz, coll2, nl2, pg2])
+        db.session.commit()
+        qq = main.QuizQuestion(quiz_id=qz.id, question_type='true_false',
+                               prompt='<p>p</p>',
+                               config={'options': [
+                                   {'id': 1, 'text': 'True', 'correct': True},
+                                   {'id': 2, 'text': 'False', 'correct': False}]},
+                               points=1)
+        art = main.Post(collection_id=coll2.id, website_id=site.id,
+                        title='A2', slug='a2', content='<p>a</p>')
+        camp = main.NewsletterCampaign(newsletter_id=nl2.id, subject='S2',
+                                       html_body='<p>c</p>')
+        sect = main.PageSection(page_content_id=pg2.id, section_type='text',
+                                content={'text': 't'}, order=1)
+        db.session.add_all([qq, art, camp, sect])
+        db.session.commit()
+        keys = {
+            'quiz_question': f'quiz_question:{qq.id}',
+            'post': f'post:{art.id}',
+            'newsletter_campaign': f'newsletter_campaign:{camp.id}',
+            'page_section': f'page_section:{sect.id}',
+        }
+        sent_camp = main.NewsletterCampaign(newsletter_id=nl2.id, subject='Gone',
+                                            html_body='<p>x</p>', status='sent')
+        db.session.add(sent_camp)
+        db.session.commit()
+        sent_key = f'newsletter_campaign:{sent_camp.id}'
+
+    for label, key in keys.items():
+        rr = a.post('/admin/collab/sync', json={'doc_key': key, 'since': 0})
+        dd = rr.get_json() or {}
+        check(f'{label}: opens — got {rr.status_code}',
+              rr.status_code == 200 and dd.get('success') is True)
+
+    check('a sent campaign is frozen, not co-editable',
+          a.post('/admin/collab/sync', json={'doc_key': sent_key, 'since': 0}).status_code == 403)
+
+    print('\n[19] many documents in one request')
+    batch = a.post('/admin/collab/sync', json={'docs': [
+        {'doc_key': keys['post'], 'since': 0,
+         'update': _b64.b64encode(b'post-edit').decode()},
+        {'doc_key': keys['page_section'], 'since': 0,
+         'update': _b64.b64encode(b'section-edit').decode()},
+        {'doc_key': 'page_section:999999', 'since': 0},
+    ]})
+    bd = batch.get_json() or {}
+    check(f'the batch is accepted — got {batch.status_code}', batch.status_code == 200)
+    got = {r['doc_key']: r for r in (bd.get('docs') or [])}
+    check('every document gets its own result', len(got) == 3)
+    check('the good ones succeed',
+          got.get(keys['post'], {}).get('success') is True
+          and got.get(keys['page_section'], {}).get('success') is True)
+    # One bad id in a page full of sections must not stop the rest syncing.
+    check('a forbidden document fails alone, not the batch',
+          got.get('page_section:999999', {}).get('success') is False)
+
+    pulled = a.post('/admin/collab/sync', json={'docs': [
+        {'doc_key': keys['post'], 'since': 0}]}).get_json() or {}
+    first = (pulled.get('docs') or [{}])[0]
+    check('what was pushed in a batch can be pulled back',
+          _b64.b64encode(b'post-edit').decode() in (first.get('updates') or []))
+
+    check('a batch that is not a list is refused',
+          a.post('/admin/collab/sync', json={'docs': 'nope'}).status_code == 400)
+    check('an absurd batch size is refused',
+          a.post('/admin/collab/sync',
+                 json={'docs': [{'doc_key': keys['post'], 'since': 0}] * 41}).status_code == 400)
+
+    print('\n[20] older editors keep working')
     # A page loaded before this shipped sends no base_version and must not be
     # locked out of saving.
     r_old = a.post(f'/admin/guides/{guide_id}/nodes/save', json={

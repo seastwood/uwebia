@@ -78,17 +78,35 @@ const b64 = {
     dec: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
 };
 
-let session = null;
+// One session per document. The page builder opens a shared document per
+// rich-text section, so this can no longer be a singleton — and they all beat
+// together in ONE request, or a ten-section page would be ten requests a
+// second from every open editor.
+const sessions = new Map();
+let sharedTimer = null;
 
-function teardown() {
-    if (!session) return;
-    clearInterval(session.timer);
-    try { session.binding.destroy(); } catch (e) { /* already gone */ }
+function closeSession(s) {
+    if (!s) return;
+    try { if (s.binding) s.binding.destroy(); } catch (e) { /* already gone */ }
     // Awareness runs its own interval to expire quiet peers. Without this,
     // clicking through ten lessons leaves ten of them running.
-    try { session.awareness.destroy(); } catch (e) { /* already gone */ }
-    try { session.doc.destroy(); } catch (e) { /* already gone */ }
-    session = null;
+    try { s.awareness.destroy(); } catch (e) { /* already gone */ }
+    try { s.doc.destroy(); } catch (e) { /* already gone */ }
+    sessions.delete(s.docKey);
+}
+
+// detach()          — leave every document
+// detach('post:12') — leave one, keep the rest running
+function teardown(docKey) {
+    if (docKey === undefined) {
+        Array.from(sessions.values()).forEach(closeSession);
+    } else {
+        closeSession(sessions.get(docKey));
+    }
+    if (!sessions.size && sharedTimer) {
+        clearInterval(sharedTimer);
+        sharedTimer = null;
+    }
 }
 
 async function sync(body) {
@@ -102,8 +120,8 @@ async function sync(body) {
 }
 
 function attach(opts) {
-    teardown();
     if (!opts.quill || !opts.docKey) return null;
+    teardown(opts.docKey);              // re-attaching the same doc restarts it
 
     const doc = new Y.Doc();
     const text = doc.getText('body');
@@ -115,10 +133,10 @@ function attach(opts) {
 
     const s = {
         doc, text, awareness, docKey: opts.docKey,
-        since: 0, started: false, pending: [], sending: false,
-        timer: null, binding: null, opts,
+        since: 0, started: false, pending: [], awarenessDirty: false,
+        binding: null, opts,
     };
-    session = s;
+    sessions.set(opts.docKey, s);
 
     // Queue local changes; the poll ships them. Batching a second of typing
     // into one request is the whole reason this is affordable over HTTP.
@@ -134,13 +152,9 @@ function attach(opts) {
     // the DOM directly. It is created in `begin()` once the shared state is
     // actually known.
 
-    awareness.on('update', ({ added, updated, removed }) => {
-        s.awarenessDirty = true;
-    });
+    awareness.on('update', () => { s.awarenessDirty = true; });
 
-    // Runs once, after the first response: settle what the document contains,
-    // THEN hand Quill over to it.
-    function begin(d) {
+    s.begin = function (d) {
         s.started = true;
         if (text.length === 0 && d.may_seed && opts.seed) {
             // Converted through Quill rather than pasted into the DOM, so the
@@ -153,92 +167,126 @@ function attach(opts) {
         // it wasn't there.
         ensureCursors(opts.quill);
         s.binding = new QuillBinding(text, opts.quill, awareness);
+    };
+
+    startTimer();
+    beatAll();
+    return {
+        docKey: opts.docKey,
+        detach: () => teardown(opts.docKey),
+        typing: () => { s.awarenessDirty = true; },
+    };
+}
+
+// What this session wants to say this tick.
+function requestFor(s) {
+    const body = { doc_key: s.docKey, since: s.since };
+    if (s.pending.length) {
+        body.update = b64.enc(Y.mergeUpdates(s.pending));
+        s.pending = [];
     }
-
-    async function beat() {
-        if (s !== session || s.sending) return;
-        s.sending = true;
-        try {
-            const merged = s.pending.length
-                ? Y.mergeUpdates(s.pending) : null;
-            s.pending = [];
-
-            const body = { doc_key: s.docKey, since: s.since };
-            if (merged) body.update = b64.enc(merged);
-            if (s.awarenessDirty) {
-                s.awarenessDirty = false;
-                body.awareness = b64.enc(
-                    encodeAwarenessUpdate(awareness, [doc.clientID]));
-            }
-
-            const d = await sync(body);
-            if (!d || s !== session) return;
-
-            if (d.updates && d.updates.length) {
-                // 'remote' origin keeps these out of the outbound queue.
-                Y.transact(doc, () => {
-                    d.updates.forEach((u) => Y.applyUpdate(doc, b64.dec(u), 'remote'));
-                }, 'remote');
-            }
-            s.since = d.since || s.since;
-
-            (d.awareness || []).forEach((a) => {
-                try { applyAwarenessUpdate(awareness, b64.dec(a), 'remote'); }
-                catch (e) { /* a peer sent something we can't read; ignore it */ }
-            });
-
-            // The shared state is now known, so it is safe to bind Quill to it
-            // — and to seed, if the server said this client is the one to do it.
-            if (!s.started) begin(d);
-
-            if (typeof opts.onVersion === 'function' && d.record_version) {
-                opts.onVersion(d.record_version);
-            }
-
-            // Fold the log down to one snapshot when it gets long.
-            if (d.compact) {
-                sync({
-                    doc_key: s.docKey,
-                    since: s.since,
-                    snapshot: b64.enc(Y.encodeStateAsUpdate(doc)),
-                    upto: s.since,
-                });
-            }
-
-            if (typeof opts.onStatus === 'function') {
-                opts.onStatus('live', awareness.getStates().size - 1);
-            }
-        } catch (e) {
-            // Say what actually went wrong. This loop reporting a bare
-            // "offline" is why a RangeError from base64-encoding a snapshot
-            // looked like a network problem on iOS for as long as it did.
-            console.warn('[coedit] sync failed:', e && (e.stack || e.message || e));
-            if (typeof opts.onStatus === 'function') opts.onStatus('offline', 0);
-        } finally {
-            s.sending = false;
-        }
+    if (s.awarenessDirty) {
+        s.awarenessDirty = false;
+        body.awareness = b64.enc(
+            encodeAwarenessUpdate(s.awareness, [s.doc.clientID]));
     }
+    return body;
+}
 
-    beat();
-    s.timer = setInterval(beat, POLL_MS);
+function applyTo(s, d) {
+    if (!d || !d.success) return;
+    if (d.updates && d.updates.length) {
+        // 'remote' origin keeps these out of the outbound queue.
+        Y.transact(s.doc, () => {
+            d.updates.forEach((u) => Y.applyUpdate(s.doc, b64.dec(u), 'remote'));
+        }, 'remote');
+    }
+    s.since = d.since || s.since;
 
-    window.addEventListener('pagehide', () => {
-        try {
-            awareness.setLocalState(null);
-            fetch('/admin/collab/sync', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    doc_key: s.docKey, since: s.since,
-                    awareness: b64.enc(encodeAwarenessUpdate(awareness, [doc.clientID])),
-                }),
-                keepalive: true,
-            });
-        } catch (e) { /* the row ages out on its own */ }
+    (d.awareness || []).forEach((a) => {
+        try { applyAwarenessUpdate(s.awareness, b64.dec(a), 'remote'); }
+        catch (e) { /* a peer sent something we can't read; ignore it */ }
     });
 
-    return s;
+    // The shared state is now known, so it is safe to bind Quill to it — and
+    // to seed, if the server said this client is the one to do it.
+    if (!s.started) s.begin(d);
+
+    if (typeof s.opts.onVersion === 'function' && d.record_version) {
+        s.opts.onVersion(d.record_version);
+    }
+    if (d.compact) {
+        // Fold the log down to one snapshot when it gets long.
+        sync({ doc_key: s.docKey, since: s.since,
+               snapshot: b64.enc(Y.encodeStateAsUpdate(s.doc)), upto: s.since });
+    }
+    if (typeof s.opts.onStatus === 'function') {
+        s.opts.onStatus('live', s.awareness.getStates().size - 1);
+    }
 }
+
+let beating = false;
+async function beatAll() {
+    if (beating || !sessions.size) return;
+    beating = true;
+    const live = Array.from(sessions.values());
+    try {
+        const docs = live.map(requestFor);
+        const d = await sync(docs.length === 1 ? docs[0] : { docs });
+        if (!d) throw new Error('sync returned no body');
+
+        const byKey = {};
+        (d.docs || [d]).forEach((r) => { if (r && r.doc_key) byKey[r.doc_key] = r; });
+        live.forEach((s) => {
+            // A session torn down mid-request must not be revived by its own
+            // reply landing afterwards.
+            if (sessions.get(s.docKey) === s) applyTo(s, byKey[s.docKey]);
+        });
+    } catch (e) {
+        // Say what actually went wrong. This loop reporting a bare "offline"
+        // is why a RangeError from base64-encoding a snapshot looked like a
+        // network problem on iOS for as long as it did.
+        console.warn('[coedit] sync failed:', e && (e.stack || e.message || e));
+        live.forEach((s) => {
+            if (typeof s.opts.onStatus === 'function') s.opts.onStatus('offline', 0);
+        });
+    } finally {
+        beating = false;
+    }
+}
+
+function startTimer() {
+    if (sharedTimer) return;
+    sharedTimer = setInterval(beatAll, POLL_MS);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) beatAll();
+    });
+}
+
+// Best effort. The server ages rows out anyway, because a crashed browser
+// never gets to say goodbye.
+//
+// fetch(keepalive), NOT sendBeacon: beacons bypass the patched window.fetch in
+// components/csrf.html, so they arrive with no X-CSRFToken and CSRFProtect
+// rejects them.
+window.addEventListener('pagehide', () => {
+    if (!sessions.size) return;
+    try {
+        const docs = Array.from(sessions.values()).map((s) => {
+            s.awareness.setLocalState(null);
+            return {
+                doc_key: s.docKey, since: s.since,
+                awareness: b64.enc(encodeAwarenessUpdate(s.awareness, [s.doc.clientID])),
+            };
+        });
+        fetch('/admin/collab/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docs }),
+            keepalive: true,
+        });
+    } catch (e) { /* the rows age out on their own */ }
+});
 
 window.UwebiaCoedit = { attach, detach: teardown };
 window.dispatchEvent(new Event('uwebia-coedit-ready'));

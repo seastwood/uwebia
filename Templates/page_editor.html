@@ -44,6 +44,7 @@
 {% extends 'base.html' %}
 {% block content %}
 {% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 {% include 'components/photo_library_modal.html' %}
@@ -8884,6 +8885,10 @@ document.getElementById("refreshButton").addEventListener("click", function () {
 
         function reloadSections(sections, rows, columns, website, groups = []) {
             setCurrentGroups(groups);
+            // Rebuilding the section list throws away every Quill it had,
+            // so the shared documents bound to them must be released or their
+            // pollers keep running against dead editors.
+            if (window.UwebiaCoedit) UwebiaCoedit.detach();
             quillEditors = [];
 
             // Destroy all existing CodeMirror instances so stale references don't
@@ -10721,6 +10726,30 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 quill: quill,
                                 textarea: hiddenTextarea
                             });
+
+                            // One shared document per rich-text section. They
+                            // all beat together in a single request, so a page
+                            // with a dozen text blocks is still one poll a
+                            // second, not a dozen.
+                            if (window.UwebiaCoedit) {
+                                UwebiaCoedit.attach({
+                                    quill: quill,
+                                    docKey: 'page_section:' + section.id,
+                                    seed: quill.root.innerHTML,
+                                    name: {{ (current_user.username or 'Someone') | tojson }},
+                                    color: UwebiaPresence.colorFor({{ current_user.id }}),
+                                    // Keep the card's version in step, so the
+                                    // section save is never refused over an
+                                    // edit this browser already has.
+                                    onVersion: function (v) { _setSectionVersion(section.id, v); },
+                                });
+                                // The hidden textarea is what /update_section
+                                // posts, so a merged remote edit has to reach
+                                // it too — not just the visible editor.
+                                quill.on('text-change', function () {
+                                    hiddenTextarea.value = quill.root.innerHTML;
+                                });
+                            }
 
                             quill.on('text-change', function () {
                                 syncEditor();

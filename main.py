@@ -38848,36 +38848,76 @@ def _collab_resolve(doc_key):
     except (ValueError, AttributeError):
         return None
 
+    website = get_admin_website()
+    if not website or not is_owner(website):
+        return None
+
+    def gated(perm):
+        return not (current_user.is_sub_admin
+                    and not current_user.has_permission(perm))
+
     if kind == 'guide_node':
         node = db.session.get(GuideNode, rid)
         if node is None:
             return None
         guide = db.session.get(Guide, node.guide_id)
-        website = get_admin_website()
-        if not guide or not website or not is_owner(website):
+        if not guide or guide.website_id != website.id or not can_access_guide(guide):
             return None
-        if guide.website_id != website.id or not can_access_guide(guide):
-            return None
-        if current_user.is_sub_admin and not current_user.has_permission('guides.edit'):
+        if not gated('guides.edit'):
             return None
         return node, (node.version or 1)
+
+    if kind == 'post':
+        post = db.session.get(Post, rid)
+        if post is None or post.website_id != website.id or not gated('posts.edit'):
+            return None
+        return post, (post.version or 1)
+
+    if kind == 'newsletter_campaign':
+        camp = db.session.get(NewsletterCampaign, rid)
+        if camp is None or not gated('newsletters.manage'):
+            return None
+        news = db.session.get(Newsletter, camp.newsletter_id)
+        if not news or news.website_id != website.id:
+            return None
+        # A sent campaign is frozen; co-editing one would imply otherwise.
+        if camp.status == 'sent':
+            return None
+        return camp, (camp.version or 1)
+
+    if kind == 'quiz_question':
+        qq = db.session.get(QuizQuestion, rid)
+        if qq is None or not gated('quizzes.edit'):
+            return None
+        quiz = db.session.get(Quiz, qq.quiz_id)
+        if not quiz or quiz.website_id != website.id or not can_access_quiz(quiz):
+            return None
+        return qq, (qq.version or 1)
+
+    if kind == 'page_section':
+        section = db.session.get(PageSection, rid)
+        if section is None or not gated('sections.edit'):
+            return None
+        page = db.session.get(PublicPageContent, section.page_content_id)
+        if not page or page.website_id != website.id:
+            return None
+        return section, (section.version or 0)
 
     return None
 
 
-@app.route('/admin/collab/sync', methods=['POST'])
-@login_required
-def admin_collab_sync():
-    """One round trip: hand up what I changed, take back what I haven't seen.
+def _collab_sync_one(data):
+    """Sync exactly one document. Returns a plain dict, never a response.
 
-    Push and pull are the same request because at a ~1s cadence two would
-    double the traffic for no benefit.
+    Split out from the route so several documents can be carried in one
+    request: the page builder has a Quill per section, and a request per
+    section per second would be a self-inflicted denial of service.
     """
-    data = request.get_json(silent=True) or {}
     doc_key = (data.get('doc_key') or '')[:120]
     resolved = _collab_resolve(doc_key)
     if resolved is None:
-        return _utf8_json({'success': False, 'error': 'Unknown or forbidden document'}, 403)
+        return {'doc_key': doc_key, 'success': False,
+                'error': 'Unknown or forbidden document'}
     record, record_version = resolved
     root_id = current_user.root_user_id
     now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -38893,9 +38933,9 @@ def admin_collab_sync():
         try:
             blob = base64.b64decode(update_b64)
         except Exception:
-            return _utf8_json({'success': False, 'error': 'Malformed update'}, 400)
+            return {'doc_key': doc_key, 'success': False, 'error': 'Malformed update'}
         if len(blob) > 2 * 1024 * 1024:
-            return _utf8_json({'success': False, 'error': 'Update too large'}, 413)
+            return {'doc_key': doc_key, 'success': False, 'error': 'Update too large'}
         db.session.add(CollabUpdate(doc_key=doc_key, root_user_id=root_id,
                                     payload=blob))
 
@@ -38986,7 +39026,8 @@ def admin_collab_sync():
             db.session.rollback()
             may_seed = False
 
-    return _utf8_json({
+    return {
+        'doc_key': doc_key,
         'success': True,
         'since': (rows[-1].id if rows else since),
         'updates': [base64.b64encode(r.payload).decode('ascii') for r in rows],
@@ -38996,7 +39037,43 @@ def admin_collab_sync():
         # one who saves next is never working from a stale number.
         'record_version': record_version,
         'compact': total > COLLAB_COMPACT_THRESHOLD,
-    })
+    }
+
+
+@app.route('/admin/collab/sync', methods=['POST'])
+@login_required
+def admin_collab_sync():
+    """One round trip for every document a browser currently has open.
+
+    A request may carry a single document (the original shape, still accepted)
+    or a `docs` list. The page builder opens one shared document per rich-text
+    section, so batching is what keeps this to one request per second per
+    editor rather than one per section.
+    """
+    data = request.get_json(silent=True) or {}
+    batch = data.get('docs')
+
+    if batch is None:
+        one = _collab_sync_one(data)
+        if not one.get('success'):
+            return _utf8_json(one, 403)
+        return _utf8_json(one)
+
+    if not isinstance(batch, list):
+        return _utf8_json({'success': False, 'error': 'docs must be a list'}, 400)
+    # A browser has a bounded number of editors open; anything past this is not
+    # a real editing session.
+    if len(batch) > 40:
+        return _utf8_json({'success': False, 'error': 'Too many documents'}, 400)
+
+    results = []
+    for entry in batch:
+        if isinstance(entry, dict):
+            results.append(_collab_sync_one(entry))
+    # A forbidden document among several is reported per document rather than
+    # failing the whole batch — one stale section id must not stop the rest of
+    # the page syncing.
+    return _utf8_json({'success': True, 'docs': results})
 
 
 @app.route('/admin/presence/leave', methods=['POST'])
