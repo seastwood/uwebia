@@ -324,6 +324,16 @@
     <div class="modal">
         <h3>Delete your account?</h3>
         <p>This will permanently delete your account and all your data. This action cannot be undone.</p>
+        {% if public_user.is_admin_mirror %}
+        {# This profile mirrors an admin account, so deleting it here closes
+           that account too. Saying so up front beats finding out afterwards. #}
+        <p style="color:#ffd08a;background:rgba(255,196,84,0.1);border:1px solid rgba(255,196,84,0.32);border-radius:9px;padding:10px 12px;font-size:0.86rem;">
+            <strong>This also closes your admin account.</strong> You will be signed
+            out of the admin panel and will not be able to sign back in. Anything
+            belonging to the organisation — assets, calendars, folders — stays with
+            it and is handed to the owner.
+        </p>
+        {% endif %}
         <div class="modal-actions">
             <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
             <button class="btn btn-danger" onclick="executeDelete()">Delete Account</button>

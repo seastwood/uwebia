@@ -5646,7 +5646,8 @@ class SmsLog(db.Model):
     monthly spend honest and lets admin troubleshoot delivery failures."""
     __tablename__ = 'sms_log'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Who sent it, not whose it is — see AdminChatMessage.user_id.
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
     provider = db.Column(db.String(40), nullable=True)
     direction = db.Column(db.String(10), nullable=False, default='outbound',
                           server_default=db.text("'outbound'"))
@@ -11731,7 +11732,11 @@ def send_via(server, to_email, subject, html=None, text=None,
 class AdminChatMessage(db.Model):
     __tablename__ = 'admin_chat_message'
     id         = db.Column(db.Integer, primary_key=True)
-    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Nullable: when the admin who wrote it is deleted or demoted, the message
+    # stays in the conversation with no author rather than being handed to
+    # somebody else — re-attributing it made past messages look like the owner
+    # had written them.
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     message    = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     sender     = db.relationship('User', foreign_keys=[user_id])
@@ -11881,7 +11886,9 @@ def admin_chat_messages():
     return jsonify([{
         'id': m.id,
         'user_id': m.user_id,
-        'username': m.sender.username if m.sender else '?',
+        # An author who has since been deleted or demoted. The message stays
+        # in the conversation; it just no longer claims to be from anyone.
+        'username': m.sender.username if m.sender else 'Former admin',
         'message': m.message,
         'created_at': m.created_at.strftime('%b %-d %H:%M'),
         'mine': m.user_id == current_user.id,
@@ -26800,6 +26807,16 @@ _USER_REF_IGNORE = {('public_user', 'mirrored_admin_user_id')}
 # else pointing at user.id is attribution — an audit note, not a claim.
 _ADMIN_OWNER_COLS = {'user_id', 'owner_user_id', 'parent_user_id'}
 
+# ...except these, which are named user_id but mean "who did this". Handing a
+# chat message to the owner did not transfer a possession, it rewrote history:
+# messages the demoted admin had sent started appearing as the owner's. These
+# are cleared like any other attribution, leaving the record intact and
+# unattributed.
+_ADMIN_AUTHORSHIP_COLS = {
+    ('admin_chat_message', 'user_id'),
+    ('sms_log', 'user_id'),
+}
+
 # Never re-homed when an admin is deleted:
 #   public_user.mirrored_admin_user_id — mirrors are dealt with before this runs
 #   website.user_id                    — User.websites is delete-orphan, so the
@@ -26862,12 +26879,24 @@ def _rehome_admin_references(user_id, new_owner_id):
                 continue
 
             label = _user_ref_label(table.name, col.name)
-            is_owner_col = col.name in _ADMIN_OWNER_COLS
+            is_owner_col = (col.name in _ADMIN_OWNER_COLS
+                            and (table.name, col.name) not in _ADMIN_AUTHORSHIP_COLS)
 
             if not is_owner_col and col.nullable:
                 db.session.execute(
                     table.update().where(col == user_id).values({col: None}))
                 moved.append((f'{label} (name removed)', int(n)))
+                continue
+
+            # The asset library is one shared pool keyed on the root admin, so
+            # re-pointing a stray row at the owner is not a transfer of
+            # anybody's property — it puts the file back where the library
+            # looks for it. Saying "moved to you" made it read as though a
+            # colleague's files had been taken over.
+            if (table.name, col.name) == ('asset', 'user_id'):
+                db.session.execute(
+                    table.update().where(col == user_id).values({col: new_owner_id}))
+                moved.append((f'{label} (kept in the shared library)', int(n)))
                 continue
 
             if is_owner_col and _column_is_unique(table, col):
@@ -27041,6 +27070,31 @@ def _describe_delete_blockers(user_id, exc):
     return (lead + detail +
             ' Reassign or delete those first, or demote the admin instead, which '
             'keeps the account as a public user.')
+
+
+def _delete_admin_account(admin):
+    """Remove one admin account. Returns (moved, error_message).
+
+    Shared by the admin-users page and the public account settings page, so
+    closing your own account behaves identically wherever you do it from.
+    Callers are responsible for the checks that differ between them (who may
+    delete whom) and for ending the session afterwards.
+    """
+    root_id = admin.parent_user_id or admin.id
+    try:
+        _delete_admin_mirrors(admin.id)
+        moved = _rehome_admin_references(admin.id, root_id)
+        db.session.delete(admin)
+        db.session.commit()
+        return moved, None
+    except IntegrityError as exc:
+        db.session.rollback()
+        app.logger.warning('_delete_admin_account blocked for id=%s: %s', admin.id, exc)
+        return [], _describe_delete_blockers(admin.id, exc)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('_delete_admin_account failed for id=%s', admin.id)
+        return [], f'Delete failed: {exc}'
 
 
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
@@ -31412,11 +31466,35 @@ def public_account_delete(prefix=None):
     # A staff mirror is a projection of an admin account, not an account in its
     # own right — deleting the row here removes nothing (the next sign-in
     # recreates it) while looking like it worked. Say so instead of pretending.
+    # A staff mirror is a projection of an admin account: deleting this row on
+    # its own removes nothing, because the next sign-in recreates it. That used
+    # to be the end of the matter — "ask an owner" — which left an admin unable
+    # to close their own account from the page that offers to close accounts.
+    # Now it closes the account the mirror belongs to, which takes the mirror
+    # with it.
     if public_user.is_admin_mirror:
-        return _utf8_json(
-            {'error': 'This is your staff profile, which mirrors your admin account — '
-                      'deleting it here would not remove anything. Ask an owner to '
-                      'remove your staff account instead.'}, 400)
+        admin = db.session.get(User, public_user.mirrored_admin_user_id)
+        if admin is None:
+            # The mirror outlived its admin; nothing above it to remove.
+            public_user_logout()
+            db.session.delete(public_user)
+            db.session.commit()
+            return _utf8_json({'success': True})
+        if admin.parent_user_id is None:
+            return _utf8_json(
+                {'error': 'This account is the primary owner of the admin panel and '
+                          'cannot be deleted. Transfer ownership to another admin '
+                          'first; this account then becomes an ordinary admin.'}, 403)
+
+        moved, err = _delete_admin_account(admin)
+        if err:
+            return _utf8_json({'error': err}, 409)
+        public_user_logout()
+        logout_user()
+        session.clear()
+        return _utf8_json({'success': True,
+                           'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
+
     public_user_logout()
     db.session.delete(public_user)
     db.session.commit()

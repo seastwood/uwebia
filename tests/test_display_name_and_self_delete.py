@@ -154,7 +154,51 @@ def main_test():
     check(f'the old session no longer reaches the admin panel — got {after.status_code}',
           after.status_code in (301, 302, 401, 403, 404))
 
-    print('\n[5] the primary owner still cannot delete themselves')
+    print('\n[5] and from the public account settings page too')
+    with app.app_context():
+        helper2 = main.User(username='helper2', parent_user_id=owner_id)
+        helper2.set_password('x')
+        db.session.add(helper2)
+        db.session.commit()
+        mirror = main.PublicUser(website_id=site_id, username='helper2',
+                                 mirrored_admin_user_id=helper2.id)
+        db.session.add(mirror)
+        db.session.commit()
+        # Their own chat message, and one from the owner, to prove authorship
+        # is not handed over.
+        db.session.add_all([
+            main.AdminChatMessage(user_id=helper2.id, message='from the leaver'),
+            main.AdminChatMessage(user_id=owner_id, message='from the owner'),
+        ])
+        db.session.commit()
+        helper2_id, mirror_id = helper2.id, mirror.id
+
+    pc = app.test_client()
+    with pc.session_transaction() as s:
+        s['public_user_id'] = mirror_id
+        s['public_user_website_id'] = site_id
+    r = pc.post('/account/delete')
+    d = r.get_json() or {}
+    check(f'a staff mirror can close its admin account — got {r.status_code}',
+          r.status_code == 200 and d.get('success') is True)
+    with app.app_context():
+        check('the admin account is gone',
+              db.session.get(main.User, helper2_id) is None)
+        check('and its mirror with it',
+              db.session.get(main.PublicUser, mirror_id) is None)
+
+    print('\n[6] authorship is not handed to somebody else')
+    with app.app_context():
+        msgs = {m.message: m.user_id for m in main.AdminChatMessage.query.all()}
+        check('both messages survive', len(msgs) == 2)
+        check("the leaver's message is no longer attributed to anyone",
+              msgs.get('from the leaver') is None)
+        check("and was NOT re-attributed to the owner",
+              msgs.get('from the leaver') != owner_id)
+        check("the owner's own message is untouched",
+              msgs.get('from the owner') == owner_id)
+
+    print('\n[7] the primary owner still cannot delete themselves')
     o = app.test_client()
     with o.session_transaction() as s:
         s['_user_id'] = str(owner_id)
