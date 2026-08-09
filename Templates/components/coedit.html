@@ -61,7 +61,20 @@ function ensureCursors(quill) {
 
 const POLL_MS = 1000;
 const b64 = {
-    enc: (u8) => btoa(String.fromCharCode.apply(null, u8)),
+    // Chunked on purpose. String.fromCharCode.apply(null, wholeArray) blows the
+    // engine's argument limit — around half a megabyte on V8, but FAR lower on
+    // JavaScriptCore, so a document snapshot that encodes fine in desktop
+    // Chrome throws RangeError on iOS Safari. The throw landed in the beat's
+    // catch, the loop reported itself offline, and awareness stopped being
+    // exchanged: carets worked on desktop and silently did not on iPad.
+    enc: (u8) => {
+        const CHUNK = 0x8000;
+        let s = '';
+        for (let i = 0; i < u8.length; i += CHUNK) {
+            s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+        }
+        return btoa(s);
+    },
     dec: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
 };
 
@@ -196,6 +209,10 @@ function attach(opts) {
                 opts.onStatus('live', awareness.getStates().size - 1);
             }
         } catch (e) {
+            // Say what actually went wrong. This loop reporting a bare
+            // "offline" is why a RangeError from base64-encoding a snapshot
+            // looked like a network problem on iOS for as long as it did.
+            console.warn('[coedit] sync failed:', e && (e.stack || e.message || e));
             if (typeof opts.onStatus === 'function') opts.onStatus('offline', 0);
         } finally {
             s.sending = false;
