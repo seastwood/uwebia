@@ -26379,6 +26379,53 @@ def _delete_public_user_row(public_user):
     db.session.delete(public_user)
 
 
+def _public_user_history_count(pu_id):
+    """How many rows elsewhere point at this member account.
+
+    Guide progress, quiz attempts, KSA levels, division memberships, forum
+    posts — everything somebody accumulates. Counted off the live metadata so a
+    table added later is included without anybody remembering to.
+    """
+    total = 0
+    for table in db.metadata.tables.values():
+        if table.name == 'public_user':
+            continue
+        for col in table.columns:
+            if not any(fk.column.table.name == 'public_user'
+                       for fk in col.foreign_keys):
+                continue
+            try:
+                total += db.session.query(db.func.count()).select_from(table).filter(
+                    col == pu_id).scalar() or 0
+            except Exception:
+                continue
+    return total
+
+
+def _pick_demotion_survivor(mirrors, current_site):
+    """Which mirror becomes the person's account again.
+
+    Whichever one carries their history. This used to be "the mirror on the
+    site the admin happens to be looking at, else the lowest id", which on a
+    multi-site install could keep an empty mirror and delete the original —
+    taking every guide completion, quiz attempt, KSA level and division
+    membership with it.
+
+    Ties (usually because nobody has any history yet) fall back to the current
+    site, then the lowest website id, so the old behaviour still holds when
+    there is nothing to protect.
+    """
+    if not mirrors:
+        return None
+
+    def rank(m):
+        return (_public_user_history_count(m.id),
+                1 if (current_site and m.website_id == current_site.id) else 0,
+                -m.website_id)
+
+    return max(mirrors, key=rank)
+
+
 def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
     """Delete an admin's public mirrors, optionally sparing one.
 
@@ -26392,6 +26439,14 @@ def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
     for mirror in PublicUser.query.filter_by(
             mirrored_admin_user_id=admin_user_id).all():
         if keep_public_user_id is not None and mirror.id == keep_public_user_id:
+            continue
+        # A mirror on another site can have a history of its own — progress,
+        # attempts, KSA levels, forum posts made while they were staff there.
+        # Deleting it would take all of that with it, so on a demotion (where
+        # one mirror is being kept) any other mirror that carries history is
+        # detached into an ordinary member account instead.
+        if keep_public_user_id is not None and _public_user_history_count(mirror.id):
+            mirror.mirrored_admin_user_id = None
             continue
         _delete_public_user_row(mirror)
 
@@ -26631,11 +26686,7 @@ def admin_user_demote(user_id):
     # Pick the mirror that survives as the real public user: the current admin
     # site if it has one, else the lowest-id mirror.
     current_site = get_admin_website()
-    survivor = None
-    if current_site:
-        survivor = next((m for m in mirrors if m.website_id == current_site.id), None)
-    if survivor is None and mirrors:
-        survivor = min(mirrors, key=lambda m: m.website_id)
+    survivor = _pick_demotion_survivor(mirrors, current_site)
 
     username, email, pw_hash = sub.username, sub.email, sub.password_hash
     first_name, last_name = sub.first_name, sub.last_name
