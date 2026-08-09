@@ -200,8 +200,51 @@ function toggleAdminChat() {
         loadAdminChatMessages();
         loadAdminChatOnline();
         markAdminChatRead();
+        startAdminChatPolling();
         document.getElementById('adminChatInput')?.focus();
+    } else {
+        stopAdminChatPolling();
     }
+}
+
+// While the panel is open, pull anything newer than the last message we hold.
+// _chatPollTimer has been declared since the chat was written and never
+// started, which is why new messages only appeared after closing and
+// reopening — the one full load on open was the only time anything arrived.
+const CHAT_POLL_MS = 4000;
+
+function startAdminChatPolling() {
+    if (_chatPollTimer) return;
+    _chatPollTimer = setInterval(() => {
+        // A hidden tab does not need a live chat, and waking to a backlog is
+        // the same result for less traffic.
+        if (_chatOpen && !document.hidden) fetchNewAdminChat();
+    }, CHAT_POLL_MS);
+}
+
+function stopAdminChatPolling() {
+    clearInterval(_chatPollTimer);
+    _chatPollTimer = null;
+}
+
+async function fetchNewAdminChat() {
+    const list = document.getElementById('adminChatMessages');
+    if (!list) return;
+    try {
+        const r = await fetch(`/admin/chat/messages?since=${_lastChatId}`);
+        if (!r.ok) return;
+        const msgs = await r.json();
+        if (!msgs.length) return;
+        // Only follow the conversation if they were already at the bottom —
+        // yanking the view down while somebody reads back is worse than
+        // making them scroll.
+        const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+        msgs.forEach(m => appendChatMessage(m, false));
+        _lastChatId = msgs[msgs.length - 1].id;
+        if (atBottom) list.scrollTop = list.scrollHeight;
+        // Reading them as they arrive is the point of having the panel open.
+        markAdminChatRead();
+    } catch { /* a blip is not worth an error in the panel */ }
 }
 
 // Same hue formula as UwebiaPresence.colorFor, so a person is the same colour
@@ -281,8 +324,15 @@ async function sendAdminChat() {
         });
         const d = await r.json();
         if (d.ok) {
-            appendChatMessage({ mine: true, message: msg, created_at: 'now', username: '' });
-            _lastChatId = d.id || _lastChatId;
+            // Fetch rather than append-and-assume. Setting _lastChatId to our
+            // own new id skipped anything that arrived between our last poll
+            // and our send — those ids are LOWER than ours, so the next poll
+            // would never ask for them and they were lost until reopen.
+            // Fetching from the cursor we still hold returns them, in order,
+            // with ours at the end.
+            await fetchNewAdminChat();
+            const list = document.getElementById('adminChatMessages');
+            if (list) list.scrollTop = list.scrollHeight;
         }
     } catch {}
 }

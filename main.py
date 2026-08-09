@@ -11773,7 +11773,23 @@ class LoginRateLimit(db.Model):
 @app.route('/admin/chat/messages')
 @login_required
 def admin_chat_messages():
-    msgs = AdminChatMessage.query.order_by(AdminChatMessage.created_at.asc()).limit(100).all()
+    """The recent conversation, or just what has arrived since `since`.
+
+    `since` is what makes the panel live: while it is open the client asks for
+    anything newer than the last id it holds and appends it, rather than
+    re-fetching and re-rendering the whole list under the reader.
+    """
+    since = request.args.get('since', type=int)
+    q = AdminChatMessage.query
+    if since:
+        msgs = (q.filter(AdminChatMessage.id > since)
+                .order_by(AdminChatMessage.id.asc()).limit(100).all())
+    else:
+        # Newest hundred, then flipped so the oldest is at the top. Ordering
+        # ascending and limiting took the OLDEST hundred, so past a hundred
+        # messages the panel showed the beginning of the conversation forever
+        # and nothing anybody said afterwards.
+        msgs = (q.order_by(AdminChatMessage.id.desc()).limit(100).all())[::-1]
     return jsonify([{
         'id': m.id,
         'user_id': m.user_id,
