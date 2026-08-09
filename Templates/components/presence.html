@@ -48,8 +48,15 @@ window.UwebiaPresence = (function () {
     }
 
     function start(opts) {
-        var host = document.getElementById(opts.container);
-        if (!host || !opts.id) return null;
+        if (!opts.id) return null;
+
+        // `render: false` means the page draws its own presence UI from the
+        // onPeers callback. The builder does that: a full-width bar of named
+        // chips is far too much furniture to float over a page you are laying
+        // out, so it shows icons only and expands on demand.
+        var host = opts.render === false
+            ? null : document.getElementById(opts.container);
+        if (opts.render !== false && !host) return null;
 
         var bar = document.createElement('div');
         bar.className = 'uwp-bar';
@@ -58,14 +65,17 @@ window.UwebiaPresence = (function () {
         var warn = document.createElement('div');
         warn.className = 'uwp-warn';
         warn.style.display = 'none';
-        host.appendChild(bar);
-        host.appendChild(warn);
+        if (host) {
+            host.appendChild(bar);
+            host.appendChild(warn);
+        }
         var chips = bar.querySelector('.uwp-chips');
 
         var typingUntil = 0;
         var noun = opts.noun || 'section';
 
         function render(peers) {
+            if (!host) return;          // the page draws its own
             if (!peers.length) {
                 bar.style.display = 'none';
                 warn.style.display = 'none';

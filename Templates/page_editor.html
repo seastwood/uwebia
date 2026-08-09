@@ -18703,29 +18703,133 @@ function moderatePageComment(sectionId, commentId, action) {
 window.addEventListener('DOMContentLoaded', function () {
     var PAGE_ID = parseInt("{{ page_content.id }}", 10);
     if (!PAGE_ID) return;
+
+    // Icons only, floating out of the way. A named chip bar is too much
+    // furniture to sit permanently over a page you are laying out, so the
+    // collapsed state is just the faces; everything else is one click away.
+    var css = document.createElement('style');
+    css.textContent = [
+      '#pgPresence{position:fixed;left:12px;bottom:12px;z-index:99999;display:none;',
+      '  font-family:inherit;}',
+      '#pgPresence .pgp-bubble{display:flex;align-items:center;gap:5px;padding:5px 7px;',
+      '  background:rgba(18,18,26,0.94);border:1px solid rgba(255,255,255,0.14);border-radius:999px;',
+      '  box-shadow:0 8px 22px rgba(0,0,0,0.45);backdrop-filter:blur(10px);cursor:pointer;}',
+      '#pgPresence .pgp-face{width:22px;height:22px;border-radius:50%;display:inline-flex;',
+      '  align-items:center;justify-content:center;font-size:0.6rem;font-weight:850;color:#10101a;',
+      '  border:1.5px solid rgba(18,18,26,0.9);margin-left:-6px;}',
+      '#pgPresence .pgp-face:first-child{margin-left:0;}',
+      '#pgPresence .pgp-face.is-editing{animation:pgpPulse 1.8s ease-out infinite;}',
+      '@keyframes pgpPulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,0.45);}',
+      '  70%{box-shadow:0 0 0 5px rgba(255,255,255,0);}100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}}',
+      '#pgPresence .pgp-eye{color:#ffc454;font-size:0.82rem;margin:0 3px;}',
+      '#pgPresence .pgp-panel{display:none;margin-bottom:7px;padding:10px 12px;max-width:min(340px,86vw);',
+      '  background:rgba(18,18,26,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;',
+      '  box-shadow:0 12px 30px rgba(0,0,0,0.5);backdrop-filter:blur(10px);',
+      '  font-size:0.82rem;color:rgba(255,255,255,0.82);}',
+      '#pgPresence[data-open="1"] .pgp-panel{display:block;}',
+      '#pgPresence .pgp-row{display:flex;align-items:center;gap:7px;padding:3px 0;}',
+      '#pgPresence .pgp-where{color:rgba(255,255,255,0.45);font-size:0.76rem;}',
+      '#pgPresence .pgp-warn{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:0.78rem;',
+      '  background:rgba(255,196,84,0.12);border:1px solid rgba(255,196,84,0.34);color:#ffd08a;}',
+      '#pgPresence .pgp-close{position:absolute;top:4px;right:8px;background:none;border:0;',
+      '  color:rgba(255,255,255,0.45);font-size:1rem;cursor:pointer;line-height:1;}',
+      '#pgPresence .pgp-panel{position:relative;}',
+      // The space after the brace is load-bearing: an open-brace immediately
+      // followed by a hash opens a Jinja comment and swallows the rest.
+      '@media (prefers-reduced-motion: reduce){ #pgPresence .pgp-face.is-editing{animation:none;}}',
+    ].join('');
+    document.head.appendChild(css);
+
     var host = document.createElement('div');
     host.id = 'pgPresence';
-    host.style.cssText = 'position:fixed;left:12px;bottom:12px;z-index:99999;max-width:min(560px,92vw);'
-        + 'background:rgba(18,18,26,0.95);border:1px solid rgba(255,255,255,0.12);border-radius:12px;'
-        + 'padding:10px 12px 2px;backdrop-filter:blur(10px);box-shadow:0 12px 30px rgba(0,0,0,0.4);'
-        + 'display:none;';
+    host.dataset.open = '0';
+    host.innerHTML = '<div class="pgp-panel"><button type="button" class="pgp-close" '
+        + 'title="Close">&times;</button><div class="pgp-list"></div>'
+        + '<div class="pgp-warn" style="display:none;"></div></div>'
+        + '<div class="pgp-bubble"></div>';
     document.body.appendChild(host);
+
+    var bubble = host.querySelector('.pgp-bubble');
+    var panel  = host.querySelector('.pgp-panel');
+    var list   = host.querySelector('.pgp-list');
+    var warnEl = host.querySelector('.pgp-warn');
+    var known  = {};      // who we have already announced
+
+    bubble.addEventListener('click', function () {
+        host.dataset.open = host.dataset.open === '1' ? '0' : '1';
+    });
+    host.querySelector('.pgp-close').addEventListener('click', function (e) {
+        e.stopPropagation();
+        host.dataset.open = '0';
+    });
+
+    function esc(t) {
+        return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function draw(peers) {
+        if (!peers.length) {
+            host.style.display = 'none';
+            host.dataset.open = '0';
+            known = {};
+            return;
+        }
+        host.style.display = 'block';
+
+        // Somebody in the same section is the one thing worth interrupting
+        // for, so it gets the yellow eye — clickable, not a wall of text.
+        var same = peers.filter(function (p) { return p.context_id === PAGE_ID; });
+
+        bubble.innerHTML = peers.slice(0, 4).map(function (p) {
+            return '<span class="pgp-face' + (p.is_editing ? ' is-editing' : '') + '" '
+                 + 'style="background:' + UwebiaPresence.colorFor(p.user_id) + '" '
+                 + 'title="' + esc(p.name) + '">' + esc(p.initials) + '</span>';
+        }).join('')
+        + (peers.length > 4
+            ? '<span class="pgp-face" style="background:rgba(255,255,255,0.3);color:#fff">+'
+              + (peers.length - 4) + '</span>' : '')
+        + (same.length ? '<i class="fas fa-eye pgp-eye" title="Someone is editing this page"></i>' : '');
+
+        list.innerHTML = peers.map(function (p) {
+            return '<div class="pgp-row">'
+                 + '<span class="pgp-face" style="background:' + UwebiaPresence.colorFor(p.user_id)
+                 + ';margin-left:0">' + esc(p.initials) + '</span>'
+                 + '<span>' + esc(p.name) + '</span>'
+                 + '<span class="pgp-where">' + (p.is_editing ? 'editing ' : 'in ')
+                 + esc(p.context_label || 'this page') + '</span></div>';
+        }).join('');
+
+        if (same.length) {
+            var names = same.map(function (p) { return p.name; }).join(', ');
+            warnEl.innerHTML = '<strong>' + esc(names) + '</strong> '
+                + (same.length > 1 ? 'are' : 'is') + ' editing this page too. '
+                + 'Sections save one at a time, so whoever saves second is asked to '
+                + 'resolve it — nothing is overwritten silently.';
+            warnEl.style.display = 'block';
+        } else {
+            warnEl.style.display = 'none';
+        }
+
+        // Open by itself when somebody new arrives — that is the moment the
+        // information is worth having. Staying open after that is their call.
+        var fresh = peers.some(function (p) { return !known[p.user_id]; });
+        peers.forEach(function (p) { known[p.user_id] = true; });
+        Object.keys(known).forEach(function (id) {
+            if (!peers.some(function (p) { return String(p.user_id) === id; })) delete known[id];
+        });
+        if (fresh) host.dataset.open = '1';
+    }
 
     UwebiaPresence.start({
         type: 'page',
         id: PAGE_ID,
-        container: 'pgPresence',
         noun: 'page',
+        render: false,          // this page draws its own, above
         context: function () { return { id: PAGE_ID, label: 'this page' }; },
+        onPeers: draw,
     });
-
-    // The panel only earns its space once somebody else is actually here.
-    var show = function () {
-        host.style.display = host.querySelector('.uwp-bar')
-            && host.querySelector('.uwp-bar').style.display !== 'none' ? 'block' : 'none';
-    };
-    new MutationObserver(show).observe(host, { attributes: true, subtree: true,
-                                               attributeFilter: ['style'] });
 });
 </script>
     {% endblock %}
