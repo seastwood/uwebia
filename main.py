@@ -26396,6 +26396,22 @@ def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
         _delete_public_user_row(mirror)
 
 
+def _github_id_free_on_site(github_id, website_id, exclude_public_user_id=None):
+    """True when no other member of this site already holds that GitHub id.
+
+    PublicUser has a unique (website_id, github_user_id), so handing the link
+    back on demotion must not collide with a separate member account that
+    somehow already carries it. Losing the link is bad; a 500 is worse.
+    """
+    if not github_id:
+        return False
+    q = PublicUser.query.filter(PublicUser.website_id == website_id,
+                                PublicUser.github_user_id == github_id)
+    if exclude_public_user_id:
+        q = q.filter(PublicUser.id != exclude_public_user_id)
+    return q.first() is None
+
+
 def _promote_can():
     """The promote permission is the user-create permission plus the explicit
     'promote' action. Main admins always pass."""
@@ -26623,6 +26639,12 @@ def admin_user_demote(user_id):
 
     username, email, pw_hash = sub.username, sub.email, sub.password_hash
     first_name, last_name = sub.first_name, sub.last_name
+    # Promotion MOVES the GitHub link from the mirror onto the admin row and
+    # clears it from the mirror, so it lives in exactly one place. Demotion has
+    # to move it back: deleting the admin row without doing so destroyed the
+    # link outright, and somebody who signs in with GitHub then has no way in
+    # at all.
+    github_id = getattr(sub, 'github_user_id', None)
 
     if survivor is not None:
         # Detach the survivor FIRST so deleting the admin can't cascade-delete
@@ -26631,6 +26653,9 @@ def admin_user_demote(user_id):
         survivor.password_hash = pw_hash
         survivor.first_name = first_name
         survivor.last_name = last_name
+        if github_id and _github_id_free_on_site(github_id, survivor.website_id,
+                                                 exclude_public_user_id=survivor.id):
+            survivor.github_user_id = github_id
         survivor.email_verified = True
         survivor.is_active_public = True
         survivor.is_banned = False
@@ -26645,6 +26670,8 @@ def admin_user_demote(user_id):
             website_id=current_site.id, username=username, email=email,
             first_name=first_name, last_name=last_name,
             password_hash=pw_hash, email_verified=True, is_active_public=True,
+            github_user_id=(github_id if github_id and _github_id_free_on_site(
+                github_id, current_site.id) else None),
         )
         db.session.add(survivor)
         db.session.flush()
