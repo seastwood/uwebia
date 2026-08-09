@@ -88,6 +88,17 @@ let sharedTimer = null;
 function closeSession(s) {
     if (!s) return;
     try { if (s.binding) s.binding.destroy(); } catch (e) { /* already gone */ }
+
+    // y-quill's destroy() detaches its observers but leaves behind every caret
+    // it drew. The guide editor reuses ONE Quill for every lesson, so those
+    // carets stayed on screen in the next lesson — and because the cursors
+    // module runs with transformOnTextChange, they then followed the local
+    // user's typing around, showing a colleague apparently editing a lesson
+    // they had never opened.
+    try {
+        const cursors = s.opts && s.opts.quill && s.opts.quill.getModule('cursors');
+        if (cursors && typeof cursors.clearCursors === 'function') cursors.clearCursors();
+    } catch (e) { /* nothing drawn, or no module — either way nothing to clear */ }
     // Awareness runs its own interval to expire quiet peers. Without this,
     // clicking through ten lessons leaves ten of them running.
     try { s.awareness.destroy(); } catch (e) { /* already gone */ }
