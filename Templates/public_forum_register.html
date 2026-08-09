@@ -77,8 +77,8 @@ Create Forum Account
         </p>
         {% endif %}
         <input name="username" placeholder="Username" required
-               minlength="3" maxlength="30" pattern="[A-Za-z0-9]+"
-               title="Letters and numbers only, 3-30 characters">
+               minlength="3" maxlength="30" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*"
+               title="Letters, numbers and single dashes, 3-30 characters">
         {% if not website or website.require_public_email %}
         <input name="email" type="email" placeholder="Email" required>
         {% endif %}

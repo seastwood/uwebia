@@ -822,17 +822,20 @@ def sanitize_email(value):
 # forum posts and comments, used in @-style references and stored in a shared
 # namespace with admin accounts, so they need to be plain and short.
 #
-# Letters and digits only. Deliberately no dots, dashes or underscores: those
-# are what make one name mistakable for another (rn/m, l/1, seth.eastwood vs
-# seth-eastwood), which is the whole point of restricting them.
+# Letters, digits, and single dashes BETWEEN them. Real names are hyphenated
+# ("anne-marie") and a dash is the one separator people expect a username to
+# take. Still no dots or underscores, and no leading, trailing or doubled
+# dashes: "seth--eastwood" and "-seth" exist to be mistaken for "seth-eastwood"
+# and "seth", which is what restricting the character set is for.
 USERNAME_MIN_LENGTH = 3
 USERNAME_MAX_LENGTH = 30
 DISPLAY_NAME_MAX_LENGTH = 40
-_USERNAME_RE = re.compile(r'^[A-Za-z0-9]+$')
+_USERNAME_RE = re.compile(r'^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$')
 # A display name is a person's name, so single spaces BETWEEN words are allowed
-# — "Seth Eastwood" has to remain possible. No leading, trailing or doubled
-# spaces, which are the ones used to fake a different name.
-_DISPLAY_NAME_RE = re.compile(r'^[A-Za-z0-9]+(?: [A-Za-z0-9]+)*$')
+# — "Seth Eastwood" has to remain possible — and single dashes on the same terms
+# as a username, so "Anne-Marie Smith" works. No leading, trailing or doubled
+# separators, which are the ones used to fake a different name.
+_DISPLAY_NAME_RE = re.compile(r'^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$')
 
 
 def _banned_words_for(website=None):
@@ -873,7 +876,7 @@ def validate_username(raw, website=None, label='Username'):
     if len(name) > USERNAME_MAX_LENGTH:
         return name, f'{label} must be {USERNAME_MAX_LENGTH} characters or fewer.'
     if not _USERNAME_RE.match(name):
-        return name, f'{label} may only contain letters and numbers — no spaces, punctuation or symbols.'
+        return name, (f'{label} may only contain letters, numbers and single dashes between them — no spaces, other punctuation or symbols.')
     err = _name_profanity_error(name, website)
     if err:
         return name, err
@@ -889,7 +892,7 @@ def validate_display_name(raw, website=None):
         return name, f'Display name must be {DISPLAY_NAME_MAX_LENGTH} characters or fewer.'
     if not _DISPLAY_NAME_RE.match(name):
         return name, ('Display name may only contain letters, numbers and single '
-                      'spaces between words.')
+                      'spaces or dashes between words.')
     err = _name_profanity_error(name, website)
     if err:
         return name, err

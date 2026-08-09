@@ -79,7 +79,6 @@ def main_test():
             ('https://example.com/some/path', 'a whole URL'),
             ('seth eastwood', 'spaces'),
             ('seth.eastwood', 'a dot'),
-            ('seth-eastwood', 'a dash'),
             ('seth_eastwood', 'an underscore'),
             ('seth@example.com', 'an email address'),
             ('<b>seth</b>', 'markup'),
@@ -89,6 +88,20 @@ def main_test():
         for value, what in cases:
             _, e = main.validate_username(value, website=site)
             check(f'{what} is refused ({value[:24]!r})', bool(e))
+
+        print('\n[2b] but a single dash between words is a name, not an attack')
+        ok, err = main.validate_username('anne-marie', website=site)
+        check('a hyphenated name is allowed', err is None and ok == 'anne-marie')
+        check('and more than one dash is fine',
+              main.validate_username('a-b-c', website=site)[1] is None)
+        for value, what in [('-seth', 'a leading dash'),
+                            ('seth-', 'a trailing dash'),
+                            ('seth--eastwood', 'a doubled dash'),
+                            ('-', 'a dash on its own')]:
+            check(f'{what} is still refused ({value!r})',
+                  bool(main.validate_username(value, website=site)[1]))
+        check('a URL is still refused now that dashes are legal',
+              bool(main.validate_username('https://ex-ample.com/p', website=site)[1]))
 
         print('\n[3] length')
         check('too short is refused',
@@ -127,7 +140,12 @@ def main_test():
               main.validate_display_name('', website=site) == ('', None))
         check('doubled spaces are collapsed, not rejected',
               main.validate_display_name('Seth   Eastwood', website=site)[0] == 'Seth Eastwood')
+        check('a hyphenated display name is allowed',
+              main.validate_display_name('Anne-Marie Smith', website=site)
+              == ('Anne-Marie Smith', None))
         for value, what in [('Seth.Eastwood', 'punctuation'),
+                            ('Seth--Eastwood', 'a doubled dash'),
+                            ('-Seth', 'a leading dash'),
                             ('<b>Seth</b>', 'markup'),
                             ('http://x.com', 'a URL'),
                             ('badword', 'a banned word')]:
@@ -145,7 +163,7 @@ def main_test():
         'website_prefix': ''}, follow_redirects=True)
     body = r.get_data(as_text=True)
     check('a URL cannot be registered as a username',
-          'letters and numbers' in body.lower() or 'only contain' in body.lower())
+          'only contain' in body.lower())
     with app.app_context():
         check('and no such account was created',
               main.PublicUser.query.filter(
@@ -159,7 +177,7 @@ def main_test():
     r = admin.post('/admin/users/create', json={
         'username': 'bad user name!', 'password': 'longenoughpw'})
     check(f'nor created as an admin account — got {r.status_code}',
-          r.status_code == 400 and 'letters and numbers' in
+          r.status_code == 400 and 'only contain' in
           ((r.get_json() or {}).get('error') or '').lower())
 
 
