@@ -220,7 +220,23 @@ def main_test():
     check('and the Education results did not crowd out the limit',
           all(k in by_type(search()) for k in ('guide', 'lesson', 'quiz', 'resource')))
 
-    print('\n[7] every type the server sends has a label in the UI')
+    print('\n[7] very short queries are refused rather than answered badly')
+    # One or two letters matched nearly every page — the box filled with
+    # everything and told the reader nothing.
+    c = app.test_client()
+    for q in ('s', 'so'):
+        d = c.get(f'/search?q={q}').get_json() or {}
+        check(f'"{q}" returns nothing', d.get('results') == [])
+        check(f'and says why ({d.get("min_chars")})',
+              d.get('min_chars') == main.PUBLIC_SEARCH_MIN_CHARS)
+    d = c.get('/search?q=sol').get_json() or {}
+    check(f'"sol" is long enough and searches ({len(d.get("results") or [])} hits)',
+          'min_chars' not in d and len(d.get('results') or []) > 0)
+    check('whitespace does not buy you a shorter query',
+          (c.get('/search?q=%20s%20').get_json() or {}).get('min_chars')
+          == main.PUBLIC_SEARCH_MIN_CHARS)
+
+    print('\n[8] every type the server sends has a label in the UI')
     # Anything missing here silently renders as "Page".
     tpl = open(os.path.join(_REPO, 'Templates', 'components',
                             'public_navbar.html')).read()

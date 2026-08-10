@@ -122,6 +122,12 @@ window.addEventListener('load', function () {
     menu.style.animationDelay = '-' + (0.2 * parseFloat(freeze)) + 's';
     menu.style.animationPlayState = 'paused';
   }
+  var typed = p.get('type');
+  if (typed !== null && typed !== undefined) {
+    var inp = menu.querySelector('[data-search-input]');
+    inp.value = typed;
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+  }
   setTimeout(function () {
     // Whichever element actually scrolls: the panel, or its inner wrapper.
     var glass = menu.querySelector('.public-navbar-menu-glass');
@@ -146,6 +152,12 @@ window.addEventListener('load', function () {
       menuLeft: Math.round(mr.left), menuTop: Math.round(mr.top),
       menuRight: Math.round(mr.right), menuBottom: Math.round(mr.bottom),
       menuW: Math.round(mr.width),
+      transformOrigin: getComputedStyle(menu).transformOrigin,
+      resultsText: (function () {
+        var r = menu.querySelector('[data-search-results]');
+        return r ? r.textContent.replace(/\\s+/g, ' ').trim().slice(0, 90) : null;
+      })(),
+      resultCount: menu.querySelectorAll('.public-navbar-search-result').length,
       menuOverflowsViewport: mr.bottom > window.innerHeight + 1,
       resultsScrolls: res ? (res.scrollHeight > res.clientHeight + 1) : null,
       resultsH: res ? Math.round(res.getBoundingClientRect().height) : null,
@@ -210,6 +222,8 @@ def _seed():
         db.session.commit()
         db.session.add(main.PublicPageContent(website_id=site.id, name='Home',
                                               slug='home', site_active_status=True))
+        db.session.add(main.PublicPageContent(website_id=site.id, name='About the team',
+                                              slug='about', site_active_status=True))
         db.session.commit()
 
 
@@ -221,8 +235,10 @@ def _chrome():
     return None
 
 
-def _url(port, mode, n, scroll=False, stripes=False, freeze=None):
+def _url(port, mode, n, scroll=False, stripes=False, freeze=None, type=None):
     u = f'http://127.0.0.1:{port}/?probe=1&mode={mode}&n={n}'
+    if type is not None:
+        u += f'&type={type}'
     if scroll:
         u += '&scroll=1'
     if stripes:
@@ -239,10 +255,10 @@ def _chrome_args(chrome, profile, width, height):
 
 
 def _measure(chrome, port, profile, mode, n, scroll=False, stripes=False,
-             freeze=None, width=500, height=700):
+             freeze=None, type=None, width=500, height=700):
     out = subprocess.run(
         _chrome_args(chrome, profile, width, height)
-        + ['--dump-dom', _url(port, mode, n, scroll, stripes, freeze)],
+        + ['--dump-dom', _url(port, mode, n, scroll, stripes, freeze, type)],
         capture_output=True, text=True, timeout=120).stdout
     m = re.search(r'RESULT (\{[^<]*\})', out)
     return json.loads(m.group(1)) if m else None
@@ -337,6 +353,59 @@ def main_test():
 
     test_backdrop(chrome, port, profile)
     test_blur_during_open(chrome, port, profile)
+    test_grow_origin(chrome, port, profile)
+    test_min_query(chrome, port, profile)
+
+
+def test_grow_origin(chrome, port, profile):
+    """The panel grows out of the hamburger — which is not on the same side at
+    every width. Desktop puts it top-left and the panel is left-aligned; below
+    800px both move to the right."""
+    print('\n[origin] it grows from whichever corner the hamburger is in')
+    wide = _measure(chrome, port, profile, 'dropdown', 0, width=1200, height=800)
+    narrow = _measure(chrome, port, profile, 'dropdown', 0, width=500, height=700)
+    if wide is None or narrow is None:
+        skip('grow origin', 'no measurement')
+        return
+    # transformOrigin comes back as pixels: "<x>px <y>px".
+    def x_of(r):
+        try:
+            return float(r['transformOrigin'].split()[0].replace('px', ''))
+        except Exception:
+            return None
+
+    wx, nx = x_of(wide), x_of(narrow)
+    check(f'desktop grows from the LEFT edge (origin x={wx}, panel {wide["menuW"]}px wide)',
+          wx is not None and wx < wide['menuW'] * 0.25)
+    check(f'and the panel is on the left (x={wide["menuLeft"]})',
+          wide['menuLeft'] < 200)
+    check(f'mobile grows from the RIGHT edge (origin x={nx}, panel {narrow["menuW"]}px wide)',
+          nx is not None and nx > narrow['menuW'] * 0.75)
+    check('and the panel is on the right there',
+          narrow['menuRight'] >= 480)
+
+
+def test_min_query(chrome, port, profile):
+    """One or two letters matched nearly everything, so the box filled with
+    noise. Short queries now explain themselves instead of searching."""
+    print('\n[search] a query has to be long enough to mean something')
+    for typed, expect in (('a', 'Keep typing'), ('ab', 'Keep typing')):
+        r = _measure(chrome, port, profile, 'dropdown', 0, type=typed)
+        if r is None:
+            skip(f'typing {typed!r}', 'no measurement')
+            continue
+        check(f'{typed!r}: nothing is searched ({r["resultCount"]} results)',
+              r['resultCount'] == 0)
+        check(f'{typed!r}: and it says why — {r["resultsText"]!r}',
+              expect in (r['resultsText'] or ''))
+    r = _measure(chrome, port, profile, 'dropdown', 0, type='ab')
+    if r:
+        check('the countdown is singular with one to go',
+              ' 1 more character.' in (r['resultsText'] or ''))
+    r = _measure(chrome, port, profile, 'dropdown', 0, type='abo')
+    if r:
+        check(f'three letters searches ({r["resultCount"]} results)',
+              r['resultCount'] > 0)
 
 
 def test_backdrop(chrome, port, profile):

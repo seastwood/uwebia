@@ -9862,6 +9862,17 @@ _FOLDER_ACTION_MAP = {
 
 
 @app.context_processor
+def inject_public_search_limits():
+    """The search field's minimum query length, from the one place it is set.
+
+    The field refuses short queries so the reader gets an explanation instead of
+    a request that the server would refuse anyway — but the two must agree, and
+    a number written twice is a number that drifts.
+    """
+    return {'public_search_min_chars': PUBLIC_SEARCH_MIN_CHARS}
+
+
+@app.context_processor
 def inject_github_login():
     """Expose GitHub sign-in availability + the org admin-privacy policy to every
     admin template, so the login page and settings don't each have to ask."""
@@ -25250,12 +25261,22 @@ def public_search_prefixed(prefix):
     return _public_search_handler(request.args.get('q', ''), prefix=prefix)
 
 
+# One or two letters match nearly every page on a site — the search box filled
+# with everything and told the reader nothing. Short queries are refused rather
+# than answered badly. Enforced here as well as in the field so a hand-made
+# request can't spend a full scan on 'a'.
+PUBLIC_SEARCH_MIN_CHARS = 3
+
+
 def _public_search_handler(query, prefix):
     website = get_live_website(url_prefix=prefix or None)
     if not website:
         return jsonify({'results': [], 'query': query}), 404
     if not website.public_navbar_show_search:
         return jsonify({'results': [], 'query': query, 'disabled': True}), 403
+    if len((query or '').strip()) < PUBLIC_SEARCH_MIN_CHARS:
+        return jsonify({'results': [], 'query': query,
+                        'min_chars': PUBLIC_SEARCH_MIN_CHARS})
     results = _public_search_website(website, query, limit=30)
     return jsonify({'results': results, 'query': query})
 

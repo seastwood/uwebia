@@ -783,9 +783,14 @@
         overflow: hidden;
         background: rgba(20, 20, 20, 0.98);
         padding: 10px;
-        border-radius: 12px 4px 12px 12px;   /* pinched near the hamburger (top-right) */
+        /* The corner nearest the hamburger is pinched, and the panel grows out
+           of it. On desktop the hamburger is top-LEFT and the panel is
+           left-aligned, so both belong on the left; the mobile override below
+           flips them, because there the hamburger and the panel are on the
+           right. */
+        border-radius: 4px 12px 12px 12px;   /* pinched near the hamburger (top-left) */
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
-        transform-origin: top right;         /* grow OUT of the hamburger */
+        transform-origin: top left;          /* grow OUT of the hamburger */
     }
 
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
@@ -1806,10 +1811,13 @@
         margin-top: auto; margin-bottom: auto;
         z-index: 10045;
     }
-    /* Its dropdown opens below the hamburger (right), not on the left. */
+    /* Its dropdown opens below the hamburger (right), not on the left — so the
+       pinched corner and the origin it grows from move over with it. */
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu {
         left: auto !important;
         right: 12px !important;
+        border-radius: 12px 4px 12px 12px !important;   /* pinched top-right */
+        transform-origin: top right !important;
     }
 
     /* Brand: no profile on the left anymore, so the title runs to the far LEFT;
@@ -2041,6 +2049,15 @@ html.gv-guide .public-cart-btn { display: none !important; }
                 return;
             }
             if (!state.query) { results.innerHTML = ''; return; }
+            // Say why nothing is happening. Silence here reads as a broken
+            // search box; one or two letters otherwise matched nearly every
+            // page and the list was useless anyway.
+            if (state.tooShort) {
+                const left = SEARCH_MIN_CHARS - state.query.length;
+                results.innerHTML = '<div class="public-navbar-search-empty">Keep typing — '
+                    + left + ' more character' + (left === 1 ? '' : 's') + '.</div>';
+                return;
+            }
             if (!state.items || !state.items.length) {
                 results.innerHTML = `<div class="public-navbar-search-empty">No results for &ldquo;${esc(state.query)}&rdquo;.</div>`;
                 return;
@@ -2066,10 +2083,19 @@ html.gv-guide .public-cart-btn { display: none !important; }
             results.innerHTML = html;
         }
 
+        // Must match PUBLIC_SEARCH_MIN_CHARS in main.py — the server refuses
+        // anything shorter, so asking would only ever come back empty.
+        const SEARCH_MIN_CHARS = {{ public_search_min_chars | default(3) }};
+
         async function runSearch(q) {
             if (q === lastQuery) return;
             lastQuery = q;
             if (!q) { render({ query: '' }); return; }
+            if (q.length < SEARCH_MIN_CHARS) {
+                lastResults = [];
+                render({ query: q, tooShort: true });
+                return;
+            }
             render({ loading: true, query: q });
             try {
                 const r = await fetch(`${url}?q=${encodeURIComponent(q)}`);
