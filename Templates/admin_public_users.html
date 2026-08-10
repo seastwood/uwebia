@@ -804,7 +804,7 @@ function buildUserRow(websiteId, u) {
         ? '<span class="pu-badge pu-badge-visitor" id="mbadge-' + u.id + '">Visitor</span>'
         : `<span class="pu-badge pu-badge-${ms}" id="mbadge-${u.id}">${MEMBERSHIP_LABELS[ms] || ms}</span>`;
 
-    let stateBtn = '', banBtn = '', deleteBtn = '', editBtn = '', roleBtn = '', promoteBtn = '', orgBtn = '';
+    let stateBtn = '', banBtn = '', deleteBtn = '', editBtn = '', roleBtn = '', promoteBtn = '', orgBtn = '', reset2faBtn = '';
     if (!u.is_admin_mirror && CAN_EDIT_MEMBERS) {
         orgBtn = `<div class="pu-org-dropdown" id="orgDropdown-${u.id}">
             <button class="pu-btn pu-btn-edit" onclick="toggleOrgDropdown(${u.id}, ${websiteId}, event)"><i class="fas fa-users-gear"></i> Org</button>
@@ -834,6 +834,7 @@ function buildUserRow(websiteId, u) {
             ? `<button class="pu-btn pu-btn-unban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-unlock"></i> Unban</button>`
             : `<button class="pu-btn pu-btn-ban" id="btn-ban-${u.id}" onclick="toggleBan(${u.id})"><i class="fas fa-ban"></i> Ban</button>`;
         if (CAN_DELETE_MEMBERS) deleteBtn = `<button class="pu-btn pu-btn-delete" onclick='confirmDelete(${u.id}, ${JSON.stringify(u.username)})'><i class="fas fa-trash"></i></button>`;
+        if (u.has_2fa) reset2faBtn = `<button class="pu-btn pu-btn-edit" onclick='resetMemberTwoFactor(${u.id}, ${JSON.stringify(u.username)})' title="Reset two-factor authentication — use when they're locked out of their authenticator or codes"><i class="fas fa-unlock"></i> 2FA</button>`;
         if (CAN_EDIT_MEMBERS) {
             editBtn = `<button class="pu-btn pu-btn-edit" onclick='openEdit(${u.id}, ${JSON.stringify(u.username)}, ${JSON.stringify(u.email)}, ${JSON.stringify(u.first_name || "")}, ${JSON.stringify(u.last_name || "")})'><i class="fas fa-pencil-alt"></i> Edit</button>`;
             roleBtn = `<div class="pu-role-dropdown" id="roleDropdown-${u.id}">
@@ -875,6 +876,7 @@ function buildUserRow(websiteId, u) {
                 ${orgBtn}
                 ${roleBtn}
                 ${editBtn}
+                ${reset2faBtn}
                 ${promoteBtn}
                 ${stateBtn}
                 ${banBtn}
@@ -882,6 +884,26 @@ function buildUserRow(websiteId, u) {
             </div>
         </td>`;
     return tr;
+}
+
+// Removes their factors so they can get back in; it never grants access.
+// A staff profile's 2FA lives on the admin account behind it, so the server
+// sends those to the Admin Users page instead.
+async function resetMemberTwoFactor(userId, username) {
+    if (!confirm(
+        `Reset two-factor authentication for "${username}"?\n\n` +
+        `Their authenticator app, emailed code and recovery codes are all removed, ` +
+        `and any lockout on the account is lifted. They can set it up again whenever ` +
+        `they choose.`)) return;
+    const r = await fetch(`/admin/users/public/${userId}/2fa/reset`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to reset two-factor authentication'); return; }
+    const bits = [];
+    if (d.cleared && d.cleared.length) bits.push('Removed: ' + d.cleared.join(' and ') + '.');
+    else bits.push('They had no second factor enrolled.');
+    if (d.lockouts_lifted) bits.push('Lockout lifted.');
+    alert(bits.join('\n'));
+    location.reload();
 }
 
 function formatDate(iso) {

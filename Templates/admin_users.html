@@ -565,6 +565,19 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                 </button>
                 {% endif %}
                 {% endif %}
+                {% endif %}
+                {# Lockout recovery: only meaningful for an account that HAS a
+                   factor, which is the complement of the setup-code button
+                   above. Stripping a factor must not reach above your own
+                   level, so an owner's can only be reset by another owner. #}
+                {% if can_reset_2fa and u.id not in unprotected_admin_ids
+                      and (current_user.is_full_admin or not u.is_full_admin) %}
+                <button class="uw-btn uw-btn-secondary" onclick="resetTwoFactor({{ u.id }}, '{{ u.username | e }}')"
+                        title="Reset two-factor authentication — use when they're locked out of their authenticator or codes">
+                    <i class="fas fa-unlock"></i>
+                </button>
+                {% endif %}
+                {% if current_user.is_full_admin %}
                 <button class="uw-btn uw-btn-secondary{% if u.is_co_owner %} is-coowner{% endif %}" onclick="toggleCoOwner({{ u.id }}, {{ 'true' if u.is_co_owner else 'false' }}, '{{ u.username | e }}')" title="{{ 'Revoke co-owner (full control)' if u.is_co_owner else 'Make co-owner — full, unrestricted control' }}">
                     <i class="fas fa-user-shield"></i>
                 </button>
@@ -2129,6 +2142,44 @@ function copyTicketCode() {
         btn.innerHTML = '<i class="fas fa-check"></i> Copied';
         setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> Copy'; }, 1800);
     }).catch(() => alert(code));
+}
+
+// ── 2FA lockout recovery ─────────────────────────────────────────────────────
+// Removes their factors; it never grants access. Where 2FA is required org-wide
+// the next sign-in stops at enrolment instead of reaching the dashboard.
+
+async function resetTwoFactor(userId, username) {
+    if (!confirm(
+        `Reset two-factor authentication for "${username}"?\n\n` +
+        `Their authenticator app, emailed code and recovery codes are all removed, ` +
+        `and any lockout on the account is lifted.\n\n` +
+        `This does not turn 2FA off: if it's required, they'll have to set it up ` +
+        `again the next time they sign in.`)) return;
+
+    const r = await fetch(`/admin/users/${userId}/2fa/reset`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to reset two-factor authentication'); return; }
+
+    // A setup code comes back only when the org requires one to enrol — without
+    // handing it over, the reset would just trade one lockout for another.
+    if (d.ticket) {
+        document.getElementById('ticketUsername').textContent = d.username;
+        document.getElementById('ticketCode').textContent = d.ticket;
+        document.getElementById('ticketHours').textContent = d.expires_hours;
+        document.getElementById('ticketModalOverlay').classList.add('open');
+        document.body.classList.add('uw-modal-open');
+        return;
+    }
+
+    const bits = [];
+    if (d.cleared && d.cleared.length) bits.push('Removed: ' + d.cleared.join(' and ') + '.');
+    else bits.push('They had no second factor enrolled.');
+    if (d.lockouts_lifted) bits.push('Lockout lifted.');
+    bits.push(d.must_enrol_next_login
+        ? 'They must set up two-factor again at their next sign-in.'
+        : 'They can set it up again whenever they choose.');
+    alert(bits.join('\n'));
+    location.reload();
 }
 
 async function issueEnrollmentTicket(userId, username, hasPending) {

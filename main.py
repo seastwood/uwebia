@@ -10905,6 +10905,65 @@ def register_failed_two_factor_attempt(user=None):
     return False
 
 
+def clear_login_lockout_for(identifier):
+    """Lift the account-keyed login / second-factor lockout for one username.
+
+    Counters are keyed "ip:<addr>" and "ip:<addr>:id:<username>". Only the
+    second kind is cleared here: the bare address key is shared by everyone
+    signing in from that connection, so wiping it on one person's behalf would
+    hand a free pass to whoever else is behind the same IP.
+    """
+    ident = (identifier or '').strip().lower()[:100]
+    if not ident:
+        return 0
+    rows = LoginRateLimit.query.filter(
+        LoginRateLimit.key.like(f'%:id:{ident}')).all()
+    for row in rows:
+        db.session.delete(row)
+    return len(rows)
+
+
+def reset_two_factor_for(account, reason='an administrator reset it'):
+    """Strip every second factor from an account so its owner can get back in.
+
+    The recovery path for a lost phone or a dead authenticator. Deliberately
+    leaves no partial state: an account still holding, say, unusable recovery
+    codes is one that looks protected and is not.
+
+    Nothing here grants access — it only removes factors. Where the org
+    requires 2FA, admin_second_factor_state then reports "required, nothing
+    enrolled", and begin_admin_login sends them to set one up before they can
+    reach the dashboard. So a reset means "enrol again at next sign-in", not
+    "2FA is off now".
+
+    Returns (what_was_cleared, lockout_counters_lifted).
+    """
+    cleared = []
+    if getattr(account, 'two_factor_enabled', False):
+        cleared.append('emailed code')
+    if getattr(account, 'totp_enabled', False):
+        cleared.append('authenticator app')
+
+    if isinstance(account, User):
+        # Also clears two_factor_email and stamps the reason, which is what
+        # tells them why they are being asked to set it up again.
+        disable_user_2fa(account, reason=reason, needs_attention=True)
+        clear_totp_enrollment_ticket(account)
+    else:
+        account.two_factor_enabled = False
+
+    account.totp_secret = None
+    account.totp_enabled = False
+    account.totp_activated_at = None
+    account.totp_last_counter = None
+    account.totp_recovery_codes = None
+
+    # Being "locked out" often means literally that — too many wrong codes.
+    # Leaving the counter in place would reset the factor and still refuse them.
+    lifted = clear_login_lockout_for(getattr(account, 'username', ''))
+    return cleared, lifted
+
+
 def two_factor_lockout_active(user=None):
     """True when this address has failed too many second-factor attempts."""
     try:
@@ -11454,6 +11513,79 @@ def issue_2fa_enrollment_ticket(user_id):
         'ticket': plain,
         'username': target.username,
         'expires_hours': _TOTP_ENROLL_TICKET_HOURS,
+    })
+
+
+@app.route('/admin/users/<int:user_id>/2fa/reset', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def admin_reset_two_factor(user_id):
+    """Clear another admin's second factor after a lockout.
+
+    Removes factors, never grants access. Where the org requires 2FA the
+    account is then "required, nothing enrolled", so the next sign-in stops at
+    enrolment rather than reaching the dashboard.
+    """
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    if target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False,
+                           'error': 'That admin is not part of your organization.'}, 403)
+    # Stripping a second factor leaves an account defended by its password
+    # alone, so it must not be a way to reach further up than you already are.
+    if target.is_full_admin and not current_user.is_full_admin:
+        return _utf8_json({'success': False,
+                           'error': "You can't reset an owner's two-factor authentication."}, 403)
+
+    cleared, lifted = reset_two_factor_for(target)
+
+    # Under the ticket policy they cannot enrol again unaided, so a reset that
+    # stopped here would just trade one lockout for another. Issue the code the
+    # policy demands and hand it back for the admin to pass on.
+    ticket = None
+    anchor = get_main_admin()
+    if (anchor is not None and target.id != anchor.id
+            and getattr(anchor, 'org_require_enroll_ticket', False)):
+        ticket = issue_totp_enrollment_ticket(target, current_user)
+
+    db.session.commit()
+    app.logger.warning('2FA reset for admin id=%s (%s) by admin id=%s',
+                       target.id, target.username, current_user.id)
+    return _utf8_json({
+        'success': True,
+        'username': target.username,
+        'cleared': cleared,
+        'lockouts_lifted': lifted,
+        'must_enrol_next_login': bool(admin_requires_2fa(target)),
+        'ticket': ticket,
+        'expires_hours': _TOTP_ENROLL_TICKET_HOURS if ticket else None,
+    })
+
+
+@app.route('/admin/users/public/<int:user_id>/2fa/reset', methods=['POST'])
+@login_required
+@require_perm('public_users.edit')
+def admin_reset_public_two_factor(user_id):
+    """Clear a member's second factor after a lockout."""
+    pu = _get_owned_public_user(user_id)
+    # A staff profile's enrolment lives on the admin account behind it, so
+    # resetting it here would be an admin 2FA reset wearing a member's clothes
+    # — and this route is gated on a member permission. Send it to the route
+    # that asks for the right one.
+    mirror_reject = _reject_if_admin_mirror(pu)
+    if mirror_reject:
+        return mirror_reject
+
+    cleared, lifted = reset_two_factor_for(pu)
+    db.session.commit()
+    app.logger.warning('2FA reset for public user id=%s (%s) by admin id=%s',
+                       pu.id, pu.username, current_user.id)
+    return _utf8_json({
+        'success': True,
+        'username': pu.username,
+        'cleared': cleared,
+        'lockouts_lifted': lifted,
     })
 
 
@@ -25578,6 +25710,7 @@ def admin_users_page():
                            anchor_unprotected=bool(anchor and anchor.id in unprotected_ids),
                            anchor_username=(anchor.username if anchor else ''),
                            enroll_ticket_hours=_TOTP_ENROLL_TICKET_HOURS,
+                           can_reset_2fa=current_user.has_permission('settings.2fa'),
                            permissions_schema=ADMIN_PERMISSIONS,
                            website_specific_sections=WEBSITE_SPECIFIC_SECTIONS,
                            general_perm_categories=permission_categories_for(
@@ -25859,6 +25992,9 @@ def admin_public_users_list():
             'divisions': _div_by_user.get(u.id, []),
             'is_admin_mirror': bool(u.mirrored_admin_user_id),
             'membership_status': u.membership_status,
+            # Drives the lockout-reset button: there is nothing to reset on an
+            # account that has no second factor.
+            'has_2fa': bool(u.two_factor_enabled or u.totp_enabled),
         })
 
     pages = (total + per_page - 1) // per_page if per_page else 1
