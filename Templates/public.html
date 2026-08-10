@@ -458,6 +458,23 @@
     .markdown-area > :first-child { margin-top: 0; }
     .markdown-area > :last-child  { margin-bottom: 0; }
 
+    /* ── Text section container placement ───────────────────────────────────
+       A capped or shrink-to-fit container is narrower than the section, so it
+       has to sit somewhere. It follows the text's own alignment — the setting
+       in the toolbar — rather than being centred by the mere presence of a max
+       width, which is what used to happen. Left is the default, so no rule. */
+    .text-area:has(.ql-align-center) { margin-left: auto; margin-right: auto; }
+    .text-area:has(.ql-align-right)  { margin-left: auto; margin-right: 0; }
+
+    /* "Fit content": the box hugs the text instead of filling the section.
+       Padding, radius, shadow and margins all still apply — only the width
+       changes. Capped at 100% so a long unbroken line cannot push it wider
+       than the section. */
+    .text-area.is-fit-content {
+        width: fit-content;
+        max-width: 100%;
+    }
+
     /* Normalize paragraph spacing inside Quill-rendered text so it matches
        the editor preview. Browser default p margins + preserved-blank-line
        min-height stacked to produce triple spacing between paragraphs. */
@@ -4565,11 +4582,18 @@ box-sizing: border-box;
                                 {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
                                 {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
 
-                                <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+                                {% set container_width = section.content.get('container_width', 'block') %}
+                                {# No auto margins here on purpose. Setting a max width used to add
+                                   `margin-left:auto; margin-right:auto`, which centred the whole
+                                   container no matter what the toolbar's alignment said. Where the
+                                   box sits is decided by the text's own alignment instead — see
+                                   .text-area:has(.ql-align-*) in the stylesheet. #}
+                                <div class="text-area{% if container_width == 'fit' %} is-fit-content{% endif %}"
+                                     style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
             padding: {{ padding }}px;
             border-radius: {{ radius }}px;
             box-shadow: {{ shadow_css }};
-            {% if text_max_width and text_max_width != '0' %}width: auto; max-width: {{ text_max_width }}px; margin-left: auto; margin-right: auto;{% endif %}">
+            {% if text_max_width and text_max_width != '0' %}max-width: {{ text_max_width }}px;{% endif %}">
                                     {{ section.content['html'] | safe }}
                                 </div>
 

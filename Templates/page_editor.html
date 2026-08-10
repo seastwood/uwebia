@@ -10488,6 +10488,18 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         </div>
 
         <div class="text-style-group">
+            <label>Container Width</label>
+            <select name="container_width">
+                <option value="block" ${section.content['container_width'] !== 'fit' ? 'selected' : ''}>Full width of the section</option>
+                <option value="fit" ${section.content['container_width'] === 'fit' ? 'selected' : ''}>Fit the text</option>
+            </select>
+            <span style="font-weight:normal; color:#aaa; font-size:11px;">
+                "Fit the text" shrinks the background to the text it holds. Padding, corners and shadow still apply.
+                Where the box sits follows the alignment you set in the text toolbar.
+            </span>
+        </div>
+
+        <div class="text-style-group">
             <label>Max Width <span style="font-weight:normal; color:#aaa; font-size:11px;">(slide left for none)</span></label>
             <input type="range" name="text_max_width" min="0" max="1800" step="20"
                 value="${section.content['text_max_width'] || '0'}">
@@ -10521,6 +10533,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             const radiusInput = sectionContent.querySelector('input[name="border_radius"]');
                             const shadowInput = sectionContent.querySelector('select[name="box_shadow"]');
                             const maxWidthInput = sectionContent.querySelector('input[name="text_max_width"]');
+                            const containerWidthInput = sectionContent.querySelector('select[name="container_width"]');
 
 
                             function hexToRgba(hex, opacity) {
@@ -10561,18 +10574,30 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 const radius = radiusInput ? radiusInput.value : '10';
                                 const shadow = shadowInput ? shadowInput.value : 'none';
                                 const maxWidth = maxWidthInput ? maxWidthInput.value : '0';
+                                const fitWidth = containerWidthInput
+                                    ? containerWidthInput.value === 'fit' : false;
 
                                 editorSurface.style.background = hexToRgba(bgColor, bgOpacity);
                                 editorSurface.style.padding = `${padding}px`;
                                 editorSurface.style.borderRadius = `${radius}px`;
                                 editorSurface.style.boxShadow = getShadowValue(shadow);
                                 editorSurface.style.maxWidth = (maxWidth && maxWidth !== '0') ? `${maxWidth}px` : '';
-                                editorSurface.style.marginLeft = (maxWidth && maxWidth !== '0') ? 'auto' : '';
-                                editorSurface.style.marginRight = (maxWidth && maxWidth !== '0') ? 'auto' : '';
+                                editorSurface.style.width = fitWidth ? 'fit-content' : '';
+
+                                // Where a narrowed box sits follows the text's own
+                                // alignment, the same rule the public page uses.
+                                // Setting a max width used to force auto margins here
+                                // and centre the container regardless of the toolbar.
+                                const body = editorSurface.querySelector('.ql-editor') || editorSurface;
+                                const centred = !!body.querySelector('.ql-align-center');
+                                const right = !!body.querySelector('.ql-align-right');
+                                editorSurface.style.marginLeft = (centred || right) ? 'auto' : '';
+                                editorSurface.style.marginRight = centred ? 'auto' : (right ? '0' : '');
                             }
                             applyEditorSurfaceStyles();
 
-                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput, maxWidthInput].forEach(input => {
+                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput,
+                             maxWidthInput, containerWidthInput].forEach(input => {
                                 if (!input) return;
                                 input.addEventListener('input', applyEditorSurfaceStyles);
                                 input.addEventListener('change', applyEditorSurfaceStyles);
@@ -10664,12 +10689,21 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             // editor uses.
                             const _TEXT_FONTS = ['arial', 'georgia', 'times', 'verdana', 'trebuchet', 'garamond', 'courier', 'monospace'];
                             const _TEXT_SIZES = ['10px','12px','14px','16px','18px','20px','24px','28px','32px','40px','48px','64px','80px','96px'];
+                            // Headings, indent, blockquote, code block and
+                            // sub/superscript were missing here while every other
+                            // rich editor in the app offered them, so text sections
+                            // silently had a smaller set of formatting than posts.
+                            // The toolbar wraps, so the extra row costs no width.
                             const _textToolbarOptions = [
-                                [{ 'font': _TEXT_FONTS }, { 'size': _TEXT_SIZES }],
+                                [{ 'header': [1, 2, 3, 4, false] },
+                                 { 'font': _TEXT_FONTS }, { 'size': _TEXT_SIZES }],
                                 ['bold', 'italic', 'underline', 'strike',
                                  { 'color': [] }, { 'background': [] }],
                                 [{ 'align': [] },
-                                 { 'list': 'ordered' }, { 'list': 'bullet' }],
+                                 { 'list': 'ordered' }, { 'list': 'bullet' },
+                                 { 'indent': '-1' }, { 'indent': '+1' }],
+                                ['blockquote', 'code-block',
+                                 { 'script': 'sub' }, { 'script': 'super' }],
                                 ['link', 'effects', 'insertasset', 'embedvideo', 'clean'],
                             ];
                             const quill = new Quill(editorEl, {
