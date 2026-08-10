@@ -70,6 +70,14 @@
 .gi-tab:hover { opacity: 0.85; }
 .gi-tab.is-active { opacity: 1; border-bottom-color: currentColor; }
 .gi-tab-panel[hidden] { display: none; }
+/* Category chips. Same idea as the role/division chips on the members page:
+   one tap to narrow a long list down to what you came for. */
+.gi-catbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px; }
+.gi-chip { appearance: none; -webkit-appearance: none; font: inherit; font-size: 0.82rem; font-weight: 600; color: inherit; display: inline-flex; align-items: center; gap: 7px; padding: 6px 13px; border-radius: 99px; cursor: pointer; border: 1px solid rgba(127,127,127,0.34); background: rgba(127,127,127,0.08); opacity: 0.78; transition: opacity 0.15s, border-color 0.15s, background 0.15s; }
+.gi-chip:hover { opacity: 1; border-color: rgba(127,127,127,0.6); }
+.gi-chip.is-active { opacity: 1; border-color: var(--chip, currentColor); background: color-mix(in srgb, var(--chip, currentColor) 14%, transparent); }
+.gi-chip i { font-size: 0.78em; color: var(--chip, inherit); }
+.gi-section[hidden] { display: none; }
 /* Resources & Quizzes render as a compact list (not big cards) */
 .gi-rsc-list { display: flex; flex-direction: column; gap: 8px; }
 .gi-rsc-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05); text-decoration: none; color: inherit; transition: background 0.15s, border-color 0.15s; }
@@ -334,6 +342,54 @@
 
     {# Guides | Quizzes | Resources tabs — only when there are standalone public
        quizzes or resources; otherwise the guides render with no tab chrome. #}
+{# One row of category chips. Rendered only when there is more than one
+   category to choose between — a single group needs no filter, and an
+   "All / Uncategorized" pair is just noise. #}
+<script>
+// Narrow a tab to one category. Purely local — everything is already on the
+// page, grouped by category, so there is nothing to fetch and no reload.
+//
+// Deliberately outside the tab-bar block below: that block only renders when
+// there are quizzes or resources to switch between, but the chips appear
+// whenever a single tab has more than one category. A guides-only site drew
+// the chips and had nothing to handle the clicks.
+function giFilterCategory(tab, cat, btn) {
+    var panel = document.querySelector('.gi-tab-panel[data-tab="' + tab + '"]');
+    if (!panel) return;
+    var bar = panel.querySelector('.gi-catbar');
+    if (bar) {
+        bar.querySelectorAll('.gi-chip').forEach(function (b) {
+            b.classList.toggle('is-active', b === btn);
+        });
+    }
+    panel.querySelectorAll('.gi-section').forEach(function (sec) {
+        sec.hidden = (cat !== 'all' && sec.dataset.cat !== cat);
+    });
+}
+// Switching tabs leaves each tab's own filter as it was, which is what you
+// want when flicking between them; a tab never opened starts on "All".
+</script>
+
+{% macro category_chips(groups, tab) %}
+{% if groups|length > 1 %}
+<div class="gi-catbar" data-catbar="{{ tab }}">
+    <button type="button" class="gi-chip is-active" data-cat="all"
+            onclick="giFilterCategory('{{ tab }}', 'all', this)">All</button>
+    {% for grp in groups %}
+    {% set cid = grp.category.id if grp.category else 'none' %}
+    <button type="button" class="gi-chip" data-cat="{{ cid }}"
+            onclick="giFilterCategory('{{ tab }}', '{{ cid }}', this)"
+            {% if grp.category and grp.category.color %}style="--chip:{{ grp.category.color }};"{% endif %}>
+        {% if grp.category %}
+        {% if grp.category.icon %}<i class="fas {{ grp.category.icon }}"></i>{% endif %}
+        {{ grp.category.name }}
+        {% else %}Uncategorized{% endif %}
+    </button>
+    {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
     {% if grouped_quizzes or grouped_resources %}
     <div class="gi-tabs" role="tablist">
         <button type="button" class="gi-tab is-active" data-tab="guides" role="tab" onclick="giSwitchTab('guides')"><i class="fas fa-book-open"></i> Guides</button>
@@ -343,6 +399,7 @@
     {% endif %}
 
     <div class="gi-tab-panel" data-tab="guides">
+    {{ category_chips(grouped_guides, 'guides') }}
 
     {% if guides %}
     <div class="gi-search">
@@ -408,7 +465,7 @@
             {% if c.completed >= c.total %}{% set _ = _done.append(1) %}{% endif %}
         {% endif %}
     {% endfor %}
-    <section class="gi-section">
+    <section class="gi-section" data-cat="{{ grp.category.id if grp.category else 'none' }}">
         <header class="gi-section-head">
             <h2 class="gi-section-title">
                 {% if grp.category %}
@@ -471,6 +528,7 @@
 
     {% if grouped_quizzes %}
     <div class="gi-tab-panel" data-tab="quizzes" hidden>
+    {{ category_chips(grouped_quizzes, 'quizzes') }}
         <div class="gi-search">
             <i class="fas fa-magnifying-glass"></i>
             <input type="search" class="gi-search-input" placeholder="Search quizzes…" autocomplete="off" aria-label="Search quizzes">
@@ -500,7 +558,7 @@
         </div>
         {% else %}
         {% for grp in grouped_quizzes %}
-        <section class="gi-section">
+        <section class="gi-section" data-cat="{{ grp.category.id if grp.category else 'none' }}">
             <header class="gi-section-head">
                 <h2 class="gi-section-title">
                     {% if grp.category %}
@@ -526,6 +584,7 @@
 
     {% if grouped_resources %}
     <div class="gi-tab-panel" data-tab="resources" hidden>
+    {{ category_chips(grouped_resources, 'resources') }}
         <div class="gi-search">
             <i class="fas fa-magnifying-glass"></i>
             <input type="search" class="gi-search-input" placeholder="Search resources…" autocomplete="off" aria-label="Search resources">
@@ -538,7 +597,7 @@
         {% else %}
         {% for grp in grouped_resources %}
         {% set _cat = grp.category.name if grp.category else 'Uncategorized' %}
-        <section class="gi-section">
+        <section class="gi-section" data-cat="{{ grp.category.id if grp.category else 'none' }}">
             <header class="gi-section-head">
                 <h2 class="gi-section-title">
                     {% if grp.category %}

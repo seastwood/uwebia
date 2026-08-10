@@ -47,6 +47,15 @@
     .forum-body {
         white-space: pre-wrap;
         line-height: 1.55;
+        /* Posts are plain text, so they hold no real tables — but people paste
+           ASCII ones, and pre-wrap keeps those rows on one line. That, or a
+           single long URL, pushed the page wider than the screen and left the
+           reader dragging the whole site sideways. Scroll the post instead of
+           the page; wrapping instead would preserve neither the alignment of a
+           pasted table nor the link. */
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
     }
 
     textarea {

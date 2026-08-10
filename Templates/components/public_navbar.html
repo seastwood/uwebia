@@ -766,20 +766,64 @@
         top: 64px;
         left: 12px;
         width: 260px;
+        /* Bounded to what is actually on screen. Without this the panel grew
+           to whatever its contents needed — a search with twenty hits made it
+           657px tall inside a 557px viewport — and since the panel is what
+           holds the nav links, the links below the results simply fell off the
+           bottom with no way to reach them. 64px clears the navbar, 12px is
+           breathing room at the foot. */
+        max-height: calc(100vh - 76px);
+        max-height: calc(100dvh - 76px);   /* excludes mobile browser chrome */
+        /* The panel itself must NOT be the scroller. Its background and blur
+           are painted by an absolutely positioned ::before, and an abspos child
+           of a scroll container scrolls with the content — so scrolling slid
+           the backdrop up and left the bottom of the menu showing the bare
+           page through it. Bounding the panel here and scrolling the inner
+           wrapper instead keeps the backdrop pinned to the panel. */
+        overflow: hidden;
         background: rgba(20, 20, 20, 0.98);
         padding: 10px;
-        border-radius: 12px 4px 12px 12px;   /* pinched near the hamburger (top-right) */
+        /* The corner nearest the hamburger is pinched, and the panel grows out
+           of it. On desktop the hamburger is top-LEFT and the panel is
+           left-aligned, so both belong on the left; the mobile override below
+           flips them, because there the hamburger and the panel are on the
+           right. */
+        border-radius: 4px 12px 12px 12px;   /* pinched near the hamburger (top-left) */
         box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
-        transform-origin: top right;         /* grow OUT of the hamburger */
+        transform-origin: top left;          /* grow OUT of the hamburger */
     }
 
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
-        display: block;
+        /* Column flex so the inner wrapper can take the leftover height and
+           scroll inside it. */
+        display: flex;
+        flex-direction: column;
         animation: navMenuDrop 0.2s ease;
     }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu > .public-navbar-menu-glass {
+        flex: 1 1 auto;
+        min-height: 0;          /* or a flex item refuses to shrink below content */
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+    /* Scales out of the hamburger, and deliberately does NOT fade.
+
+       The fade was what let the page show through: the panel is translucent by
+       design (rgba(20,20,20,0.72) plus a blur), so animating opacity from 0
+       means that during the open you are looking at a fraction of a
+       see-through panel over a SHARP backdrop — the blur is applied to the
+       panel, but most of what you see is the page behind it. Measured against
+       a striped backdrop 15% into the open: pixel variance under the panel was
+       96 with the fade and 0.5 without, where 0.5 is what a fully settled
+       frosted panel measures.
+
+       Scaling alone does not do that. A transform does not stop
+       backdrop-filter from sampling, so the panel is fully frosted from the
+       first frame and simply grows into place. */
     @keyframes navMenuDrop {
-        from { opacity: 0; transform: scale(0.8) translateY(-6px); }
-        to   { opacity: 1; transform: scale(1) translateY(0); }
+        from { transform: scale(0.8) translateY(-6px); }
+        to   { transform: scale(1) translateY(0); }
     }
 
     .public-navbar-menu a {
@@ -1767,10 +1811,13 @@
         margin-top: auto; margin-bottom: auto;
         z-index: 10045;
     }
-    /* Its dropdown opens below the hamburger (right), not on the left. */
+    /* Its dropdown opens below the hamburger (right), not on the left — so the
+       pinched corner and the origin it grows from move over with it. */
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu {
         left: auto !important;
         right: 12px !important;
+        border-radius: 12px 4px 12px 12px !important;   /* pinched top-right */
+        transform-origin: top right !important;
     }
 
     /* Brand: no profile on the left anymore, so the title runs to the far LEFT;
@@ -1877,8 +1924,12 @@ html.gv-guide .public-cart-btn { display: none !important; }
 .public-navbar-search-results {
     margin-top: 10px;
     display: flex; flex-direction: column; gap: 6px;
-    max-height: 60vh;
+    /* The results share the panel with the nav links, so they cannot have most
+       of the screen. At 60vh a phone-sized panel was almost entirely results
+       and the links were pushed out of it. */
+    max-height: 40vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 .public-navbar-search-result {
     display: block;
@@ -1972,6 +2023,18 @@ html.gv-guide .public-cart-btn { display: none !important; }
             .replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+        // Must cover every `type` _public_search_website emits.
+        const SEARCH_TYPE_LABELS = {
+            page: 'Page',
+            post: 'Post',
+            product: 'Product',
+            newsletter: 'Newsletter',
+            guide: 'Guide',
+            lesson: 'Lesson',
+            quiz: 'Quiz',
+            resource: 'Resource',
+        };
+
         function highlight(text, q) {
             if (!q) return esc(text);
             const safe = esc(text);
@@ -1986,13 +2049,27 @@ html.gv-guide .public-cart-btn { display: none !important; }
                 return;
             }
             if (!state.query) { results.innerHTML = ''; return; }
+            // Say why nothing is happening. Silence here reads as a broken
+            // search box; one or two letters otherwise matched nearly every
+            // page and the list was useless anyway.
+            if (state.tooShort) {
+                const left = SEARCH_MIN_CHARS - state.query.length;
+                results.innerHTML = '<div class="public-navbar-search-empty">Keep typing — '
+                    + left + ' more character' + (left === 1 ? '' : 's') + '.</div>';
+                return;
+            }
             if (!state.items || !state.items.length) {
                 results.innerHTML = `<div class="public-navbar-search-empty">No results for &ldquo;${esc(state.query)}&rdquo;.</div>`;
                 return;
             }
             const html = state.items.map(r => {
-                const typeLabel = r.type === 'post' ? 'Post' : 'Page';
-                const extra = r.type === 'post' && r.collection
+                // Anything not in this map used to fall through to "Page",
+                // which mislabelled products and newsletter issues as pages.
+                const typeLabel = SEARCH_TYPE_LABELS[r.type] || 'Page';
+                // The second line of context — a post's collection, a lesson's
+                // guide, a guide or quiz's category. Shown whenever the server
+                // sends one rather than for posts alone.
+                const extra = r.collection
                     ? ` <span style="opacity:0.55;font-weight:500;font-size:0.74rem;letter-spacing:0;text-transform:none;color:rgba(255,255,255,0.6);">${esc(r.collection)}</span>` : '';
                 return `<a class="public-navbar-search-result" href="${esc(r.url)}">
                     <div class="public-navbar-search-result-title">
@@ -2006,10 +2083,19 @@ html.gv-guide .public-cart-btn { display: none !important; }
             results.innerHTML = html;
         }
 
+        // Must match PUBLIC_SEARCH_MIN_CHARS in main.py — the server refuses
+        // anything shorter, so asking would only ever come back empty.
+        const SEARCH_MIN_CHARS = {{ public_search_min_chars | default(3) }};
+
         async function runSearch(q) {
             if (q === lastQuery) return;
             lastQuery = q;
             if (!q) { render({ query: '' }); return; }
+            if (q.length < SEARCH_MIN_CHARS) {
+                lastResults = [];
+                render({ query: q, tooShort: true });
+                return;
+            }
             render({ loading: true, query: q });
             try {
                 const r = await fetch(`${url}?q=${encodeURIComponent(q)}`);

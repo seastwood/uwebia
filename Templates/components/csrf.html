@@ -16,6 +16,16 @@
   var TOKEN = meta ? meta.getAttribute('content') : '';
   if (!TOKEN) return;
 
+  // Published as a global as well as patched in below. A lot of hand-written
+  // calls send `X-CSRFToken: typeof csrfToken !== 'undefined' ? csrfToken : ''`
+  // — and where nothing defined csrfToken that sent an EMPTY token. The header
+  // was then present, so the patch below left it alone (it only fills a header
+  // that is missing), and every one of those requests was rejected as a stale
+  // session. Reordering rows and groups in the page editor failed this way, and
+  // no amount of reloading or signing in again could help, because the session
+  // was never the problem.
+  try { window.csrfToken = TOKEN; } catch (e) {}
+
   var SAFE = /^(GET|HEAD|OPTIONS|TRACE)$/i;
 
   function sameOrigin(url) {

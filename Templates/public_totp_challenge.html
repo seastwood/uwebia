@@ -1,0 +1,170 @@
+{% extends 'public_base.html' %}
+
+{% block title %}Authenticator Code{% endblock %}
+
+{% block head %}
+<style>
+    .auth-card {
+        width: min(420px, calc(100% - 28px));
+        margin: 110px auto;
+        padding: 28px 24px;
+        background: rgba(0,0,0,0.34);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-radius: 20px;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+    }
+
+    .auth-card h1 { font-size: 1.4rem; font-weight: 800; margin: 0 0 6px; }
+
+    .auth-card p.subtitle {
+        font-size: 0.88rem;
+        color: rgba(255,255,255,0.55);
+        margin: 0 0 22px;
+        line-height: 1.5;
+    }
+
+    .auth-card input[type="text"] {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 13px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.08);
+        color: inherit;
+        font: inherit;
+        font-size: 1.5rem;
+        letter-spacing: 0.25em;
+        text-align: center;
+        margin-bottom: 14px;
+    }
+    /* A recovery code is words-and-dashes, not six digits — the display that
+       suits one is unreadable for the other. */
+    .auth-card.recovery input[type="text"] {
+        font-size: 1.05rem;
+        letter-spacing: 0.08em;
+    }
+
+    .auth-card input[type="text"]:focus {
+        outline: none;
+        border-color: rgba(94,238,200,0.5);
+    }
+
+    .auth-submit {
+        width: 100%;
+        padding: 12px;
+        border-radius: 12px;
+        border: none;
+        background: linear-gradient(135deg, #5eeef8, #5eeec8);
+        color: #111;
+        font-weight: 800;
+        font-size: 0.95rem;
+        cursor: pointer;
+        transition: opacity 0.15s;
+    }
+    .auth-submit:hover { opacity: 0.88; }
+
+    .auth-link {
+        display: block;
+        text-align: center;
+        margin-top: 16px;
+        font-size: 0.84rem;
+        color: rgba(255,255,255,0.45);
+        text-decoration: none;
+        background: none;
+        border: none;
+        width: 100%;
+        cursor: pointer;
+    }
+    .auth-link:hover { color: rgba(255,255,255,0.75); }
+
+    .flash-msg {
+        padding: 10px 14px;
+        border-radius: 10px;
+        margin-bottom: 14px;
+        font-size: 0.85rem;
+    }
+    .flash-error { background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8888; }
+    .flash-success { background: rgba(94,238,200,0.13); border: 1px solid rgba(94,238,200,0.3); color: #5eeec8; }
+    .flash-info { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.16); }
+
+    .lost-note {
+        background: rgba(255,196,84,0.1);
+        border: 1px solid rgba(255,196,84,0.32);
+        color: #ffd08a;
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.83rem;
+        margin-bottom: 14px;
+        line-height: 1.45;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="auth-card" id="authCard">
+    <h1 id="cardTitle">Enter your code</h1>
+    <p class="subtitle" id="cardSubtitle">
+        Open your authenticator app and enter the current 6-digit code for this site.
+    </p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="flash-msg flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    {% if secret_lost %}
+    {# Every generated code would be rejected. Saying so up front stops them
+       retyping a correct code over and over. #}
+    <div class="lost-note">
+        This account's authenticator can no longer be read by the server, so codes from your
+        app won't be accepted. Use one of your recovery codes to sign in, then set the
+        authenticator up again from your account settings.
+    </div>
+    {% endif %}
+
+    <form method="POST" action="{{ submit_url or url_for('public_totp_challenge') }}" id="codeForm">
+        <input type="hidden" name="use_recovery" id="useRecovery" value="{% if secret_lost and has_recovery %}1{% else %}{% endif %}">
+        <input type="text" name="code" id="codeInput"
+               placeholder="{% if secret_lost and has_recovery %}xxxxx-xxxxx{% else %}000000{% endif %}"
+               inputmode="{% if secret_lost and has_recovery %}text{% else %}numeric{% endif %}"
+               autocomplete="one-time-code" autocapitalize="none" spellcheck="false"
+               autofocus required>
+        <button type="submit" class="auth-submit">Verify</button>
+    </form>
+
+    {% if has_recovery %}
+    <button type="button" class="auth-link" id="modeToggle" onclick="toggleRecovery()">
+        {% if secret_lost %}Use a code from my authenticator instead{% else %}Use a recovery code instead{% endif %}
+    </button>
+    {% endif %}
+
+    <a class="auth-link" href="{{ url_for('public_login', website_prefix=website.url_prefix) }}">← Back to login</a>
+</div>
+<script>
+var _recovery = document.getElementById('useRecovery').value === '1';
+function toggleRecovery() {
+    _recovery = !_recovery;
+    var card    = document.getElementById('authCard');
+    var input   = document.getElementById('codeInput');
+    var title   = document.getElementById('cardTitle');
+    var sub     = document.getElementById('cardSubtitle');
+    var toggle  = document.getElementById('modeToggle');
+    document.getElementById('useRecovery').value = _recovery ? '1' : '';
+    card.classList.toggle('recovery', _recovery);
+    input.value = '';
+    input.placeholder = _recovery ? 'xxxxx-xxxxx' : '000000';
+    input.setAttribute('inputmode', _recovery ? 'text' : 'numeric');
+    title.textContent = _recovery ? 'Use a recovery code' : 'Enter your code';
+    sub.textContent = _recovery
+        ? 'Enter one of the recovery codes you saved when you set up your authenticator. Each one works once.'
+        : 'Open your authenticator app and enter the current 6-digit code for this site.';
+    toggle.textContent = _recovery
+        ? 'Use a code from my authenticator instead'
+        : 'Use a recovery code instead';
+    input.focus();
+}
+if (_recovery) { _recovery = false; toggleRecovery(); }
+</script>
+{% endblock %}

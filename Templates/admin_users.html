@@ -565,6 +565,19 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                 </button>
                 {% endif %}
                 {% endif %}
+                {% endif %}
+                {# Lockout recovery: only meaningful for an account that HAS a
+                   factor, which is the complement of the setup-code button
+                   above. Stripping a factor must not reach above your own
+                   level, so an owner's can only be reset by another owner. #}
+                {% if can_reset_2fa and u.id not in unprotected_admin_ids
+                      and (current_user.is_full_admin or not u.is_full_admin) %}
+                <button class="uw-btn uw-btn-secondary" onclick="resetTwoFactor({{ u.id }}, '{{ u.username | e }}')"
+                        title="Reset two-factor authentication — use when they're locked out of their authenticator or codes">
+                    <i class="fas fa-unlock"></i>
+                </button>
+                {% endif %}
+                {% if current_user.is_full_admin %}
                 <button class="uw-btn uw-btn-secondary{% if u.is_co_owner %} is-coowner{% endif %}" onclick="toggleCoOwner({{ u.id }}, {{ 'true' if u.is_co_owner else 'false' }}, '{{ u.username | e }}')" title="{{ 'Revoke co-owner (full control)' if u.is_co_owner else 'Make co-owner — full, unrestricted control' }}">
                     <i class="fas fa-user-shield"></i>
                 </button>
@@ -828,12 +841,22 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                 <button type="button" class="perm-select-all" style="font-size:0.8rem;color:rgba(255,100,100,0.7);" onclick="toggleGroupAll(false)">Revoke all</button>
             </div>
 
+            <div class="perm-search-wrap">
+                <i class="fas fa-search perm-search-icon"></i>
+                <input type="text" class="perm-search" id="groupPermSearch" autocomplete="off"
+                       placeholder="Search permissions — e.g. delete, publish, quiz"
+                       oninput="filterGroupPermissions(this.value)">
+                <div class="perm-search-count" id="groupPermSearchCount" style="display:none;"></div>
+            </div>
+
             <div style="font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.06);">
                 Global — apply to all websites
             </div>
             <div id="groupPermissionsContainer" class="perm-columns">
-                {% for section_key, section in permissions_schema.items() %}
-                {% if section_key not in website_specific_sections %}
+                {% for cat_label, cat_keys in general_perm_categories %}
+                <div class="perm-category"><div class="perm-category-label">{{ cat_label }}</div></div>
+                {% for section_key in cat_keys %}
+                {% set section = permissions_schema[section_key] %}
                 <div class="perm-section" data-section="{{ section_key }}">
                     <div class="perm-section-header">
                         <span class="perm-section-label">{{ section.label }}</span>
@@ -846,7 +869,7 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                     </label>
                     {% endfor %}
                 </div>
-                {% endif %}
+                {% endfor %}
                 {% endfor %}
             </div>
 
@@ -857,8 +880,10 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                 These are the baseline access levels for all websites. Override per website in the section below.
             </p>
             <div id="groupPermissionsContainerWebsite" class="perm-columns">
-                {% for section_key, section in permissions_schema.items() %}
-                {% if section_key in website_specific_sections %}
+                {% for cat_label, cat_keys in website_perm_categories %}
+                <div class="perm-category"><div class="perm-category-label">{{ cat_label }}</div></div>
+                {% for section_key in cat_keys %}
+                {% set section = permissions_schema[section_key] %}
                 <div class="perm-section" data-section="{{ section_key }}">
                     <div class="perm-section-header">
                         <span class="perm-section-label">{{ section.label }}</span>
@@ -871,7 +896,7 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
                     </label>
                     {% endfor %}
                 </div>
-                {% endif %}
+                {% endfor %}
                 {% endfor %}
             </div>
 
@@ -1014,6 +1039,7 @@ const _existingUsers = {
     },
     {% endfor %}
 };
+const CURRENT_USER_ID = {{ current_user.id | tojson }};
 const _storageConnections = {{ storage_connections | default([]) | tojson }};
 
 const _liveWebsites = {{ live_websites | map(attribute='id') | list | tojson }}.map((id, i) => ({
@@ -1482,11 +1508,23 @@ function _collectStorageAccess(scope) {
 // word doesn't appear in the individual line. Section and category headers
 // disappear once nothing under them matches, so no empty scaffolding is left.
 function filterPermissions(term) {
+    _filterPermGrids(term, ['#permissionsContainer', '#permissionsContainerWebsite'],
+                     'permSearchCount');
+}
+
+// The permission group modal lists exactly the same permissions, so it gets the
+// same behaviour rather than a second copy of it.
+function filterGroupPermissions(term) {
+    _filterPermGrids(term, ['#groupPermissionsContainer', '#groupPermissionsContainerWebsite'],
+                     'groupPermSearchCount');
+}
+
+function _filterPermGrids(term, selectors, countId) {
     const q = (term || '').trim().toLowerCase();
-    const countEl = document.getElementById('permSearchCount');
+    const countEl = document.getElementById(countId);
     let shown = 0;
 
-    document.querySelectorAll('#permissionsContainer, #permissionsContainerWebsite').forEach(grid => {
+    document.querySelectorAll(selectors.join(', ')).forEach(grid => {
         grid.querySelectorAll('.perm-section').forEach(sec => {
             const secLabel = (sec.querySelector('.perm-section-label')?.textContent || '').toLowerCase();
             let anyVisible = false;
@@ -1543,6 +1581,13 @@ function _escPerm(t) {
 function clearPermissionSearch() {
     const box = document.getElementById('permSearch');
     if (box && box.value) { box.value = ''; filterPermissions(''); }
+}
+
+// Reopening a group with a stale search still applied would look like the
+// group has only three permissions in it.
+function clearGroupPermissionSearch() {
+    const box = document.getElementById('groupPermSearch');
+    if (box) { box.value = ''; filterGroupPermissions(''); }
 }
 
 function _buildPerWebsiteUI(existingWP) {
@@ -2001,6 +2046,21 @@ async function _adminUserRequest(url, label) {
     return d;
 }
 
+async function deleteOwnAccount(username) {
+    if (!confirm(
+        `Delete YOUR OWN admin account, "${username}"?\n\n`
+        + `You will be signed out immediately and will not be able to sign back in.\n\n`
+        + `Anything belonging to the organisation — assets, calendars, folders, `
+        + `permission groups — is handed to the owner rather than deleted.\n\n`
+        + `This cannot be undone by you. Only an owner could create you a new account.`)) return;
+    if (!confirm(`Last check: this really does close your account and sign you out. Continue?`)) return;
+
+    const d = await _adminUserRequest(`/admin/users/${CURRENT_USER_ID}/delete`, 'Delete');
+    if (!d) return;
+    alert('Your admin account has been deleted.' + _movedSummary(d));
+    window.location.href = d.redirect || '/admin/login';
+}
+
 function _movedSummary(d) {
     if (!d || !d.moved || !d.moved.length) return '';
     return '\n\nHanded over to you:\n'
@@ -2008,6 +2068,9 @@ function _movedSummary(d) {
 }
 
 async function deleteUser(userId, username) {
+    // Closing your own account is a different decision from removing somebody
+    // else's, and it ends the session — so it asks differently.
+    if (userId === CURRENT_USER_ID) return deleteOwnAccount(username);
     if (!confirm(`Delete admin user "${username}"? They will immediately lose access.\n\n`
         + `Anything of the organisation's they were attached to — assets, calendars, `
         + `folders, permission groups — moves to you rather than blocking the delete.\n\n`
@@ -2079,6 +2142,44 @@ function copyTicketCode() {
         btn.innerHTML = '<i class="fas fa-check"></i> Copied';
         setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> Copy'; }, 1800);
     }).catch(() => alert(code));
+}
+
+// ── 2FA lockout recovery ─────────────────────────────────────────────────────
+// Removes their factors; it never grants access. Where 2FA is required org-wide
+// the next sign-in stops at enrolment instead of reaching the dashboard.
+
+async function resetTwoFactor(userId, username) {
+    if (!confirm(
+        `Reset two-factor authentication for "${username}"?\n\n` +
+        `Their authenticator app, emailed code and recovery codes are all removed, ` +
+        `and any lockout on the account is lifted.\n\n` +
+        `This does not turn 2FA off: if it's required, they'll have to set it up ` +
+        `again the next time they sign in.`)) return;
+
+    const r = await fetch(`/admin/users/${userId}/2fa/reset`, { method: 'POST' });
+    const d = await r.json();
+    if (!d.success) { alert(d.error || 'Failed to reset two-factor authentication'); return; }
+
+    // A setup code comes back only when the org requires one to enrol — without
+    // handing it over, the reset would just trade one lockout for another.
+    if (d.ticket) {
+        document.getElementById('ticketUsername').textContent = d.username;
+        document.getElementById('ticketCode').textContent = d.ticket;
+        document.getElementById('ticketHours').textContent = d.expires_hours;
+        document.getElementById('ticketModalOverlay').classList.add('open');
+        document.body.classList.add('uw-modal-open');
+        return;
+    }
+
+    const bits = [];
+    if (d.cleared && d.cleared.length) bits.push('Removed: ' + d.cleared.join(' and ') + '.');
+    else bits.push('They had no second factor enrolled.');
+    if (d.lockouts_lifted) bits.push('Lockout lifted.');
+    bits.push(d.must_enrol_next_login
+        ? 'They must set up two-factor again at their next sign-in.'
+        : 'They can set it up again whenever they choose.');
+    alert(bits.join('\n'));
+    location.reload();
 }
 
 async function issueEnrollmentTicket(userId, username, hasPending) {
@@ -2220,6 +2321,7 @@ function openGroupModal(groupId) {
     document.getElementById('groupModalTitle').textContent = groupId ? 'Edit Permission Group' : 'New Permission Group';
     document.getElementById('groupSubmitBtn').textContent = groupId ? 'Save Changes' : 'Create Group';
     document.querySelectorAll('#groupPermissionsContainer input[type="checkbox"], #groupPermissionsContainerWebsite input[type="checkbox"]').forEach(cb => cb.checked = false);
+    clearGroupPermissionSearch();
 
     // Reset asset library folder checkboxes
     document.querySelectorAll('.grp-folder-access-cb').forEach(cb => {

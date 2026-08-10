@@ -1,8 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
+{% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="https://cdn.quilljs.com/1.3.6/quill.snow.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/quill_pickers.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
 
@@ -37,6 +40,13 @@
 .gn-icon.lesson { color: #5eeef8; }
 .gn-label { flex: 1; font-size: 0.86rem; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gn-empty { font-size: 0.82rem; color: rgba(255,255,255,0.3); padding: 18px 6px; text-align: center; }
+/* Who is in which lesson, shown on the row itself — the contents list is
+   where you decide what to open, so it is where knowing matters. */
+.gn-peers { display: flex; align-items: center; gap: 3px; margin-left: auto; flex: none; }
+.gn-peer-dot { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 0.56rem; font-weight: 850; color: #10101a; border: 1.5px solid rgba(18,18,26,0.85); }
+.gn-peer-dot.is-editing { animation: gnPeerPulse 1.8s ease-out infinite; }
+@keyframes gnPeerPulse { 0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.5); } 70% { box-shadow: 0 0 0 5px rgba(255,255,255,0); } 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); } }
+@media (prefers-reduced-motion: reduce) { .gn-peer-dot.is-editing { animation: none; } }
 
 /* Editor pane */
 .ge-field { margin-bottom: 14px; }
@@ -56,6 +66,7 @@
 .ge-btn-danger:hover { background: rgba(255,80,80,0.22); }
 .ge-placeholder { color: rgba(255,255,255,0.35); font-size: 0.9rem; text-align: center; padding: 60px 20px; }
 .ge-chapter-note { color: rgba(255,255,255,0.4); font-size: 0.85rem; padding: 16px; background: rgba(255,255,255,0.03); border-radius: 8px; }
+
 
 #quill-editor { background: rgba(255,255,255,0.03); color: #fff; border-radius: 0 0 10px 10px; min-height: 320px; }
 .ql-toolbar { background: rgba(22,22,34,0.97); border-color: rgba(255,255,255,0.12) !important; border-radius: 10px 10px 0 0; }
@@ -161,6 +172,8 @@
 
     <!-- Editor panel -->
     <div class="ge-card" id="gePane">
+        <!-- Who else has this guide open, and where they are in it. -->
+        <div id="gePresence"></div>
         <div class="ge-placeholder" id="gePlaceholder">
             Select a node on the left to edit it, or add a chapter / lesson to begin.
         </div>
@@ -184,14 +197,16 @@
                 </label>
             </div>
             <div class="ge-field" id="geContentField">
-                <label class="ge-label">Lesson content</label>
+                <label class="ge-label">Lesson content
+                    <span id="geCoeditStatus" style="float:right;font-weight:600;text-transform:none;letter-spacing:0;font-size:0.72rem;color:rgba(255,255,255,0.35);"></span>
+                </label>
                 <div id="quill-editor"></div>
             </div>
             <div class="ge-chapter-note" id="geChapterNote" style="display:none;">
                 Chapters are headings that group lessons. They have no body content of their own.
             </div>
             <div class="ge-actions">
-                <button class="ge-btn ge-btn-primary" onclick="saveNode(this)"><i class="fas fa-check"></i> Save</button>
+                <button id="geSaveBtn" class="ge-btn ge-btn-primary" onclick="saveNode(this)"><i class="fas fa-check"></i> Save</button>
                 <button class="ge-btn ge-btn-danger" onclick="deleteNode()"><i class="fas fa-trash"></i> Delete</button>
             </div>
         </div>
@@ -257,6 +272,11 @@ let TREE = {{ tree | tojson }};
 let currentNodeId = null;
 let quill = null;
 let _sortables = [];
+// Version of the node currently loaded, echoed back on save so the server can
+// refuse a write built on a copy someone else has already replaced.
+let baseVersion = null;
+let forceNextSave = false;
+let _presence = null;
 
 // ── Custom Quill blots (register before new Quill) ─────────────────────────
 (function registerBlots() {
@@ -391,7 +411,11 @@ function initQuill() {
             toolbar: {
                 container: toolbarOptions,
                 handlers: { image: quillImageHandler, video: quillVideoHandler },
-            }
+            },
+            // No `cursors` entry on purpose: components/coedit.html is a
+            // deferred module, so it registers the module after this runs, and
+            // Quill would try to construct a null import here. It fits the
+            // module itself once co-editing starts.
         }
     });
 
@@ -851,7 +875,53 @@ function persistOrder() {
 }
 async function refreshTree(selectId) {
     const d = await (await fetch(`/admin/guides/${GUIDE_ID}/tree`)).json();
-    if (d.success) { TREE = d.tree; if (selectId !== undefined) currentNodeId = selectId; renderTree(); }
+    if (d.success) {
+        TREE = d.tree;
+        if (selectId !== undefined) currentNodeId = selectId;
+        renderTree();
+        // renderTree() rebuilds every row, so the chips have to go back on.
+        paintTreePeers(_lastPeers);
+    }
+}
+
+// Everyone currently in this guide, drawn at the right end of the lesson they
+// are in. Kept so a tree re-render can restore them without waiting up to a
+// full heartbeat for the next poll.
+let _lastPeers = [];
+function paintTreePeers(peers) {
+    _lastPeers = peers || [];
+    document.querySelectorAll('.gn-peers').forEach(el => el.remove());
+    const byNode = {};
+    _lastPeers.forEach(p => {
+        if (!p.context_id) return;
+        (byNode[p.context_id] = byNode[p.context_id] || []).push(p);
+    });
+    Object.keys(byNode).forEach(nodeId => {
+        const row = document.querySelector(`.gn-item[data-id="${nodeId}"] > .gn-row`);
+        if (!row) return;
+        const wrap = document.createElement('span');
+        wrap.className = 'gn-peers';
+        // A crowded row would push the title out; past three, count the rest.
+        byNode[nodeId].slice(0, 3).forEach(p => {
+            const dot = document.createElement('span');
+            dot.className = 'gn-peer-dot' + (p.is_editing ? ' is-editing' : '');
+            dot.style.background = UwebiaPresence.colorFor(p.user_id);
+            dot.textContent = p.initials;
+            dot.title = p.name + (p.is_editing ? ' — editing' : ' — viewing');
+            wrap.appendChild(dot);
+        });
+        const extra = byNode[nodeId].length - 3;
+        if (extra > 0) {
+            const more = document.createElement('span');
+            more.className = 'gn-peer-dot';
+            more.style.background = 'rgba(255,255,255,0.28)';
+            more.style.color = '#fff';
+            more.textContent = '+' + extra;
+            more.title = byNode[nodeId].slice(3).map(p => p.name).join(', ');
+            wrap.appendChild(more);
+        }
+        row.appendChild(wrap);
+    });
 }
 async function addNode(type) {
     const title = prompt(type === 'chapter' ? 'Chapter title:' : 'Lesson title:');
@@ -912,6 +982,45 @@ async function selectNode(id) {
     document.querySelectorAll('.gn-row').forEach(r => r.classList.remove('is-selected'));
     const li = document.querySelector(`.gn-item[data-id="${id}"]`);
     if (li) li.querySelector('.gn-row').classList.add('is-selected');
+    // Remember what we loaded, so the save can prove it wasn't built on a copy
+    // someone has since replaced.
+    baseVersion = node.version || null;
+    if (_presence) _presence.beat();
+    startCoediting(node);
+}
+
+// Live co-editing for the open lesson. Chapters have no body, so there is
+// nothing to share. Everything degrades to the old behaviour if the module
+// did not load: the version check still guards the save.
+function startCoediting(node) {
+    if (!window.UwebiaCoedit) return;
+    UwebiaCoedit.detach();
+    if (node.node_type !== 'lesson') return;
+    UwebiaCoedit.attach({
+        quill: quill,
+        docKey: 'guide_node:' + node.id,
+        seed: node.content || '',
+        name: {{ (current_user.username or 'Someone') | tojson }},
+        color: UwebiaPresence.colorFor({{ current_user.id }}),
+        // Everyone in the session tracks the saved version, so whoever presses
+        // Save is never working from a stale number and the conflict dialog
+        // stops firing between people who are already merged.
+        onVersion: function (v) { baseVersion = v; },
+        onStatus: function (state, peers) {
+            const el = document.getElementById('geCoeditStatus');
+            if (!el) return;
+            if (state === 'offline') {
+                el.textContent = 'Reconnecting…';
+                el.style.color = '#ffc454';
+            } else if (peers > 0) {
+                el.textContent = `Live — editing together with ${peers} other${peers > 1 ? 's' : ''}`;
+                el.style.color = '#5eeec8';
+            } else {
+                el.textContent = 'Live';
+                el.style.color = 'rgba(255,255,255,0.35)';
+            }
+        },
+    });
 }
 async function saveNode(btn) {
     const id = document.getElementById('geNodeId').value;
@@ -926,6 +1035,8 @@ async function saveNode(btn) {
     };
     if (!body.title) { alert('Title is required'); return; }
     if (type === 'lesson') body.content = quill.root.innerHTML;
+    if (baseVersion) body.base_version = baseVersion;
+    if (forceNextSave) { body.force = true; forceNextSave = false; }
 
     const original = btn ? btn.innerHTML : null;
     if (btn) {
@@ -935,8 +1046,10 @@ async function saveNode(btn) {
     const restore = () => { if (btn) { btn.innerHTML = original; btn.disabled = false; btn.classList.remove('ge-btn-saved'); } };
 
     try {
-        const d = await (await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+        const r = await fetch(`/admin/guides/${GUIDE_ID}/nodes/save`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const d = await r.json();
         if (d.success) {
+            baseVersion = (d.node && d.node.version) || baseVersion;
             await refreshTree(parseInt(id));
             if (btn) {
                 btn.innerHTML = '<i class="fas fa-check"></i> Saved!';
@@ -944,6 +1057,9 @@ async function saveNode(btn) {
                 clearTimeout(btn._savedTimer);
                 btn._savedTimer = setTimeout(restore, 1800);
             }
+        } else if (r.status === 409 && d.conflict) {
+            restore();
+            handleSaveConflict(d, body);
         } else {
             alert(d.error || 'Failed to save');
             restore();
@@ -953,6 +1069,25 @@ async function saveNode(btn) {
         restore();
     }
 }
+
+// Shared dialog: theirs / mine / cancel, clipboard-first.
+function handleSaveConflict(d, attempted) {
+    UwebiaConflict.handle(d, {
+        label: 'lesson',
+        mine: attempted.content || '',
+        applyTheirs: function (c) {
+            quill.root.innerHTML = c.current_content || '';
+            document.getElementById('geNodeTitle').value = c.current_title || '';
+            baseVersion = c.current_version;
+        },
+        retryForce: function () {
+            forceNextSave = true;
+            baseVersion = d.current_version;
+            saveNode(document.getElementById('geSaveBtn'));
+        },
+    });
+}
+
 async function deleteNode() {
     const id = document.getElementById('geNodeId').value;
     if (!id) return;
@@ -965,5 +1100,23 @@ async function deleteNode() {
         await refreshTree();
     } else { alert(d.error || 'Failed to delete'); }
 }
+
+// Presence + conflict handling now live in components/presence.html so the
+// six editors share one implementation.
+window.addEventListener('DOMContentLoaded', function () {
+    _presence = UwebiaPresence.start({
+        type: 'guide',
+        id: GUIDE_ID,
+        container: 'gePresence',
+        noun: 'lesson',
+        quill: quill,
+        context: function () {
+            if (!currentNodeId) return {};
+            return { id: currentNodeId,
+                     label: (document.getElementById('geNodeTitle') || {}).value || null };
+        },
+        onPeers: paintTreePeers,
+    });
+});
 </script>
 {% endblock %}

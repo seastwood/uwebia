@@ -155,14 +155,26 @@ def main_test():
     # Sections below need a live sub-admin again.
     anchor_id, blocked_id, clean_id = setup()
 
-    print('\n[3] self-deletion')
+    print('\n[3] closing your own account')
+    # This used to assert the opposite — self-deletion was refused outright,
+    # which left an admin unable to close their own account without asking
+    # somebody else. Allowed now for everyone except the primary owner, which
+    # section [2] already covers.
     with app.test_client() as c:
         with c.session_transaction() as s:
             s['_user_id'] = str(blocked_id)
             s['_fresh'] = True
         r = c.post(f'/admin/users/{blocked_id}/delete')
-        check('you cannot delete the account you are signed in with',
-              r.status_code == 400 and "signed in" in (r.get_json().get('error') or ''))
+        d = r.get_json() or {}
+        check(f'an admin may delete their own account — got {r.status_code}',
+              r.status_code == 200 and d.get('success') is True)
+        check('and is told the session is over', d.get('self_deleted') is True)
+    with app.app_context():
+        check('the account is really gone',
+              db.session.get(main.User, blocked_id) is None)
+
+    # That admin no longer exists, so the demote section needs a fresh one.
+    anchor_id, blocked_id, clean_id = setup()
 
     print('\n[4] demote re-homes the same way')
     with app.test_client() as c:

@@ -43,6 +43,8 @@
 
 {% extends 'base.html' %}
 {% block content %}
+{% include 'components/presence.html' %}
+{% include 'components/coedit.html' %}
 {% include 'components/navbar.html' %}
 
 {% include 'components/photo_library_modal.html' %}
@@ -4448,6 +4450,12 @@
 
     .section-drag-handle:active {
         cursor: grabbing;
+    }
+
+    /* Without this the browser treats a press-and-drag on the handle as a page
+       scroll and never delivers the pointermove events the touch drag needs. */
+    .section-drag-handle {
+        touch-action: none;
     }
 
     .section-label {
@@ -8883,6 +8891,10 @@ document.getElementById("refreshButton").addEventListener("click", function () {
 
         function reloadSections(sections, rows, columns, website, groups = []) {
             setCurrentGroups(groups);
+            // Rebuilding the section list throws away every Quill it had,
+            // so the shared documents bound to them must be released or their
+            // pollers keep running against dead editors.
+            if (window.UwebiaCoedit) UwebiaCoedit.detach();
             quillEditors = [];
 
             // Destroy all existing CodeMirror instances so stale references don't
@@ -10482,6 +10494,18 @@ document.getElementById("refreshButton").addEventListener("click", function () {
         </div>
 
         <div class="text-style-group">
+            <label>Container Width</label>
+            <select name="container_width">
+                <option value="block" ${section.content['container_width'] !== 'fit' ? 'selected' : ''}>Full width of the section</option>
+                <option value="fit" ${section.content['container_width'] === 'fit' ? 'selected' : ''}>Fit the text</option>
+            </select>
+            <span style="font-weight:normal; color:#aaa; font-size:11px;">
+                "Fit the text" shrinks the background to the text it holds. Padding, corners and shadow still apply.
+                Where the box sits follows the alignment you set in the text toolbar.
+            </span>
+        </div>
+
+        <div class="text-style-group">
             <label>Max Width <span style="font-weight:normal; color:#aaa; font-size:11px;">(slide left for none)</span></label>
             <input type="range" name="text_max_width" min="0" max="1800" step="20"
                 value="${section.content['text_max_width'] || '0'}">
@@ -10515,6 +10539,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             const radiusInput = sectionContent.querySelector('input[name="border_radius"]');
                             const shadowInput = sectionContent.querySelector('select[name="box_shadow"]');
                             const maxWidthInput = sectionContent.querySelector('input[name="text_max_width"]');
+                            const containerWidthInput = sectionContent.querySelector('select[name="container_width"]');
 
 
                             function hexToRgba(hex, opacity) {
@@ -10555,18 +10580,30 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 const radius = radiusInput ? radiusInput.value : '10';
                                 const shadow = shadowInput ? shadowInput.value : 'none';
                                 const maxWidth = maxWidthInput ? maxWidthInput.value : '0';
+                                const fitWidth = containerWidthInput
+                                    ? containerWidthInput.value === 'fit' : false;
 
                                 editorSurface.style.background = hexToRgba(bgColor, bgOpacity);
                                 editorSurface.style.padding = `${padding}px`;
                                 editorSurface.style.borderRadius = `${radius}px`;
                                 editorSurface.style.boxShadow = getShadowValue(shadow);
                                 editorSurface.style.maxWidth = (maxWidth && maxWidth !== '0') ? `${maxWidth}px` : '';
-                                editorSurface.style.marginLeft = (maxWidth && maxWidth !== '0') ? 'auto' : '';
-                                editorSurface.style.marginRight = (maxWidth && maxWidth !== '0') ? 'auto' : '';
+                                editorSurface.style.width = fitWidth ? 'fit-content' : '';
+
+                                // Where a narrowed box sits follows the text's own
+                                // alignment, the same rule the public page uses.
+                                // Setting a max width used to force auto margins here
+                                // and centre the container regardless of the toolbar.
+                                const body = editorSurface.querySelector('.ql-editor') || editorSurface;
+                                const centred = !!body.querySelector('.ql-align-center');
+                                const right = !!body.querySelector('.ql-align-right');
+                                editorSurface.style.marginLeft = (centred || right) ? 'auto' : '';
+                                editorSurface.style.marginRight = centred ? 'auto' : (right ? '0' : '');
                             }
                             applyEditorSurfaceStyles();
 
-                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput, maxWidthInput].forEach(input => {
+                            [bgColorInput, bgOpacityInput, paddingInput, radiusInput, shadowInput,
+                             maxWidthInput, containerWidthInput].forEach(input => {
                                 if (!input) return;
                                 input.addEventListener('input', applyEditorSurfaceStyles);
                                 input.addEventListener('change', applyEditorSurfaceStyles);
@@ -10658,12 +10695,21 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                             // editor uses.
                             const _TEXT_FONTS = ['arial', 'georgia', 'times', 'verdana', 'trebuchet', 'garamond', 'courier', 'monospace'];
                             const _TEXT_SIZES = ['10px','12px','14px','16px','18px','20px','24px','28px','32px','40px','48px','64px','80px','96px'];
+                            // Headings, indent, blockquote, code block and
+                            // sub/superscript were missing here while every other
+                            // rich editor in the app offered them, so text sections
+                            // silently had a smaller set of formatting than posts.
+                            // The toolbar wraps, so the extra row costs no width.
                             const _textToolbarOptions = [
-                                [{ 'font': _TEXT_FONTS }, { 'size': _TEXT_SIZES }],
+                                [{ 'header': [1, 2, 3, 4, false] },
+                                 { 'font': _TEXT_FONTS }, { 'size': _TEXT_SIZES }],
                                 ['bold', 'italic', 'underline', 'strike',
                                  { 'color': [] }, { 'background': [] }],
                                 [{ 'align': [] },
-                                 { 'list': 'ordered' }, { 'list': 'bullet' }],
+                                 { 'list': 'ordered' }, { 'list': 'bullet' },
+                                 { 'indent': '-1' }, { 'indent': '+1' }],
+                                ['blockquote', 'code-block',
+                                 { 'script': 'sub' }, { 'script': 'super' }],
                                 ['link', 'effects', 'insertasset', 'embedvideo', 'clean'],
                             ];
                             const quill = new Quill(editorEl, {
@@ -10720,6 +10766,30 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                 quill: quill,
                                 textarea: hiddenTextarea
                             });
+
+                            // One shared document per rich-text section. They
+                            // all beat together in a single request, so a page
+                            // with a dozen text blocks is still one poll a
+                            // second, not a dozen.
+                            if (window.UwebiaCoedit) {
+                                UwebiaCoedit.attach({
+                                    quill: quill,
+                                    docKey: 'page_section:' + section.id,
+                                    seed: quill.root.innerHTML,
+                                    name: {{ (current_user.username or 'Someone') | tojson }},
+                                    color: UwebiaPresence.colorFor({{ current_user.id }}),
+                                    // Keep the card's version in step, so the
+                                    // section save is never refused over an
+                                    // edit this browser already has.
+                                    onVersion: function (v) { _setSectionVersion(section.id, v); },
+                                });
+                                // The hidden textarea is what /update_section
+                                // posts, so a merged remote edit has to reach
+                                // it too — not just the visible editor.
+                                quill.on('text-change', function () {
+                                    hiddenTextarea.value = quill.root.innerHTML;
+                                });
+                            }
 
                             quill.on('text-change', function () {
                                 syncEditor();
@@ -14038,6 +14108,7 @@ setTimeout(() => {
                 // Optimistic locking: include the version we last saw
                 const card = document.querySelector(`.section-card[data-section-id="${form.dataset.sectionId}"]`);
                 if (card) formData.set("_version", card.dataset.sectionVersion ?? '');
+                if (_takeForce(sectionId)) formData.set('_force', '1');
 
                 fetch(endpoint, {
                     method: "POST",
@@ -14045,6 +14116,14 @@ setTimeout(() => {
                 })
                     .then(async response => {
                         const data = await response.json();
+                        if (response.status === 409 && data.conflict) {
+                            if (data.version !== undefined && card) card.dataset.sectionVersion = data.version;
+                            UwebiaConflict.handle(data, {
+                                label: 'section',
+                                armForce: function () { _armForce(sectionId); },
+                            });
+                            return null;
+                        }
                         if (!response.ok) {
                             throw new Error(data.message || data.error || 'Failed to save section.');
                         }
@@ -14400,14 +14479,58 @@ setTimeout(() => {
             return null;
         }
 
+        // ── Section versions ─────────────────────────────────────────
+        // Every path that writes a section must send the version it last saw
+        // AND take the new one back, or the next ordinary save looks stale and
+        // reports a conflict that isn't one. That mismatch is exactly why
+        // enforcement was left switched off before.
+        function _sectionCard(id) {
+            return document.querySelector(`.section-card[data-section-id="${id}"]`);
+        }
+        function _sectionVersion(id) {
+            const c = _sectionCard(id);
+            return c ? (c.dataset.sectionVersion ?? '') : '';
+        }
+        function _setSectionVersion(id, v) {
+            const c = _sectionCard(id);
+            if (c && v !== undefined && v !== null) c.dataset.sectionVersion = v;
+        }
+        function _armForce(id) {
+            const c = _sectionCard(id);
+            if (c) c.dataset.forceNextSave = '1';
+        }
+        function _takeForce(id) {
+            const c = _sectionCard(id);
+            if (c && c.dataset.forceNextSave === '1') { delete c.dataset.forceNextSave; return true; }
+            return false;
+        }
+        // Autosaving paths report a clash instead of interrupting, and stop
+        // saving into it until the person acts.
+        const _sectionConflicted = {};
+        function _reportSectionConflict(id, d) {
+            _sectionConflicted[id] = true;
+            if (typeof showEditorToast === 'function') {
+                showEditorToast(`${d.saved_by || 'Someone else'} changed this section — reload before editing further`);
+            }
+            console.warn('[section conflict]', id, d.error);
+        }
+
         const _calStyleSaveTimers = {};
         function saveCalendarStyles(sectionId) {
             clearTimeout(_calStyleSaveTimers[sectionId]);
             _calStyleSaveTimers[sectionId] = setTimeout(() => {
                 const form = document.getElementById(`calStyleForm-${sectionId}`);
                 if (!form) return;
+                if (_sectionConflicted[sectionId]) return;
                 const data = new FormData(form);
+                data.set('_version', _sectionVersion(sectionId));
+                if (_takeForce(sectionId)) data.set('_force', '1');
                 fetch('/update_section', { method: 'POST', body: data })
+                    .then(async r => {
+                        const d = await r.json().catch(() => null);
+                        if (r.status === 409 && d) { _reportSectionConflict(sectionId, d); return; }
+                        if (d && d.version !== undefined) _setSectionVersion(sectionId, d.version);
+                    })
                     .catch(err => console.error('Failed to save calendar styles:', err));
             }, 600);
         }
@@ -14580,8 +14703,20 @@ setTimeout(() => {
             }
             status.textContent = 'Saving…'; status.style.color = 'rgba(255,255,255,0.4)';
             try {
-                const r = await fetch('/update_section', { method: 'POST', body: new FormData(form) });
+                const fd = new FormData(form);
+                fd.set('_version', _sectionVersion(sectionId));
+                if (_takeForce(sectionId)) fd.set('_force', '1');
+                const r = await fetch('/update_section', { method: 'POST', body: fd });
                 const d = await r.json();
+                if (r.status === 409 && d.conflict) {
+                    status.style.color = '#ffc454'; status.textContent = 'Someone else changed this';
+                    UwebiaConflict.handle(d, {
+                        label: 'section',
+                        armForce: function () { _armForce(sectionId); },
+                    });
+                    return;
+                }
+                if (d.version !== undefined) _setSectionVersion(sectionId, d.version);
                 if (d.status === 'success') {
                     status.style.color = '#5eeec8'; status.textContent = 'Saved';
                     setTimeout(() => status.textContent = '', 2500);
@@ -15014,15 +15149,31 @@ setTimeout(() => {
             const code    = cm ? cm.getValue() : (ta ? ta.value : '');
             const agentId = sel && sel.value ? parseInt(sel.value) : null;
 
+            if (_sectionConflicted[sectionId] && showToast === false) return Promise.resolve();
             return fetch(`/section/${sectionId}/save_code`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code: code, agent_id: agentId })
+                body: JSON.stringify({
+                    code: code,
+                    agent_id: agentId,
+                    // Was always sent as undefined and ignored server-side.
+                    version: _sectionVersion(sectionId),
+                    force: _takeForce(sectionId) || undefined,
+                })
             })
-            .then(r => r.json())
-            .then(data => {
+            .then(async r => {
+                const data = await r.json().catch(() => ({}));
+                if (r.status === 409 && data.conflict) {
+                    if (showToast === false) { _reportSectionConflict(sectionId, data); return; }
+                    UwebiaConflict.handle(data, {
+                        label: 'code section',
+                        armForce: function () { _armForce(sectionId); },
+                    });
+                    return;
+                }
+                if (data.version !== undefined) _setSectionVersion(sectionId, data.version);
                 if (data.success && showToast !== false) showEditorToast('Code saved');
-                else if (!data.success) console.error('Code save failed:', data.error);
+                else if (!data.success && !data.conflict) console.error('Code save failed:', data.error);
             })
             .catch(err => console.error('[saveCodeSection] network error:', err));
         };
@@ -17443,12 +17594,91 @@ setTimeout(() => {
                 handle.addEventListener('pointerdown', function (event) {
                     sectionHandleDragArmed = true;
                     event.stopPropagation();
+                    // A finger never produces dragstart, so touch gets its own
+                    // path — see beginTouchSectionDrag.
+                    if (event.pointerType && event.pointerType !== 'mouse') {
+                        beginTouchSectionDrag(event, handle);
+                    }
                 });
 
                 handle.addEventListener('pointerup', function () {
                     sectionHandleDragArmed = false;
                 });
             });
+        }
+
+        /* ── Moving a section by touch ──────────────────────────────────────
+           Sections move with HTML5 drag-and-drop, which touch devices do not
+           fire at all: no dragstart, no dragover, no drop. The handle was
+           therefore dead on a phone — you could see it and press it and nothing
+           happened. Rows and groups were fine because they use Sortable, which
+           has its own touch handling.
+
+           This follows the finger with pointer events and then hands off to the
+           very same moveOrSwapSection the mouse path ends in, so both routes
+           agree about permissions, swapping and refreshing. */
+        function beginTouchSectionDrag(startEvent, handle) {
+            const card = handle.closest('.section-card');
+            const sourceColumn = card && card.closest('.column');
+            if (!card || !sourceColumn) return;
+
+            const sectionId = parseInt(card.dataset.sectionId, 10);
+            const sourceColumnId = parseInt(sourceColumn.dataset.columnId, 10);
+            if (!sectionId || !sourceColumnId) return;
+
+            // Stop the page scrolling under the finger while dragging.
+            startEvent.preventDefault();
+
+            closeOpenSectionPanels();
+            document.body.classList.add('is-sorting', 'is-sorting-sections');
+            card.classList.add('section-card-dragging');
+
+            let hovered = null;
+
+            function columnUnder(event) {
+                // The card follows the finger, so ask what is underneath after
+                // hiding it — otherwise every hit test returns the card itself.
+                const prev = card.style.pointerEvents;
+                card.style.pointerEvents = 'none';
+                const el = document.elementFromPoint(event.clientX, event.clientY);
+                card.style.pointerEvents = prev;
+                const col = el && el.closest ? el.closest('.column') : null;
+                return (col && _columnGroupAccessible(col)) ? col : null;
+            }
+
+            function onMove(event) {
+                event.preventDefault();
+                const col = columnUnder(event);
+                if (col === hovered) return;
+                if (hovered) clearSectionDropState(hovered);
+                hovered = col;
+                if (!hovered) return;
+                hovered.classList.add('section-drop-hover');
+                // Same wording the mouse path uses: dropping onto an occupied
+                // cell swaps, onto an empty one moves.
+                const occupied = !!hovered.querySelector('.section-card');
+                hovered.classList.toggle('will-swap-section', occupied);
+                hovered.classList.toggle('will-move-section', !occupied);
+            }
+
+            function finish(event, commit) {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onCancel);
+                const target = hovered;
+                cleanupSectionDrag();
+                if (!commit || !target) return;
+                const targetColumnId = parseInt(target.dataset.columnId, 10);
+                if (!targetColumnId || targetColumnId === sourceColumnId) return;
+                moveOrSwapSection(sectionId, sourceColumnId, targetColumnId);
+            }
+
+            function onUp(event) { finish(event, true); }
+            function onCancel(event) { finish(event, false); }
+
+            document.addEventListener('pointermove', onMove, { passive: false });
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onCancel);
         }
 
         function handleSectionDragStart(event) {
@@ -18575,6 +18805,145 @@ function moderatePageComment(sectionId, commentId, action) {
     </div>
 </div>
 
+
+<script>
+/* Presence only for the page builder.
+   No version check here, deliberately: unlike a lesson or an article, this
+   editor never posts the whole document. It saves through dozens of granular
+   endpoints (create_section_group, add_row_to_group, save_custom_code …), so
+   there is no single "the page as I loaded it" to compare against. Guarding it
+   properly means versioning each section — a different job. Knowing somebody
+   else is in here is the part worth having now, and it is what stops the
+   collision in the first place.
+
+   The container is created here rather than placed in the markup: this
+   template is ~15k lines of tightly-coupled builder chrome and injecting a
+   floating element is far safer than editing its layout. */
+window.addEventListener('DOMContentLoaded', function () {
+    var PAGE_ID = parseInt("{{ page_content.id }}", 10);
+    if (!PAGE_ID) return;
+
+    // Icons only, floating out of the way. A named chip bar is too much
+    // furniture to sit permanently over a page you are laying out, so the
+    // collapsed state is just the faces; everything else is one click away.
+    var css = document.createElement('style');
+    css.textContent = [
+      '#pgPresence{position:fixed;left:12px;bottom:12px;z-index:99999;display:none;',
+      '  font-family:inherit;}',
+      '#pgPresence .pgp-bubble{display:flex;align-items:center;gap:5px;padding:5px 7px;',
+      '  background:rgba(18,18,26,0.94);border:1px solid rgba(255,255,255,0.14);border-radius:999px;',
+      '  box-shadow:0 8px 22px rgba(0,0,0,0.45);backdrop-filter:blur(10px);cursor:pointer;}',
+      '#pgPresence .pgp-face{width:22px;height:22px;border-radius:50%;display:inline-flex;',
+      '  align-items:center;justify-content:center;font-size:0.6rem;font-weight:850;color:#10101a;',
+      '  border:1.5px solid rgba(18,18,26,0.9);margin-left:-6px;}',
+      '#pgPresence .pgp-face:first-child{margin-left:0;}',
+      '#pgPresence .pgp-face.is-editing{animation:pgpPulse 1.8s ease-out infinite;}',
+      '@keyframes pgpPulse{0%{box-shadow:0 0 0 0 rgba(255,255,255,0.45);}',
+      '  70%{box-shadow:0 0 0 5px rgba(255,255,255,0);}100%{box-shadow:0 0 0 0 rgba(255,255,255,0);}}',
+      '#pgPresence .pgp-eye{color:#ffc454;font-size:0.82rem;margin:0 3px;}',
+      '#pgPresence .pgp-panel{display:none;margin-bottom:7px;padding:10px 12px;max-width:min(340px,86vw);',
+      '  background:rgba(18,18,26,0.97);border:1px solid rgba(255,255,255,0.14);border-radius:12px;',
+      '  box-shadow:0 12px 30px rgba(0,0,0,0.5);backdrop-filter:blur(10px);',
+      '  font-size:0.82rem;color:rgba(255,255,255,0.82);}',
+      '#pgPresence[data-open="1"] .pgp-panel{display:block;}',
+      '#pgPresence .pgp-row{display:flex;align-items:center;gap:7px;padding:3px 0;}',
+      '#pgPresence .pgp-where{color:rgba(255,255,255,0.45);font-size:0.76rem;}',
+      '#pgPresence .pgp-warn{margin-top:8px;padding:8px 10px;border-radius:8px;font-size:0.78rem;',
+      '  background:rgba(255,196,84,0.12);border:1px solid rgba(255,196,84,0.34);color:#ffd08a;}',
+      '#pgPresence .pgp-close{position:absolute;top:4px;right:8px;background:none;border:0;',
+      '  color:rgba(255,255,255,0.45);font-size:1rem;cursor:pointer;line-height:1;}',
+      '#pgPresence .pgp-panel{position:relative;}',
+      // The space after the brace is load-bearing: an open-brace immediately
+      // followed by a hash opens a Jinja comment and swallows the rest.
+      '@media (prefers-reduced-motion: reduce){ #pgPresence .pgp-face.is-editing{animation:none;}}',
+    ].join('');
+    document.head.appendChild(css);
+
+    var host = document.createElement('div');
+    host.id = 'pgPresence';
+    host.dataset.open = '0';
+    host.innerHTML = '<div class="pgp-panel"><button type="button" class="pgp-close" '
+        + 'title="Close">&times;</button><div class="pgp-list"></div>'
+        + '<div class="pgp-warn" style="display:none;"></div></div>'
+        + '<div class="pgp-bubble"></div>';
+    document.body.appendChild(host);
+
+    var bubble = host.querySelector('.pgp-bubble');
+    var panel  = host.querySelector('.pgp-panel');
+    var list   = host.querySelector('.pgp-list');
+    var warnEl = host.querySelector('.pgp-warn');
+
+    bubble.addEventListener('click', function () {
+        host.dataset.open = host.dataset.open === '1' ? '0' : '1';
+    });
+    host.querySelector('.pgp-close').addEventListener('click', function (e) {
+        e.stopPropagation();
+        host.dataset.open = '0';
+    });
+
+    function esc(t) {
+        return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function draw(peers) {
+        if (!peers.length) {
+            host.style.display = 'none';
+            host.dataset.open = '0';
+            return;
+        }
+        host.style.display = 'block';
+
+        // Somebody in the same section is the one thing worth interrupting
+        // for, so it gets the yellow eye — clickable, not a wall of text.
+        var same = peers.filter(function (p) { return p.context_id === PAGE_ID; });
+
+        bubble.innerHTML = peers.slice(0, 4).map(function (p) {
+            return '<span class="pgp-face' + (p.is_editing ? ' is-editing' : '') + '" '
+                 + 'style="background:' + UwebiaPresence.colorFor(p.user_id) + '" '
+                 + 'title="' + esc(p.name) + '">' + esc(p.initials) + '</span>';
+        }).join('')
+        + (peers.length > 4
+            ? '<span class="pgp-face" style="background:rgba(255,255,255,0.3);color:#fff">+'
+              + (peers.length - 4) + '</span>' : '')
+        + (same.length ? '<i class="fas fa-eye pgp-eye" title="Someone is editing this page"></i>' : '');
+
+        list.innerHTML = peers.map(function (p) {
+            return '<div class="pgp-row">'
+                 + '<span class="pgp-face" style="background:' + UwebiaPresence.colorFor(p.user_id)
+                 + ';margin-left:0">' + esc(p.initials) + '</span>'
+                 + '<span>' + esc(p.name) + '</span>'
+                 + '<span class="pgp-where">' + (p.is_editing ? 'editing ' : 'in ')
+                 + esc(p.context_label || 'this page') + '</span></div>';
+        }).join('');
+
+        if (same.length) {
+            var names = same.map(function (p) { return p.name; }).join(', ');
+            warnEl.innerHTML = '<strong>' + esc(names) + '</strong> '
+                + (same.length > 1 ? 'are' : 'is') + ' editing this page too. '
+                + 'Sections save one at a time, so whoever saves second is asked to '
+                + 'resolve it — nothing is overwritten silently.';
+            warnEl.style.display = 'block';
+        } else {
+            warnEl.style.display = 'none';
+        }
+
+        // Never opens itself. Someone laying out a page does not want a panel
+        // appearing over it because a colleague arrived; the faces are enough
+        // to notice, and the detail is one click away when it is wanted.
+    }
+
+    UwebiaPresence.start({
+        type: 'page',
+        id: PAGE_ID,
+        noun: 'page',
+        render: false,          // this page draws its own, above
+        context: function () { return { id: PAGE_ID, label: 'this page' }; },
+        onPeers: draw,
+    });
+});
+</script>
     {% endblock %}
 </body>
 

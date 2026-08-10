@@ -1,0 +1,304 @@
+{# ── Live co-editing for a Quill editor ───────────────────────────────────────
+   Include once, then:
+
+       UwebiaCoedit.attach({
+           quill: quill,
+           docKey: 'guide_node:' + nodeId,
+           seed: '<p>current html</p>',   // used only if nobody has ever edited
+           name: 'Rowan',
+           onVersion: v => baseVersion = v,
+           onStatus: (state, peers) => { ... },
+       });
+       UwebiaCoedit.detach();            // when switching documents
+
+   Yjs is a CRDT: each edit is a small binary patch that merges in any order,
+   applied more than once with the same result. So two people typing in one
+   lesson no longer race — their edits combine, and the version check that
+   guards ordinary saves never fires between them.
+
+   The transport is a ~1s poll of /admin/collab/sync rather than a websocket,
+   because this app runs on sync gunicorn workers with no Redis. Yjs keeps the
+   document independent of the transport, so this file is the only thing that
+   changes if that is ever swapped. #}
+<script type="module">
+import * as Y from "{{ url_for('static', filename='js/vendor/yjs.mjs') }}";
+import { Awareness, encodeAwarenessUpdate, applyAwarenessUpdate }
+    from "{{ url_for('static', filename='js/vendor/y-awareness.mjs') }}";
+import { QuillBinding } from "{{ url_for('static', filename='js/vendor/y-quill.mjs') }}";
+import QuillCursors from "{{ url_for('static', filename='js/vendor/quill-cursors.mjs') }}";
+
+// Vendored, not loaded from a CDN: an editor that silently stops merging
+// because a third party is unreachable would be worse than one that never
+// offered to.
+if (window.Quill && !Quill.imports['modules/cursors']) {
+    Quill.register('modules/cursors', QuillCursors);
+}
+
+// A <script type="module"> is deferred, so this file runs AFTER the classic
+// script that constructs Quill — by which point `modules: { cursors: … }` has
+// already been resolved and quietly dropped, and y-quill's
+// quill.getModule('cursors') returns null. That is why no carets appeared.
+// Fit the module now instead of demanding every editor be restructured to
+// build its Quill later.
+// Built directly rather than listed in the editor's `modules` config, for two
+// reasons. Quill 1.3.6 resolves that config at construction and does
+// `new moduleClass(...)` on the result — with this module registered later, it
+// would be constructing `null` and taking the whole editor down. And
+// transformOnTextChange defaults to false, so carets would sit still while
+// text moved underneath them.
+function ensureCursors(quill) {
+    try {
+        const existing = quill.getModule('cursors');
+        if (existing) return existing;
+        if (quill.theme && quill.theme.modules) {
+            const mod = new QuillCursors(quill, { transformOnTextChange: true });
+            quill.theme.modules.cursors = mod;
+            return mod;
+        }
+    } catch (e) { /* carets are a nicety; never break the editor over one */ }
+    return null;
+}
+
+const POLL_MS = 1000;
+const b64 = {
+    // Chunked on purpose. String.fromCharCode.apply(null, wholeArray) blows the
+    // engine's argument limit — around half a megabyte on V8, but FAR lower on
+    // JavaScriptCore, so a document snapshot that encodes fine in desktop
+    // Chrome throws RangeError on iOS Safari. The throw landed in the beat's
+    // catch, the loop reported itself offline, and awareness stopped being
+    // exchanged: carets worked on desktop and silently did not on iPad.
+    enc: (u8) => {
+        const CHUNK = 0x8000;
+        let s = '';
+        for (let i = 0; i < u8.length; i += CHUNK) {
+            s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+        }
+        return btoa(s);
+    },
+    dec: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
+};
+
+// One session per document. The page builder opens a shared document per
+// rich-text section, so this can no longer be a singleton — and they all beat
+// together in ONE request, or a ten-section page would be ten requests a
+// second from every open editor.
+const sessions = new Map();
+let sharedTimer = null;
+
+function closeSession(s) {
+    if (!s) return;
+    try { if (s.binding) s.binding.destroy(); } catch (e) { /* already gone */ }
+
+    // y-quill's destroy() detaches its observers but leaves behind every caret
+    // it drew. The guide editor reuses ONE Quill for every lesson, so those
+    // carets stayed on screen in the next lesson — and because the cursors
+    // module runs with transformOnTextChange, they then followed the local
+    // user's typing around, showing a colleague apparently editing a lesson
+    // they had never opened.
+    try {
+        const cursors = s.opts && s.opts.quill && s.opts.quill.getModule('cursors');
+        if (cursors && typeof cursors.clearCursors === 'function') cursors.clearCursors();
+    } catch (e) { /* nothing drawn, or no module — either way nothing to clear */ }
+    // Awareness runs its own interval to expire quiet peers. Without this,
+    // clicking through ten lessons leaves ten of them running.
+    try { s.awareness.destroy(); } catch (e) { /* already gone */ }
+    try { s.doc.destroy(); } catch (e) { /* already gone */ }
+    sessions.delete(s.docKey);
+}
+
+// detach()          — leave every document
+// detach('post:12') — leave one, keep the rest running
+function teardown(docKey) {
+    if (docKey === undefined) {
+        Array.from(sessions.values()).forEach(closeSession);
+    } else {
+        closeSession(sessions.get(docKey));
+    }
+    if (!sessions.size && sharedTimer) {
+        clearInterval(sharedTimer);
+        sharedTimer = null;
+    }
+}
+
+async function sync(body) {
+    const r = await fetch('/admin/collab/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    return r.json();
+}
+
+function attach(opts) {
+    if (!opts.quill || !opts.docKey) return null;
+    teardown(opts.docKey);              // re-attaching the same doc restarts it
+
+    const doc = new Y.Doc();
+    const text = doc.getText('body');
+    const awareness = new Awareness(doc);
+    awareness.setLocalStateField('user', {
+        name: opts.name || 'Someone',
+        color: opts.color || '#5eeef8',
+    });
+
+    const s = {
+        doc, text, awareness, docKey: opts.docKey,
+        since: 0, started: false, pending: [], awarenessDirty: false,
+        binding: null, opts,
+    };
+    sessions.set(opts.docKey, s);
+
+    // Queue local changes; the poll ships them. Batching a second of typing
+    // into one request is the whole reason this is affordable over HTTP.
+    doc.on('update', (update, origin) => {
+        if (origin === 'remote') return;
+        s.pending.push(update);
+    });
+
+    // NOTE: the QuillBinding is deliberately NOT created yet. Its constructor
+    // replaces the editor's contents with the shared document's, so binding
+    // before the first sync blanked the editor and refilled it a moment later
+    // — a visible flash, and a fight with the HTML the editor had just put in
+    // the DOM directly. It is created in `begin()` once the shared state is
+    // actually known.
+
+    awareness.on('update', () => { s.awarenessDirty = true; });
+
+    s.begin = function (d) {
+        s.started = true;
+        if (text.length === 0 && d.may_seed && opts.seed) {
+            // Converted through Quill rather than pasted into the DOM, so the
+            // shared document and the editor's model agree from the outset.
+            const delta = opts.quill.clipboard.convert(opts.seed);
+            text.applyDelta(delta.ops);
+        }
+        // Must exist before the binding: y-quill reads the cursors module once,
+        // in its constructor, and draws nothing for the rest of the session if
+        // it wasn't there.
+        ensureCursors(opts.quill);
+        s.binding = new QuillBinding(text, opts.quill, awareness);
+    };
+
+    startTimer();
+    beatAll();
+    return {
+        docKey: opts.docKey,
+        detach: () => teardown(opts.docKey),
+        typing: () => { s.awarenessDirty = true; },
+    };
+}
+
+// What this session wants to say this tick.
+function requestFor(s) {
+    const body = { doc_key: s.docKey, since: s.since };
+    if (s.pending.length) {
+        body.update = b64.enc(Y.mergeUpdates(s.pending));
+        s.pending = [];
+    }
+    if (s.awarenessDirty) {
+        s.awarenessDirty = false;
+        body.awareness = b64.enc(
+            encodeAwarenessUpdate(s.awareness, [s.doc.clientID]));
+    }
+    return body;
+}
+
+function applyTo(s, d) {
+    if (!d || !d.success) return;
+    if (d.updates && d.updates.length) {
+        // 'remote' origin keeps these out of the outbound queue.
+        Y.transact(s.doc, () => {
+            d.updates.forEach((u) => Y.applyUpdate(s.doc, b64.dec(u), 'remote'));
+        }, 'remote');
+    }
+    s.since = d.since || s.since;
+
+    (d.awareness || []).forEach((a) => {
+        try { applyAwarenessUpdate(s.awareness, b64.dec(a), 'remote'); }
+        catch (e) { /* a peer sent something we can't read; ignore it */ }
+    });
+
+    // The shared state is now known, so it is safe to bind Quill to it — and
+    // to seed, if the server said this client is the one to do it.
+    if (!s.started) s.begin(d);
+
+    if (typeof s.opts.onVersion === 'function' && d.record_version) {
+        s.opts.onVersion(d.record_version);
+    }
+    if (d.compact) {
+        // Fold the log down to one snapshot when it gets long.
+        sync({ doc_key: s.docKey, since: s.since,
+               snapshot: b64.enc(Y.encodeStateAsUpdate(s.doc)), upto: s.since });
+    }
+    if (typeof s.opts.onStatus === 'function') {
+        s.opts.onStatus('live', s.awareness.getStates().size - 1);
+    }
+}
+
+let beating = false;
+async function beatAll() {
+    if (beating || !sessions.size) return;
+    beating = true;
+    const live = Array.from(sessions.values());
+    try {
+        const docs = live.map(requestFor);
+        const d = await sync(docs.length === 1 ? docs[0] : { docs });
+        if (!d) throw new Error('sync returned no body');
+
+        const byKey = {};
+        (d.docs || [d]).forEach((r) => { if (r && r.doc_key) byKey[r.doc_key] = r; });
+        live.forEach((s) => {
+            // A session torn down mid-request must not be revived by its own
+            // reply landing afterwards.
+            if (sessions.get(s.docKey) === s) applyTo(s, byKey[s.docKey]);
+        });
+    } catch (e) {
+        // Say what actually went wrong. This loop reporting a bare "offline"
+        // is why a RangeError from base64-encoding a snapshot looked like a
+        // network problem on iOS for as long as it did.
+        console.warn('[coedit] sync failed:', e && (e.stack || e.message || e));
+        live.forEach((s) => {
+            if (typeof s.opts.onStatus === 'function') s.opts.onStatus('offline', 0);
+        });
+    } finally {
+        beating = false;
+    }
+}
+
+function startTimer() {
+    if (sharedTimer) return;
+    sharedTimer = setInterval(beatAll, POLL_MS);
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) beatAll();
+    });
+}
+
+// Best effort. The server ages rows out anyway, because a crashed browser
+// never gets to say goodbye.
+//
+// fetch(keepalive), NOT sendBeacon: beacons bypass the patched window.fetch in
+// components/csrf.html, so they arrive with no X-CSRFToken and CSRFProtect
+// rejects them.
+window.addEventListener('pagehide', () => {
+    if (!sessions.size) return;
+    try {
+        const docs = Array.from(sessions.values()).map((s) => {
+            s.awareness.setLocalState(null);
+            return {
+                doc_key: s.docKey, since: s.since,
+                awareness: b64.enc(encodeAwarenessUpdate(s.awareness, [s.doc.clientID])),
+            };
+        });
+        fetch('/admin/collab/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ docs }),
+            keepalive: true,
+        });
+    } catch (e) { /* the rows age out on their own */ }
+});
+
+window.UwebiaCoedit = { attach, detach: teardown };
+window.dispatchEvent(new Event('uwebia-coedit-ready'));
+</script>

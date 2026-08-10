@@ -108,6 +108,48 @@
         cursor: grab;
     }
 
+    /* Usage count on the tile itself. The descriptive line lower down says
+       the same thing in words; this is the version you can scan a wall of
+       thumbnails with. */
+    .asset-use-badge {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 2;
+        min-width: 20px;
+        height: 20px;
+        padding: 0 6px;
+        border-radius: 999px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        font-size: 0.68rem;
+        font-weight: 850;
+        line-height: 1;
+        background: rgba(10, 10, 16, 0.72);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        color: #eaf6ff;
+        cursor: pointer;
+        font-family: inherit;
+        transition: background 0.12s, border-color 0.12s;
+    }
+    .asset-use-badge:hover {
+        background: rgba(20, 20, 30, 0.92);
+        border-color: rgba(255, 255, 255, 0.45);
+    }
+    /* Nothing points at this file — worth noticing before a delete, not worth
+       shouting about, so it is dimmed rather than coloured like an error. */
+    .asset-use-badge--none {
+        background: rgba(10, 10, 16, 0.55);
+        border-color: rgba(255, 255, 255, 0.14);
+        color: rgba(255, 255, 255, 0.42);
+        font-weight: 700;
+    }
+    .asset-use-badge i { font-size: 0.62rem; opacity: 0.75; }
+
     .asset-preview {
         height: 135px;
         display: flex;
@@ -1052,6 +1094,13 @@
         <div class="asset-card asset-card-{{ asset.asset_type }}" draggable="true"
             data-asset-id="{{ asset.id }}"
             ondragstart="dragStart(event, '{{ asset.id }}')">
+            {% set uses = usage_counts.get(asset.id, 0) %}
+            <button type="button"
+                  class="asset-use-badge{% if not uses %} asset-use-badge--none{% endif %}"
+                  onclick="event.stopPropagation(); showAssetUsage({{ asset.id }}, '{{ asset.original_filename | e }}')"
+                  title="{% if uses %}Used in {{ uses }} place{{ 's' if uses != 1 }} — click to see where{% else %}Nothing on the site references this file — click to check{% endif %}">
+                <i class="fas {{ 'fa-link' if uses else 'fa-unlink' }}"></i>{{ uses }}
+            </button>
             <div class="asset-preview{% if asset.asset_type == 'image' %} is-image{% endif %}"
                 {% if asset.asset_type == 'image' %}
                 onclick="event.stopPropagation(); openImagePreview('{{ asset.url }}', '{{ asset.original_filename | e }}')"
@@ -1131,7 +1180,6 @@
                 <div class="asset-sub">
                     {{ asset.asset_type|capitalize }} · {{ asset.extension }} · {{ asset.file_size|filesizeformat }}
                 </div>
-                {% set uses = usage_counts.get(asset.id, 0) %}
                 <div class="asset-uses{% if not uses %} asset-uses--none{% endif %}"
                      title="{% if uses %}Referenced in {{ uses }} place{{ 's' if uses != 1 }} across the site{% else %}Nothing on the site references this file. Check before deleting — very new uploads and links built in JavaScript may not be counted.{% endif %}">
                     <i class="fas {{ 'fa-link' if uses else 'fa-unlink' }}"></i>
@@ -2679,6 +2727,101 @@ function aldIconForMime(mt) {
     if (mt.includes('zip') || mt.includes('compressed')) return 'fa-file-archive';
     return 'fa-file';
 }
+</script>
+
+
+<!-- Where an asset is used. Built on demand rather than rendered with every
+     card: resolving names and links for the whole library would be a query per
+     reference, for information nobody has asked to see yet. -->
+<div id="assetUsageOverlay"
+     style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.62);
+            backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px;"
+     onclick="if (event.target === this) closeAssetUsage()">
+    <div style="background:#1c1c26;border:1px solid rgba(255,255,255,0.14);border-radius:16px;
+                width:min(520px,100%);max-height:min(70vh,620px);display:flex;flex-direction:column;
+                box-shadow:0 24px 60px rgba(0,0,0,0.55);">
+        <div style="display:flex;align-items:flex-start;gap:12px;padding:16px 18px;
+                    border-bottom:1px solid rgba(255,255,255,0.1);">
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:800;font-size:1rem;color:#fff;">Where this is used</div>
+                <div id="assetUsageFile"
+                     style="font-size:0.8rem;color:rgba(255,255,255,0.45);margin-top:2px;
+                            white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+            </div>
+            <button type="button" onclick="closeAssetUsage()"
+                    style="background:none;border:none;color:rgba(255,255,255,0.45);
+                           font-size:1.4rem;line-height:1;cursor:pointer;">&times;</button>
+        </div>
+        <div id="assetUsageBody" style="overflow-y:auto;padding:8px 10px 14px;"></div>
+    </div>
+</div>
+
+<script>
+    function closeAssetUsage() {
+        document.getElementById('assetUsageOverlay').style.display = 'none';
+    }
+
+    async function showAssetUsage(assetId, filename) {
+        const overlay = document.getElementById('assetUsageOverlay');
+        const body = document.getElementById('assetUsageBody');
+        document.getElementById('assetUsageFile').textContent = filename || '';
+        body.innerHTML = '<div style="padding:22px;text-align:center;color:rgba(255,255,255,0.4);'
+            + 'font-size:0.86rem;"><i class="fas fa-spinner fa-spin"></i> Looking…</div>';
+        overlay.style.display = 'flex';
+
+        let d;
+        try {
+            const r = await fetch(`/admin/assets/${assetId}/usage`);
+            d = await r.json();
+            if (!r.ok || !d.success) throw new Error(d.error || `HTTP ${r.status}`);
+        } catch (e) {
+            body.innerHTML = '<div style="padding:20px;color:#ff9a9a;font-size:0.86rem;">'
+                + 'Could not work out where this is used: ' + esc(e.message) + '</div>';
+            return;
+        }
+
+        if (!d.places.length) {
+            // Said carefully: the scan reads stored content, so a link built in
+            // JavaScript at render time is invisible to it. Claiming "safe to
+            // delete" would be a promise this cannot keep.
+            body.innerHTML = '<div style="padding:20px;color:rgba(255,255,255,0.55);font-size:0.86rem;'
+                + 'line-height:1.6;"><i class="fas fa-unlink" style="opacity:0.5;"></i> '
+                + 'Nothing stored on the site references this file.<br>'
+                + '<span style="color:rgba(255,255,255,0.35);font-size:0.8rem;">'
+                + 'Links assembled in JavaScript, or in a file uploaded outside the '
+                + 'library, would not be counted — worth a look before deleting.</span></div>';
+            return;
+        }
+
+        body.innerHTML = d.places.map(function (p) {
+            const times = p.times > 1
+                ? `<span style="margin-left:auto;flex:none;font-size:0.72rem;color:rgba(255,255,255,0.4);">${p.times}&times;</span>`
+                : '';
+            const inner =
+                `<span style="flex:none;font-size:0.66rem;font-weight:800;text-transform:uppercase;
+                              letter-spacing:0.04em;color:#7ee2cc;min-width:96px;">${esc(p.kind)}</span>
+                 <span style="flex:1;min-width:0;color:rgba(255,255,255,0.86);overflow:hidden;
+                              text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</span>${times}`;
+            const style = 'display:flex;align-items:center;gap:10px;padding:9px 12px;margin:3px 0;'
+                + 'border-radius:9px;background:rgba(255,255,255,0.04);font-size:0.85rem;'
+                + 'text-decoration:none;';
+            return p.link
+                ? `<a href="${esc(p.link)}" style="${style}color:inherit;">${inner}
+                     <i class="fas fa-arrow-up-right-from-square"
+                        style="flex:none;opacity:0.35;font-size:0.72rem;"></i></a>`
+                : `<div style="${style}">${inner}</div>`;
+        }).join('');
+    }
+
+    function esc(t) {
+        return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeAssetUsage();
+    });
 </script>
 
 {% endblock %}

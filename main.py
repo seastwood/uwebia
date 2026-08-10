@@ -816,6 +816,89 @@ def sanitize_email(value):
     return v
 
 
+# ── Username & display-name rules ────────────────────────────────────────────
+# A username had no constraints at all: an entire URL fitted, so did markup, an
+# email address, or 150 characters of anything. These names are printed beside
+# forum posts and comments, used in @-style references and stored in a shared
+# namespace with admin accounts, so they need to be plain and short.
+#
+# Letters, digits, and single dashes BETWEEN them. Real names are hyphenated
+# ("anne-marie") and a dash is the one separator people expect a username to
+# take. Still no dots or underscores, and no leading, trailing or doubled
+# dashes: "seth--eastwood" and "-seth" exist to be mistaken for "seth-eastwood"
+# and "seth", which is what restricting the character set is for.
+USERNAME_MIN_LENGTH = 3
+USERNAME_MAX_LENGTH = 30
+DISPLAY_NAME_MAX_LENGTH = 40
+_USERNAME_RE = re.compile(r'^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$')
+# A display name is a person's name, so single spaces BETWEEN words are allowed
+# — "Seth Eastwood" has to remain possible — and single dashes on the same terms
+# as a username, so "Anne-Marie Smith" works. No leading, trailing or doubled
+# separators, which are the ones used to fake a different name.
+_DISPLAY_NAME_RE = re.compile(r'^[A-Za-z0-9]+(?:[ -][A-Za-z0-9]+)*$')
+
+
+def _banned_words_for(website=None):
+    """The site's profanity list, or [] when the filter is off."""
+    site = website
+    if site is None:
+        try:
+            site = get_live_website()
+        except Exception:
+            site = None
+    if not site or not getattr(site, 'profanity_filter_enabled', False):
+        return []
+    raw = getattr(site, 'post_profanity_words', None) or ''
+    return [w.strip().lower() for w in raw.replace(',', '\n').split('\n') if w.strip()]
+
+
+def _name_profanity_error(name, website=None):
+    """A name containing a banned word is refused outright.
+
+    The post filter can mask a word mid-sentence; a username cannot be
+    half-masked and still be a name, so this only ever blocks — regardless of
+    whether the site's action is set to block or replace.
+    """
+    lowered = (name or '').lower()
+    for w in _banned_words_for(website):
+        if w and w in lowered:
+            return 'That name contains language this site does not allow.'
+    return None
+
+
+def validate_username(raw, website=None, label='Username'):
+    """(cleaned, error). `cleaned` is lower-cased, as usernames are stored."""
+    name = (raw or '').strip()
+    if not name:
+        return '', f'{label} is required.'
+    if len(name) < USERNAME_MIN_LENGTH:
+        return name, f'{label} must be at least {USERNAME_MIN_LENGTH} characters.'
+    if len(name) > USERNAME_MAX_LENGTH:
+        return name, f'{label} must be {USERNAME_MAX_LENGTH} characters or fewer.'
+    if not _USERNAME_RE.match(name):
+        return name, (f'{label} may only contain letters, numbers and single dashes between them — no spaces, other punctuation or symbols.')
+    err = _name_profanity_error(name, website)
+    if err:
+        return name, err
+    return name.lower(), None
+
+
+def validate_display_name(raw, website=None):
+    """(cleaned, error). Blank is allowed — it falls back to the username."""
+    name = ' '.join((raw or '').split())
+    if not name:
+        return '', None
+    if len(name) > DISPLAY_NAME_MAX_LENGTH:
+        return name, f'Display name must be {DISPLAY_NAME_MAX_LENGTH} characters or fewer.'
+    if not _DISPLAY_NAME_RE.match(name):
+        return name, ('Display name may only contain letters, numbers and single '
+                      'spaces or dashes between words.')
+    err = _name_profanity_error(name, website)
+    if err:
+        return name, err
+    return name, None
+
+
 def valid_email(value):
     """Route-level counterpart to sanitize_email that never raises: returns the
     normalized address, or None if it's blank/malformed/injection-bearing. Use at
@@ -879,10 +962,17 @@ class User(UserMixin, db.Model):
     totp_recovery_codes = db.Column(db.JSON, nullable=True)
     # ── Owner-provisioned enrolment ──────────────────────────────────────────
     # Setting up an authenticator *mid-login* only proves the password, so on
-    # its own it let anyone holding that password satisfy a 2FA requirement by
-    # enrolling their own device. An owner issues a single-use ticket out of
-    # band instead; without one, mid-login enrolment is refused. Hashed, never
+    # its own it lets anyone holding that password satisfy a 2FA requirement by
+    # enrolling their own device. An owner can issue a single-use ticket out of
+    # band as the second thing an attacker would also need. Hashed, never
     # stored in the clear, and shown to the issuing owner exactly once.
+    #
+    # A ticket is NOT required by default: a newly promoted admin enrolling
+    # their own authenticator on first sign-in is the normal case, and demanding
+    # a code nobody has issued strands them at the login screen. It is required
+    # when the org turns on org_require_enroll_ticket, or when someone has
+    # actually issued this admin a ticket (see
+    # mid_login_enrollment_needs_ticket).
     totp_enroll_ticket_hash = db.Column(db.String(255), nullable=True)
     totp_enroll_ticket_expires_at = db.Column(db.DateTime, nullable=True)
     totp_enroll_ticket_issued_by_id = db.Column(db.Integer, nullable=True)
@@ -920,6 +1010,14 @@ class User(UserMixin, db.Model):
     # team" cascade with an explicit, transfer-proof setting.
     org_require_2fa = db.Column(db.Boolean, nullable=False, default=False,
                                 server_default=_sa_false())
+    # Org-wide policy (anchor only): when on, an admin may not set up their own
+    # authenticator during login without a ticket an owner issued them out of
+    # band. Off by default — see the note on totp_enroll_ticket_hash. Turning it
+    # on is the stricter posture: it stops a stolen password from satisfying the
+    # 2FA requirement by enrolling the thief's own device, at the cost of an
+    # owner having to hand every new admin a code.
+    org_require_enroll_ticket = db.Column(db.Boolean, nullable=False, default=False,
+                                          server_default=_sa_false())
     # Email-settings fingerprint captured when the org policy was verified; if it
     # no longer matches, the policy auto-disables (mirrors per-user 2FA). The
     # needs-attention flag lets the UI explain why it switched off.
@@ -2104,6 +2202,19 @@ class PublicUser(UserMixin, db.Model):
     two_factor_enabled = db.Column(db.Boolean, nullable=False, default=False, server_default=_sa_false())
     two_factor_last_sent_at = db.Column(db.DateTime, nullable=True)
 
+    # ── TOTP second factor (authenticator app) ───────────────────────────────
+    # Same columns, same helpers and same encryption as User's — deliberately,
+    # because a member who is promoted to staff carries this across to their
+    # admin row and back again on demotion, and that only works if both sides
+    # store the secret identically. Offered only where the site turns on
+    # Website.public_totp_enabled.
+    totp_secret = db.Column(db.String(255), nullable=True)
+    totp_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    totp_activated_at = db.Column(db.DateTime, nullable=True)
+    totp_last_counter = db.Column(db.BigInteger, nullable=True)
+    totp_recovery_codes = db.Column(db.JSON, nullable=True)
+
     # Passwordless email sign-in ("magic link"). A fresh nonce is minted on
     # every link request and cleared on use, so each link is single-use and
     # issuing a new one invalidates any older link. sent_at drives the resend
@@ -2232,8 +2343,16 @@ class PublicUser(UserMixin, db.Model):
 
     @validates('display_username')
     def normalize_public_display_username(self, key, value):
+        # Stored exactly as typed, capitals and all — this is the name shown
+        # next to somebody's forum posts and comments, and it used to be
+        # lower-cased on the way in, so "Seth Eastwood" appeared as
+        # "seth eastwood" on the public site with no way to fix it.
+        #
+        # Only whitespace is trimmed. Uniqueness is still enforced without
+        # regard to case, in display_username_collision, so this does not open
+        # a door to impersonation by capitalisation.
         v = (value or '').strip()
-        return v.lower() if v else None
+        return v or None
 
     @validates('email')
     def normalize_public_email(self, key, value):
@@ -3094,6 +3213,16 @@ class Website(db.Model):
         default=False,
         server_default=_sa_false()
     )
+    # Lets members protect their account with an authenticator app. Independent
+    # of public_2fa_enabled (the emailed code): this one needs no mailbox, so
+    # it is the option that works on a site where members have no email —
+    # GitHub sign-ups, or a site with require_public_email off.
+    public_totp_enabled = db.Column(
+        db.Boolean,
+        nullable=False,
+        default=False,
+        server_default=_sa_false()
+    )
     # KSA / competency-matrix config. `ksa_level_labels` indexes proficiency
     # levels 0..N (index 0 = "none"); `ksa_types` is the editable list of KSA
     # type labels. Both NULL fall back to module defaults.
@@ -3593,6 +3722,10 @@ class PostCollection(db.Model):
 
 class Post(db.Model):
     __tablename__ = 'post'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id              = db.Column(db.Integer, primary_key=True)
     collection_id   = db.Column(db.Integer, db.ForeignKey('post_collection.id', ondelete='CASCADE'), nullable=False, index=True)
     website_id      = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -3763,6 +3896,12 @@ class GuideNode(db.Model):
     is_published = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
     created_at   = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at   = db.Column(db.DateTime, nullable=True)
+    # Bumped on every save. The editor sends back the version it loaded, so a
+    # save built on a stale copy is refused instead of silently overwriting
+    # whatever the other person just wrote. A counter rather than a timestamp
+    # comparison: no clock skew between workers, and no sub-second ties.
+    version      = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     children     = db.relationship('GuideNode',
                                    backref=db.backref('parent', remote_side=[id]),
                                    lazy='dynamic', cascade='all, delete-orphan',
@@ -3855,6 +3994,10 @@ class Quiz(db.Model):
 
 class QuizQuestion(db.Model):
     __tablename__ = 'quiz_question'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id            = db.Column(db.Integer, primary_key=True)
     quiz_id       = db.Column(db.Integer, db.ForeignKey('quiz.id', ondelete='CASCADE'),
                               nullable=False, index=True)
@@ -3886,6 +4029,8 @@ class QuizQuestion(db.Model):
             'config': self._config(),
             'points': self.points,
             'sort_order': self.sort_order,
+            # Echoed back on save so a write built on a stale copy is caught.
+            'version': self.version or 1,
         }
 
     def to_public_dict(self):
@@ -4227,6 +4372,10 @@ class NewsletterSubscriber(db.Model):
 
 class NewsletterCampaign(db.Model):
     __tablename__ = 'newsletter_campaign'
+    # Bumped on every save so an editor working from a stale copy is
+    # refused rather than silently overwriting whoever saved first.
+    version       = db.Column(db.Integer, nullable=False, default=1, server_default='1')
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     id = db.Column(db.Integer, primary_key=True)
     newsletter_id = db.Column(db.Integer, db.ForeignKey('newsletter.id', ondelete='CASCADE'), nullable=False, index=True)
     subject = db.Column(db.String(300), nullable=False)
@@ -5538,7 +5687,8 @@ class SmsLog(db.Model):
     monthly spend honest and lets admin troubleshoot delivery failures."""
     __tablename__ = 'sms_log'
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Who sent it, not whose it is — see AdminChatMessage.user_id.
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True, index=True)
     provider = db.Column(db.String(40), nullable=True)
     direction = db.Column(db.String(10), nullable=False, default='outbound',
                           server_default=db.text("'outbound'"))
@@ -6124,13 +6274,18 @@ _ASSET_URL_RE = re.compile(r'/static/uploads/[A-Za-z0-9_\-./]+')
 
 
 def _asset_usage_index():
-    """Count every reference to an uploads URL anywhere in the database.
+    """Find every reference to an uploads URL anywhere in the database.
 
-    Returns a Counter keyed by URL path. Never raises: a usage badge is a nicety
-    and must not be able to take the asset library down.
+    Returns {filename: [(table_name, row_pk), ...]} — the row a reference sits
+    in, not just how many there are, so the library can say WHERE a file is
+    used and link to it. Keyed on the stored filename because the same file is
+    referenced absolutely and relatively, and an uploads URL can carry a
+    cache-busting query string.
+
+    Never raises: a usage badge is a nicety and must not be able to take the
+    asset library down.
     """
-    from collections import Counter
-    counts = Counter()
+    places = {}
     for table in db.metadata.tables.values():
         if table.name in _ASSET_USAGE_SKIP_TABLES:
             continue
@@ -6138,9 +6293,13 @@ def _asset_usage_index():
                 if isinstance(c.type, (db.String, db.Text, db.JSON))]
         if not cols:
             continue
+        pk = list(table.primary_key.columns)
+        pk_col = pk[0] if len(pk) == 1 else None
         try:
-            for row in db.session.execute(db.select(*cols)):
-                for value in row:
+            select_cols = ([pk_col] if pk_col is not None else []) + cols
+            for row in db.session.execute(db.select(*select_cols)):
+                row_id = row[0] if pk_col is not None else None
+                for value in (row[1:] if pk_col is not None else row):
                     if not value:
                         continue
                     # JSON columns arrive as dict/list; str() is enough to find
@@ -6149,11 +6308,12 @@ def _asset_usage_index():
                     if '/static/uploads/' not in text:
                         continue
                     for match in _ASSET_URL_RE.findall(text):
-                        counts[match] += 1
+                        name = match.rsplit('/', 1)[-1]
+                        places.setdefault(name, []).append((table.name, row_id))
         except Exception as scan_err:
             app.logger.warning('asset usage scan skipped %s: %s',
                                table.name, scan_err)
-    return counts
+    return places
 
 
 # The scan is proportional to how much content exists, not how many assets, so
@@ -6176,6 +6336,24 @@ def _asset_usage_index_cached():
     return index
 
 
+def _asset_filenames(asset):
+    """Every filename that means "this asset". An optimised upload keeps its
+    pre-conversion original, and a reference to either one is a use of it."""
+    names = [asset.stored_filename]
+    if asset.original_stored_filename and asset.original_stored_filename != asset.stored_filename:
+        names.append(asset.original_stored_filename)
+    return [n for n in names if n]
+
+
+def _asset_usage_rows(asset, index=None):
+    """The (table, row_pk) pairs referencing one asset."""
+    index = index if index is not None else _asset_usage_index_cached()
+    rows = []
+    for name in _asset_filenames(asset):
+        rows.extend(index.get(name, []))
+    return rows
+
+
 def asset_usage_counts(assets):
     """Map asset id -> how many places reference it."""
     if not assets:
@@ -6183,23 +6361,190 @@ def asset_usage_counts(assets):
     index = _asset_usage_index_cached()
     if not index:
         return {a.id: 0 for a in assets}
+    return {a.id: len(_asset_usage_rows(a, index)) for a in assets}
 
-    # Match on the stored filename rather than the full URL: the same file is
-    # referenced both absolutely and relatively, and an uploads URL can carry a
-    # cache-busting query string.
-    by_name = {}
-    for url, n in index.items():
-        by_name[url.rsplit('/', 1)[-1]] = by_name.get(url.rsplit('/', 1)[-1], 0) + n
 
-    out = {}
-    for a in assets:
-        total = by_name.get(a.stored_filename, 0)
-        # An optimised upload keeps the pre-conversion original; a reference to
-        # either one is a use of the same asset.
-        if a.original_stored_filename and a.original_stored_filename != a.stored_filename:
-            total += by_name.get(a.original_stored_filename, 0)
-        out[a.id] = total
+# ── Describing where an asset is used ────────────────────────────────────────
+# The scan knows a reference sits in (table, row). Turning that into "Lesson 3
+# of Build a robot" plus a link is per-table knowledge, so it lives here rather
+# than in the scan. Only resolved for the one asset being inspected, so an
+# unmapped table costs nothing until somebody opens it.
+
+def _usage_excerpt(text, limit=48):
+    """A short plain-text taste of some content, for naming a thing that has no
+    title of its own — a quiz question is its prompt, and the prompt is HTML."""
+    plain = ' '.join((_html_to_plain(text) or '').split())
+    if not plain:
+        return ''
+    return plain if len(plain) <= limit else plain[:limit - 1].rstrip() + '…'
+
+
+def _describe_usage_row(table_name, row_id):
+    """(kind, name, link) for one reference, or None to drop it.
+
+    Returning None hides rows that are noise rather than uses — a thumbnail
+    column on the asset's own record, say.
+    """
+    def link_to(endpoint, **kw):
+        """A link, or None if one cannot be built.
+
+        Deliberately separate from the describing: url_for needs a request
+        context and can fail if an endpoint is renamed, and losing the whole
+        entry over a missing link would hide the very reference this feature
+        exists to show. Better a row you have to find by hand than no row.
+        """
+        try:
+            return url_for(endpoint, **kw)
+        except Exception:
+            return None
+
+    def page_link(page):
+        site = db.session.get(Website, page.website_id) if page else None
+        if not (page and site):
+            return None
+        return link_to('page_editor', website_id=site.id, page_id=page.id)
+
+    try:
+        if table_name == 'public_page_content':
+            page = db.session.get(PublicPageContent, row_id)
+            return page and ('Page', page.name or page.slug, page_link(page))
+
+        if table_name == 'page_section':
+            sec = db.session.get(PageSection, row_id)
+            if not sec:
+                return None
+            page = db.session.get(PublicPageContent, sec.page_content_id)
+            # A section's own label if it has been named, otherwise its type.
+            what = sec.label or f'{sec.section_type} section'
+            # Sections sit in a column, inside a row, inside a named group —
+            # which is how they are actually found in the builder, so say it.
+            group_name = None
+            try:
+                col = Column.query.filter_by(section_id=sec.id).first()
+                row = db.session.get(Row, col.row_id) if col else None
+                grp = (db.session.get(SectionGroup, row.section_group_id)
+                       if row and row.section_group_id else None)
+                group_name = grp.name if grp else None
+            except Exception:
+                group_name = None
+            bits = [what]
+            if group_name:
+                bits.append(f'in “{group_name}”')
+            if page:
+                bits.append(f'on {page.name}')
+            return ('Page section', ' '.join(bits), page_link(page))
+
+        if table_name == 'guide_node':
+            node = db.session.get(GuideNode, row_id)
+            if not node:
+                return None
+            guide = db.session.get(Guide, node.guide_id)
+            parent = db.session.get(GuideNode, node.parent_id) if node.parent_id else None
+            where = node.title
+            if parent:
+                where += f' (in {parent.title})'
+            if guide:
+                where += f' — {guide.title}'
+            return ('Guide', where, link_to('admin_guide_editor', gid=node.guide_id))
+
+        if table_name == 'guide':
+            g = db.session.get(Guide, row_id)
+            return g and ('Guide', g.title, link_to('admin_guide_editor', gid=g.id))
+
+        if table_name == 'post':
+            post = db.session.get(Post, row_id)
+            return post and ('Article', post.title,
+                             link_to('admin_post_edit', cid=post.collection_id, pid=post.id))
+
+        if table_name == 'quiz_question':
+            qq = db.session.get(QuizQuestion, row_id)
+            if not qq:
+                return None
+            quiz = db.session.get(Quiz, qq.quiz_id)
+            # "a question in Safety check" is not enough to find it. Number it
+            # as the editor does, and show what it actually asks.
+            position = (QuizQuestion.query
+                        .filter(QuizQuestion.quiz_id == qq.quiz_id,
+                                QuizQuestion.sort_order < (qq.sort_order or 0))
+                        .count()) + 1
+            excerpt = _usage_excerpt(qq.prompt)
+            label = f'Q{position}'
+            if excerpt:
+                label += f': {excerpt}'
+            if quiz:
+                label += f' — {quiz.title}'
+            return ('Quiz question', label,
+                    link_to('admin_quiz_editor', qid=qq.quiz_id))
+
+        if table_name == 'quiz':
+            q = db.session.get(Quiz, row_id)
+            return q and ('Quiz', q.title, link_to('admin_quiz_editor', qid=q.id))
+
+        if table_name == 'newsletter_campaign':
+            camp = db.session.get(NewsletterCampaign, row_id)
+            return camp and ('Newsletter', camp.subject,
+                             link_to('admin_newsletter_campaign_edit',
+                                     nid=camp.newsletter_id, cid=camp.id))
+
+        if table_name == 'resource':
+            res = db.session.get(Resource, row_id)
+            return res and ('Resource', res.title, link_to('admin_resources_page'))
+
+        if table_name == 'website':
+            site = db.session.get(Website, row_id)
+            return site and ('Site settings', site.name, None)
+
+        if table_name == 'user':
+            u = db.session.get(User, row_id)
+            return u and ('Admin branding', u.username, None)
+    except Exception as err:
+        app.logger.warning('asset usage describe failed for %s#%s: %s',
+                           table_name, row_id, err)
+        return None
+
+    # Anything unmapped is still worth reporting — a count with no explanation
+    # is what this feature exists to fix — just without a link.
+    pretty = table_name.replace('_', ' ')
+    return (pretty[:1].upper() + pretty[1:],
+            f'record #{row_id}' if row_id is not None else 'a record', None)
+
+
+def asset_usage_places(asset):
+    """Every place one asset is used, newest-looking first, de-duplicated.
+
+    A single row can reference the same file more than once (a gallery using it
+    twice, say). That is one place to go and edit, so the row is listed once
+    with the number of references on it.
+    """
+    from collections import Counter
+    tally = Counter(_asset_usage_rows(asset))
+    out = []
+    for (table_name, row_id), times in tally.items():
+        described = _describe_usage_row(table_name, row_id)
+        if not described:
+            continue
+        kind, name, link = described
+        out.append({'kind': kind, 'name': name or '(untitled)',
+                    'link': link, 'times': times})
+    out.sort(key=lambda e: (e['kind'].lower(), str(e['name']).lower()))
     return out
+
+
+@app.route('/admin/assets/<int:asset_id>/usage')
+@login_required
+def admin_asset_usage(asset_id):
+    """Where this asset is used. Scoped to the caller's own library."""
+    asset = Asset.query.filter_by(id=asset_id,
+                                  user_id=current_user.root_user_id).first()
+    if asset is None:
+        return _utf8_json({'success': False, 'error': 'Asset not found'}, 404)
+    places = asset_usage_places(asset)
+    return _utf8_json({
+        'success': True,
+        'filename': asset.original_filename,
+        'total': sum(p['times'] for p in places),
+        'places': places,
+    })
 
 
 def get_user_asset_folder(user_id):
@@ -9517,6 +9862,17 @@ _FOLDER_ACTION_MAP = {
 
 
 @app.context_processor
+def inject_public_search_limits():
+    """The search field's minimum query length, from the one place it is set.
+
+    The field refuses short queries so the reader gets an explanation instead of
+    a request that the server would refuse anyway — but the two must agree, and
+    a number written twice is a number that drifts.
+    """
+    return {'public_search_min_chars': PUBLIC_SEARCH_MIN_CHARS}
+
+
+@app.context_processor
 def inject_github_login():
     """Expose GitHub sign-in availability + the org admin-privacy policy to every
     admin template, so the login page and settings don't each have to ask."""
@@ -10381,17 +10737,32 @@ def totp_enrollment_ticket_valid(user, submitted):
 def mid_login_enrollment_needs_ticket(user):
     """Whether this admin must present an owner-issued ticket to enrol mid-login.
 
-    The primary owner is exempt: they are the root of trust and, on a fresh
-    install, the only person who could issue a ticket — requiring one would
-    deadlock the org. Everyone else needs one, which is what stops a stolen
-    password alone from satisfying the 2FA requirement.
+    A ticket used to be required of everyone but the anchor, which meant a
+    freshly created admin could not complete their very first sign-in: the org
+    requires 2FA, they have no authenticator yet, and enrolling one demanded a
+    code nobody had thought to issue. Setting up your own authenticator on
+    first login is the ordinary case, so it is allowed by default.
+
+    A ticket is required when:
+
+      • the org has turned on org_require_enroll_ticket — the stricter posture,
+        where a stolen password must not be able to satisfy the 2FA requirement
+        by enrolling the thief's own device; or
+      • somebody has actually issued this admin one. Issuing a ticket is a
+        deliberate act, so honour it: while it is live, it is the way in.
+
+    The primary owner is exempt either way. They are the root of trust and, on a
+    fresh install, the only person who could issue a ticket, so requiring one
+    would deadlock the org.
     """
     if user is None:
         return True
     anchor = get_main_admin()
     if anchor is not None and user.id == anchor.id:
         return False
-    return True
+    if totp_enrollment_ticket_pending(user):
+        return True
+    return bool(anchor is not None and getattr(anchor, 'org_require_enroll_ticket', False))
 
 
 def totp_enrollment_ticket_pending(user):
@@ -10543,6 +10914,65 @@ def register_failed_two_factor_attempt(user=None):
         clear_pending_two_factor_code()
         return True
     return False
+
+
+def clear_login_lockout_for(identifier):
+    """Lift the account-keyed login / second-factor lockout for one username.
+
+    Counters are keyed "ip:<addr>" and "ip:<addr>:id:<username>". Only the
+    second kind is cleared here: the bare address key is shared by everyone
+    signing in from that connection, so wiping it on one person's behalf would
+    hand a free pass to whoever else is behind the same IP.
+    """
+    ident = (identifier or '').strip().lower()[:100]
+    if not ident:
+        return 0
+    rows = LoginRateLimit.query.filter(
+        LoginRateLimit.key.like(f'%:id:{ident}')).all()
+    for row in rows:
+        db.session.delete(row)
+    return len(rows)
+
+
+def reset_two_factor_for(account, reason='an administrator reset it'):
+    """Strip every second factor from an account so its owner can get back in.
+
+    The recovery path for a lost phone or a dead authenticator. Deliberately
+    leaves no partial state: an account still holding, say, unusable recovery
+    codes is one that looks protected and is not.
+
+    Nothing here grants access — it only removes factors. Where the org
+    requires 2FA, admin_second_factor_state then reports "required, nothing
+    enrolled", and begin_admin_login sends them to set one up before they can
+    reach the dashboard. So a reset means "enrol again at next sign-in", not
+    "2FA is off now".
+
+    Returns (what_was_cleared, lockout_counters_lifted).
+    """
+    cleared = []
+    if getattr(account, 'two_factor_enabled', False):
+        cleared.append('emailed code')
+    if getattr(account, 'totp_enabled', False):
+        cleared.append('authenticator app')
+
+    if isinstance(account, User):
+        # Also clears two_factor_email and stamps the reason, which is what
+        # tells them why they are being asked to set it up again.
+        disable_user_2fa(account, reason=reason, needs_attention=True)
+        clear_totp_enrollment_ticket(account)
+    else:
+        account.two_factor_enabled = False
+
+    account.totp_secret = None
+    account.totp_enabled = False
+    account.totp_activated_at = None
+    account.totp_last_counter = None
+    account.totp_recovery_codes = None
+
+    # Being "locked out" often means literally that — too many wrong codes.
+    # Leaving the counter in place would reset the factor and still refuse them.
+    lifted = clear_login_lockout_for(getattr(account, 'username', ''))
+    return cleared, lifted
 
 
 def two_factor_lockout_active(user=None):
@@ -10850,6 +11280,36 @@ def org_2fa_policy_disable():
     return _utf8_json({'success': True, 'org_require_2fa': False})
 
 
+@app.route('/admin/dashboard/settings/2fa/enroll-ticket-policy', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def org_enroll_ticket_policy():
+    """Turn the owner-issued-ticket requirement for mid-login enrolment on/off.
+
+    Off (the default) lets an admin set up their own authenticator the first
+    time they sign in. On means an owner must issue them a ticket first — no
+    code, no enrolment.
+    """
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    want = bool((request.get_json(silent=True) or {}).get('enabled'))
+
+    # Turning it on while admins are mid-enrolment would lock them out with no
+    # warning, so say who is affected rather than just flipping the switch.
+    stranded = []
+    if want:
+        stranded = [u.username for u in admins_without_second_factor(anchor.id)
+                    if not totp_enrollment_ticket_pending(u)]
+
+    anchor.org_require_enroll_ticket = want
+    db.session.commit()
+    app.logger.info('org enrolment-ticket policy set to %s by admin id=%s',
+                    want, current_user.id)
+    return _utf8_json({'success': True, 'org_require_enroll_ticket': want,
+                       'stranded': stranded})
+
+
 @app.route('/admin/dashboard/settings/github', methods=['POST'])
 @login_required
 @require_perm('settings.edit')
@@ -11064,6 +11524,79 @@ def issue_2fa_enrollment_ticket(user_id):
         'ticket': plain,
         'username': target.username,
         'expires_hours': _TOTP_ENROLL_TICKET_HOURS,
+    })
+
+
+@app.route('/admin/users/<int:user_id>/2fa/reset', methods=['POST'])
+@login_required
+@require_perm('settings.2fa')
+def admin_reset_two_factor(user_id):
+    """Clear another admin's second factor after a lockout.
+
+    Removes factors, never grants access. Where the org requires 2FA the
+    account is then "required, nothing enrolled", so the next sign-in stops at
+    enrolment rather than reaching the dashboard.
+    """
+    target = db.session.get(User, user_id)
+    if not target:
+        return _utf8_json({'success': False, 'error': 'Admin not found.'}, 404)
+    if target.root_user_id != current_user.root_user_id:
+        return _utf8_json({'success': False,
+                           'error': 'That admin is not part of your organization.'}, 403)
+    # Stripping a second factor leaves an account defended by its password
+    # alone, so it must not be a way to reach further up than you already are.
+    if target.is_full_admin and not current_user.is_full_admin:
+        return _utf8_json({'success': False,
+                           'error': "You can't reset an owner's two-factor authentication."}, 403)
+
+    cleared, lifted = reset_two_factor_for(target)
+
+    # Under the ticket policy they cannot enrol again unaided, so a reset that
+    # stopped here would just trade one lockout for another. Issue the code the
+    # policy demands and hand it back for the admin to pass on.
+    ticket = None
+    anchor = get_main_admin()
+    if (anchor is not None and target.id != anchor.id
+            and getattr(anchor, 'org_require_enroll_ticket', False)):
+        ticket = issue_totp_enrollment_ticket(target, current_user)
+
+    db.session.commit()
+    app.logger.warning('2FA reset for admin id=%s (%s) by admin id=%s',
+                       target.id, target.username, current_user.id)
+    return _utf8_json({
+        'success': True,
+        'username': target.username,
+        'cleared': cleared,
+        'lockouts_lifted': lifted,
+        'must_enrol_next_login': bool(admin_requires_2fa(target)),
+        'ticket': ticket,
+        'expires_hours': _TOTP_ENROLL_TICKET_HOURS if ticket else None,
+    })
+
+
+@app.route('/admin/users/public/<int:user_id>/2fa/reset', methods=['POST'])
+@login_required
+@require_perm('public_users.edit')
+def admin_reset_public_two_factor(user_id):
+    """Clear a member's second factor after a lockout."""
+    pu = _get_owned_public_user(user_id)
+    # A staff profile's enrolment lives on the admin account behind it, so
+    # resetting it here would be an admin 2FA reset wearing a member's clothes
+    # — and this route is gated on a member permission. Send it to the route
+    # that asks for the right one.
+    mirror_reject = _reject_if_admin_mirror(pu)
+    if mirror_reject:
+        return mirror_reject
+
+    cleared, lifted = reset_two_factor_for(pu)
+    db.session.commit()
+    app.logger.warning('2FA reset for public user id=%s (%s) by admin id=%s',
+                       pu.id, pu.username, current_user.id)
+    return _utf8_json({
+        'success': True,
+        'username': pu.username,
+        'cleared': cleared,
+        'lockouts_lifted': lifted,
     })
 
 
@@ -11428,10 +11961,125 @@ def send_via(server, to_email, subject, html=None, text=None,
 class AdminChatMessage(db.Model):
     __tablename__ = 'admin_chat_message'
     id         = db.Column(db.Integer, primary_key=True)
-    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    # Nullable: when the admin who wrote it is deleted or demoted, the message
+    # stays in the conversation with no author rather than being handed to
+    # somebody else — re-attributing it made past messages look like the owner
+    # had written them.
+    user_id    = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
     message    = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     sender     = db.relationship('User', foreign_keys=[user_id])
+
+
+class EditingPresence(db.Model):
+    """Who is looking at which document right now, and where inside it.
+
+    Deliberately a database table polled over HTTP rather than anything
+    push-based. The app runs on sync gunicorn workers with no Redis and no
+    websocket layer (see the Dockerfile): in-memory state would be per-worker
+    and therefore wrong, an SSE stream would pin one of the three workers for
+    as long as an editor stayed open, and websockets need a different worker
+    class entirely. Postgres is the only state all workers already share.
+
+    One row per person per document, refreshed by a heartbeat. Rows older than
+    PRESENCE_STALE_SECONDS are treated as gone — a browser that crashes or a
+    laptop that sleeps never sends a goodbye, so absence has to time out rather
+    than be announced.
+    """
+    __tablename__ = 'editing_presence'
+    id            = db.Column(db.Integer, primary_key=True)
+    user_id       = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Which organisation the watcher belongs to, so one org never sees another's
+    # people even if resource ids happen to collide.
+    root_user_id  = db.Column(db.Integer, nullable=False, index=True)
+    resource_type = db.Column(db.String(40), nullable=False)   # 'guide' | 'quiz' | 'page'
+    resource_id   = db.Column(db.Integer, nullable=False)
+    # Where inside the document: the lesson/question/section being edited, and a
+    # human label so a peer chip can say "Lesson 3: Wiring" without a second
+    # query per peer.
+    context_id    = db.Column(db.Integer, nullable=True)
+    context_label = db.Column(db.String(200), nullable=True)
+    # True while they actually have the editor focused, as opposed to having
+    # the page open on another monitor.
+    is_editing    = db.Column(db.Boolean, nullable=False, default=False,
+                              server_default=_sa_false())
+    last_seen_at  = db.Column(db.DateTime, nullable=False,
+                              default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                              index=True)
+    __table_args__ = (
+        db.UniqueConstraint('user_id', 'resource_type', 'resource_id',
+                            name='uq_presence_user_resource'),
+    )
+
+
+class CollabUpdate(db.Model):
+    """An append-only log of Yjs updates for one document.
+
+    Yjs is a CRDT: every update is a small binary patch that can be applied in
+    any order, more than once, with the same result. That is what makes a plain
+    table enough — the server never merges, interprets or orders anything. It
+    stores opaque bytes and hands back whatever a client hasn't seen yet, and
+    the browsers converge on their own.
+
+    `id` doubles as the cursor: a client remembers the highest id it has
+    applied and asks for anything above it.
+
+    The log is compacted by a client posting a snapshot (the whole document
+    state as one update), after which every row it subsumes is deleted. Safe
+    precisely because updates are idempotent — a snapshot already contains them.
+    """
+    __tablename__ = 'collab_update'
+    id           = db.Column(db.Integer, primary_key=True)
+    doc_key      = db.Column(db.String(120), nullable=False, index=True)
+    root_user_id = db.Column(db.Integer, nullable=False, index=True)
+    payload      = db.Column(db.LargeBinary, nullable=False)
+    is_snapshot  = db.Column(db.Boolean, nullable=False, default=False,
+                             server_default=_sa_false())
+    created_at   = db.Column(db.DateTime, nullable=False,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                             index=True)
+
+
+class CollabDoc(db.Model):
+    """Who is allowed to put the stored content into a shared document.
+
+    Seeding cannot be a client-side decision. A client's first update only
+    ships on its NEXT beat, so anybody who attaches inside that window sees an
+    empty log, concludes nobody has seeded, and seeds again — and because Yjs
+    faithfully merges both, the lesson comes back with everything in it twice.
+    That is not a rare race: at a 1s cadence it is what normally happens when a
+    second admin opens the lesson.
+
+    So the right to seed is granted by the server, to one client, once. The
+    grant expires so a browser that dies mid-seed doesn't strand the document
+    empty forever.
+    """
+    __tablename__ = 'collab_doc'
+    id              = db.Column(db.Integer, primary_key=True)
+    doc_key         = db.Column(db.String(120), nullable=False, unique=True, index=True)
+    seed_granted_to = db.Column(db.Integer, nullable=True)
+    seed_granted_at = db.Column(db.DateTime, nullable=True)
+
+
+class CollabAwareness(db.Model):
+    """Where each person's cursor is. Ephemeral by nature — one row per person
+    per document, overwritten on every beat and pruned once it goes quiet.
+
+    Kept apart from CollabUpdate because it must NOT accumulate: a cursor
+    position is only interesting while its owner is still holding it.
+    """
+    __tablename__ = 'collab_awareness'
+    id           = db.Column(db.Integer, primary_key=True)
+    doc_key      = db.Column(db.String(120), nullable=False, index=True)
+    user_id      = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    root_user_id = db.Column(db.Integer, nullable=False, index=True)
+    payload      = db.Column(db.LargeBinary, nullable=False)
+    updated_at   = db.Column(db.DateTime, nullable=False,
+                             default=lambda: datetime.now(timezone.utc).replace(tzinfo=None),
+                             index=True)
+    __table_args__ = (
+        db.UniqueConstraint('doc_key', 'user_id', name='uq_collab_awareness_doc_user'),
+    )
 
 
 class LoginRateLimit(db.Model):
@@ -11447,15 +12095,71 @@ class LoginRateLimit(db.Model):
 @app.route('/admin/chat/messages')
 @login_required
 def admin_chat_messages():
-    msgs = AdminChatMessage.query.order_by(AdminChatMessage.created_at.asc()).limit(100).all()
+    """The recent conversation, or just what has arrived since `since`.
+
+    `since` is what makes the panel live: while it is open the client asks for
+    anything newer than the last id it holds and appends it, rather than
+    re-fetching and re-rendering the whole list under the reader.
+    """
+    since = request.args.get('since', type=int)
+    q = AdminChatMessage.query
+    if since:
+        msgs = (q.filter(AdminChatMessage.id > since)
+                .order_by(AdminChatMessage.id.asc()).limit(100).all())
+    else:
+        # Newest hundred, then flipped so the oldest is at the top. Ordering
+        # ascending and limiting took the OLDEST hundred, so past a hundred
+        # messages the panel showed the beginning of the conversation forever
+        # and nothing anybody said afterwards.
+        msgs = (q.order_by(AdminChatMessage.id.desc()).limit(100).all())[::-1]
     return jsonify([{
         'id': m.id,
         'user_id': m.user_id,
-        'username': m.sender.username if m.sender else '?',
+        # An author who has since been deleted or demoted. The message stays
+        # in the conversation; it just no longer claims to be from anyone.
+        'username': m.sender.username if m.sender else 'Former admin',
         'message': m.message,
         'created_at': m.created_at.strftime('%b %-d %H:%M'),
         'mine': m.user_id == current_user.id,
     } for m in msgs])
+
+
+# How long after their last request an admin still counts as here. The
+# before_request hook that maintains last_seen_at is throttled to once a
+# minute, so anything under two minutes would flicker people off and on while
+# they are sitting right there.
+ADMIN_ONLINE_SECONDS = 180
+
+
+@app.route('/admin/chat/online')
+@login_required
+def admin_chat_online():
+    """Which admins are around right now.
+
+    Read from User.last_seen_at, which a before_request hook already maintains
+    on every authenticated request — so this costs one query and no new
+    polling. It means "using the admin panel", which is the question the chat
+    actually raises, rather than the per-document presence used in the editors.
+    """
+    root_id = current_user.root_user_id
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None)
+              - timedelta(seconds=ADMIN_ONLINE_SECONDS))
+    admins = (User.query
+              .filter(db.or_(User.id == root_id, User.parent_user_id == root_id),
+                      User.last_seen_at.isnot(None),
+                      User.last_seen_at >= cutoff)
+              .all())
+    out = []
+    for u in admins:
+        name = (getattr(u, 'display_name', None) or u.username or '?')
+        out.append({
+            'user_id': u.id,
+            'name': name,
+            'initials': ''.join(p[0] for p in str(name).split()[:2]).upper() or '?',
+            'is_me': u.id == current_user.id,
+        })
+    out.sort(key=lambda p: (not p['is_me'], p['name'].lower()))
+    return _utf8_json({'success': True, 'online': out})
 
 
 @app.route('/admin/chat/send', methods=['POST'])
@@ -14616,7 +15320,9 @@ def get_sections(page_content_id):
 
     # Convert each PageSection object to a dictionary
     sections_data = [section.to_dict() for section in sections]
-    print("get sections data: ", sections_data)
+    # Same leak as update_section had: this printed every section's full
+    # content on every call. The count is the useful part.
+    app.logger.debug('get_sections page=%s count=%d', page_content_id, len(sections_data))
 
     # Return the sections data as JSON
     return jsonify(sections_data)  # Directly return the list of sections
@@ -16447,7 +17153,8 @@ def settings_page():
         current_user.timezone = timezone_name
         current_user.date_format = date_format
 
-        account_username = request.form.get('account_username', '').strip().lower()
+        account_username, _uname_err = validate_username(
+            request.form.get('account_username'))
         account_email = request.form.get('account_email', '').strip().lower()
         account_first_name = request.form.get('account_first_name', '')
         account_last_name = request.form.get('account_last_name', '')
@@ -16455,8 +17162,8 @@ def settings_page():
         new_password = request.form.get('new_password', '')
         confirm_new_password = request.form.get('confirm_new_password', '')
 
-        if not account_username:
-            flash('Username cannot be blank.', 'error')
+        if _uname_err:
+            flash(_uname_err, 'error')
             return redirect(url_for('settings_page', tab=_tab))
 
         # In GitHub-only mode admins are expected to have no mailbox at all —
@@ -16586,6 +17293,7 @@ def settings_page():
         active_tab=('site' if request.args.get('tab') == 'site' else 'user'),
         org_require_2fa=bool(_anchor.org_require_2fa),
         org_2fa_needs_attention=bool(getattr(_anchor, 'org_2fa_needs_attention', False)),
+        org_require_enroll_ticket=bool(getattr(_anchor, 'org_require_enroll_ticket', False)),
         # Only the client id is echoed back — the secret is never rendered into
         # a page, which is why a blank secret field means "keep the stored one".
         github_client_id=(get_github_login_settings().client_id
@@ -16621,14 +17329,17 @@ def admin_set_mirror_display_name():
     """Save the display_username for one of the current admin's mirrors."""
     data = request.get_json(silent=True) or {}
     pu_id = data.get('mirror_id')
-    raw = (data.get('display_username') or '').strip()
-    new_name = raw or None
-    if new_name and len(new_name) > 80:
-        return _utf8_json({'error': 'Display name is too long (max 80 chars).'}, 400)
-
     pu = db.session.get(PublicUser, int(pu_id)) if pu_id else None
     if not pu or pu.mirrored_admin_user_id != current_user.id:
         return _utf8_json({'error': 'Mirror not found.'}, 404)
+
+    # Validated against the site the mirror lives on, so its banned-word list
+    # is the one that applies.
+    cleaned, err = validate_display_name(
+        data.get('display_username'), website=db.session.get(Website, pu.website_id))
+    if err:
+        return _utf8_json({'error': err}, 400)
+    new_name = cleaned or None
 
     conflict = display_username_collision(new_name, pu.website_id, exclude_public_user_id=pu.id)
     if conflict:
@@ -16974,6 +17685,7 @@ def _serialize_backup(uid):
             'admin_url_key': _owner.admin_url_key,
             'admin_url_key_enabled': bool(_owner.admin_url_key_enabled),
             'org_require_2fa': bool(_owner.org_require_2fa),
+            'org_require_enroll_ticket': bool(_owner.org_require_enroll_ticket),
             'org_2fa_email_settings_version': _owner.org_2fa_email_settings_version,
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
             'admin_brand_name': _owner.admin_brand_name,
@@ -17139,6 +17851,19 @@ def _serialize_backup(uid):
                           'is_banned': u.is_banned, 'is_active_public': u.is_active_public,
                           'two_factor_enabled': u.two_factor_enabled,
                           'two_factor_last_sent_at': u.two_factor_last_sent_at.isoformat() if u.two_factor_last_sent_at else None,
+                          # Carried for the same reason password_hash is: a
+                          # restore that dropped these would silently strip a
+                          # second factor the member set up themselves. The
+                          # secret is encrypted with a key derived from
+                          # SECRET_KEY, so restoring onto an instance with a
+                          # different one leaves it unreadable — which the
+                          # login handles by falling back to the recovery
+                          # codes, and those are hashed independently.
+                          'totp_secret': u.totp_secret,
+                          'totp_enabled': u.totp_enabled,
+                          'totp_activated_at': u.totp_activated_at.isoformat() if u.totp_activated_at else None,
+                          'totp_last_counter': u.totp_last_counter,
+                          'totp_recovery_codes': u.totp_recovery_codes,
                           'created_at': u.created_at.isoformat() if u.created_at else None,
                           'last_login_at': u.last_login_at.isoformat() if u.last_login_at else None,
                           } for u in public_users],
@@ -18867,6 +19592,8 @@ def import_backup():
                     _owner.admin_url_key = _owner_settings.get('admin_url_key')
                     _owner.admin_url_key_enabled = bool(_owner_settings.get('admin_url_key_enabled'))
                     _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
+                    _owner.org_require_enroll_ticket = bool(
+                        _owner_settings.get('org_require_enroll_ticket'))
                     _owner.org_2fa_email_settings_version = _owner_settings.get('org_2fa_email_settings_version')
                     _owner.org_2fa_needs_attention = bool(_owner_settings.get('org_2fa_needs_attention'))
                     _owner.admin_brand_name = _owner_settings.get('admin_brand_name')
@@ -19056,6 +19783,11 @@ def import_backup():
                     is_active_public=ud.get('is_active_public', True),
                     two_factor_enabled=ud.get('two_factor_enabled', False),
                     two_factor_last_sent_at=datetime.fromisoformat(ud['two_factor_last_sent_at']) if ud.get('two_factor_last_sent_at') else None,
+                    totp_secret=ud.get('totp_secret'),
+                    totp_enabled=ud.get('totp_enabled', False),
+                    totp_activated_at=datetime.fromisoformat(ud['totp_activated_at']) if ud.get('totp_activated_at') else None,
+                    totp_last_counter=ud.get('totp_last_counter'),
+                    totp_recovery_codes=ud.get('totp_recovery_codes'),
                     created_at=datetime.fromisoformat(ud['created_at']) if ud.get('created_at') else None,
                     last_login_at=datetime.fromisoformat(ud['last_login_at']) if ud.get('last_login_at') else None)
                 db.session.add(pu)
@@ -22236,6 +22968,10 @@ def update_text_section(section, form_data):
     border_radius = form_data.get('border_radius', '10')
     box_shadow = form_data.get('box_shadow', 'medium')
     text_max_width = form_data.get('text_max_width', '0')
+    # 'fit' shrinks the container to the text it holds, keeping padding and the
+    # background. 'block' (the default) is the old behaviour: a full-width box,
+    # optionally capped by text_max_width.
+    container_width = form_data.get('container_width', 'block')
 
     soup = BeautifulSoup(html_content, 'html.parser')
 
@@ -22258,7 +22994,8 @@ def update_text_section(section, form_data):
         'padding': padding,
         'border_radius': border_radius,
         'box_shadow': box_shadow,
-        'text_max_width': text_max_width
+        'text_max_width': text_max_width,
+        'container_width': container_width,
     }
 
     return section
@@ -22936,16 +23673,19 @@ def update_section():
     section_id = request.form.get('section_id')
     section_type = request.form.get('section_type')
 
-    # Debug logging to see what data is being received
-    print(f"Received section_id: {section_id}, section_type: {section_type}")
-    print(f"Form data: {request.form}")
+    # Was two print()s, one of which dumped the whole form on every save: the
+    # section's text, its custom code, contact-form settings — straight to
+    # stdout and into the gunicorn logs, for every keystroke-triggered autosave.
+    # The identifiers are the part worth having; the payload never was.
+    app.logger.debug('update_section id=%s type=%s', section_id, section_type)
 
     section = db.session.get(PageSection, section_id)
     if section is None:
         return jsonify({'status': 'error', 'message': 'Failed to update section'})
 
-    # Version is tracked but not enforced here — the save flow has multiple
-    # concurrent callers (bulk save button, auto-save) that would false-positive.
+    conflict = _section_conflict(section, request.form.get('_version'))
+    if conflict:
+        return conflict
 
     form_data = request.form
 
@@ -24183,7 +24923,12 @@ def _public_search_website(website, query, limit=40):
       - Pages (name/slug + every section's text content)
       - Published Posts (title, excerpt, body)
       - Store products (name, description) — only when store is enabled
+      - Guides (title/description) and their published lessons (title/content)
+      - Public quizzes and resources (title/description)
       - Newsletter campaigns that have been sent (subject + plain body)
+
+    Everything in the Education group follows the same visibility rules the
+    public index uses, so search can never name something the index hides.
 
     Match strategy: case-insensitive substring on every text-bearing
     field. We pull a ~160-char snippet around the first match so the UI
@@ -24366,6 +25111,105 @@ def _public_search_website(website, query, limit=40):
                 'snippet': _snippet(hit_text),
             })
 
+    # ── Guides, quizzes and resources ─────────────────────────────────
+    # The Education section. Visibility mirrors public_guides_index exactly —
+    # search must not surface the title of something the index would hide, or
+    # it becomes a way to read the shape of members-only content without being
+    # a member.
+    try:
+        public_user = _public_user_for_website(website)
+        viewer_is_member = _viewer_is_org_member(website, public_user)
+    except Exception:
+        viewer_is_member = False
+
+    def _visible(rows):
+        return [r for r in rows if viewer_is_member or not getattr(r, 'members_only', False)]
+
+    # Guides: the guide itself, and each published lesson under it. A lesson
+    # hit links straight to the lesson rather than the cover, since that is
+    # where the words the reader searched for actually are.
+    if len(results) < limit:
+        try:
+            guides = _visible(Guide.query.filter_by(
+                website_id=website.id, status='published').order_by(
+                Guide.sort_order, Guide.id).limit(300).all())
+        except Exception:
+            guides = []
+        for g in guides:
+            if len(results) >= limit:
+                break
+            guide_url = f'{base}/guides/{g.slug}'
+            hit_text = _hit(g.title, g.description)
+            if hit_text is not None:
+                results.append({
+                    'type': 'guide',
+                    'title': g.title or 'Untitled guide',
+                    'url': guide_url + '#' + text_directive,
+                    'snippet': _snippet(hit_text),
+                    'collection': g.category.name if g.category_id and g.category else '',
+                })
+            try:
+                nodes = [n for n in (g.nodes or []) if n.is_published]
+            except Exception:
+                nodes = []
+            for n in nodes:
+                if len(results) >= limit:
+                    break
+                node_hit = _hit(n.title, n.content)
+                if node_hit is None:
+                    continue
+                results.append({
+                    'type': 'lesson',
+                    'title': n.title or 'Untitled lesson',
+                    'url': f'{guide_url}/{n.slug}#{text_directive}',
+                    'snippet': _snippet(node_hit),
+                    'collection': g.title or '',
+                })
+
+    # Quizzes listed on the public Quizzes tab. /quiz/<id> has no prefixed
+    # variant, so it is NOT built from `base`.
+    if len(results) < limit:
+        try:
+            quizzes = _visible(Quiz.query.filter_by(
+                website_id=website.id, is_public=True).limit(300).all())
+        except Exception:
+            quizzes = []
+        for qz in quizzes:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(qz.title, qz.description)
+            if hit_text is None:
+                continue
+            results.append({
+                'type': 'quiz',
+                'title': qz.title or 'Untitled quiz',
+                'url': f'/quiz/{qz.id}#{text_directive}',
+                'snippet': _snippet(hit_text),
+                'collection': qz.category.name if qz.category_id and qz.category else '',
+            })
+
+    # Resources. Same note about the URL not being prefixed.
+    if len(results) < limit:
+        try:
+            resources = _visible(Resource.query.filter_by(
+                website_id=website.id, is_public=True).order_by(
+                Resource.sort_order, Resource.id).limit(300).all())
+        except Exception:
+            resources = []
+        for res in resources:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(res.title, res.description, res.content)
+            if hit_text is None:
+                continue
+            results.append({
+                'type': 'resource',
+                'title': res.title or 'Untitled resource',
+                'url': f'/resource/{res.id}#{text_directive}',
+                'snippet': _snippet(hit_text),
+                'collection': res.category.name if res.category_id and res.category else '',
+            })
+
     # ── Newsletter campaigns (sent only) ──────────────────────────────
     if len(results) < limit:
         try:
@@ -24422,12 +25266,23 @@ def public_search_prefixed(prefix):
     return _public_search_handler(request.args.get('q', ''), prefix=prefix)
 
 
+# A single letter matches nearly every page on a site — the search box filled
+# with everything and told the reader nothing. Short queries are refused rather
+# than answered badly. Enforced here as well as in the field so a hand-made
+# request can't spend a full scan on 'a'. Two is the floor rather than three so
+# genuinely short terms — AI, 3D, a team number — stay searchable.
+PUBLIC_SEARCH_MIN_CHARS = 2
+
+
 def _public_search_handler(query, prefix):
     website = get_live_website(url_prefix=prefix or None)
     if not website:
         return jsonify({'results': [], 'query': query}), 404
     if not website.public_navbar_show_search:
         return jsonify({'results': [], 'query': query, 'disabled': True}), 403
+    if len((query or '').strip()) < PUBLIC_SEARCH_MIN_CHARS:
+        return jsonify({'results': [], 'query': query,
+                        'min_chars': PUBLIC_SEARCH_MIN_CHARS})
     results = _public_search_website(website, query, limit=30)
     return jsonify({'results': results, 'query': query})
 
@@ -24986,6 +25841,7 @@ def admin_users_page():
                            anchor_unprotected=bool(anchor and anchor.id in unprotected_ids),
                            anchor_username=(anchor.username if anchor else ''),
                            enroll_ticket_hours=_TOTP_ENROLL_TICKET_HOURS,
+                           can_reset_2fa=current_user.has_permission('settings.2fa'),
                            permissions_schema=ADMIN_PERMISSIONS,
                            website_specific_sections=WEBSITE_SPECIFIC_SECTIONS,
                            general_perm_categories=permission_categories_for(
@@ -25267,6 +26123,9 @@ def admin_public_users_list():
             'divisions': _div_by_user.get(u.id, []),
             'is_admin_mirror': bool(u.mirrored_admin_user_id),
             'membership_status': u.membership_status,
+            # Drives the lockout-reset button: there is nothing to reset on an
+            # account that has no second factor.
+            'has_2fa': bool(u.two_factor_enabled or u.totp_enabled),
         })
 
     pages = (total + per_page - 1) // per_page if per_page else 1
@@ -25296,6 +26155,7 @@ def admin_public_users_settings():
         return _utf8_json({'error': 'No website'}, 400)
     website.public_users_enabled               = bool(data.get('public_users_enabled', True))
     website.public_2fa_enabled                 = bool(data.get('public_2fa_enabled', False))
+    website.public_totp_enabled                = bool(data.get('public_totp_enabled', False))
     website.require_login_to_view              = bool(data.get('require_login_to_view', False))
     website.public_approval_required           = bool(data.get('public_approval_required', False))
     website.public_email_verification_enabled  = bool(data.get('public_email_verification_enabled', False))
@@ -25354,7 +26214,9 @@ def admin_public_user_create():
     if not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Public accounts are not enabled for this site.'}, 400)
 
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(data.get('username'), website=website)
+    if _uname_err:
+        return _utf8_json({'error': _uname_err}, 400)
     password = (data.get('password') or '').strip()
     email_raw = (data.get('email') or '').strip()
     email = valid_email(email_raw)
@@ -25447,7 +26309,10 @@ def admin_public_user_update(user_id):
     if blocked:
         return blocked
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(
+        data.get('username'), website=db.session.get(Website, u.website_id))
+    if _uname_err:
+        return _utf8_json({'error': _uname_err}, 400)
     email_raw = (data.get('email') or '').strip()
     email = valid_email(email_raw)
     if email_raw and not email:
@@ -25890,6 +26755,53 @@ def _delete_public_user_row(public_user):
     db.session.delete(public_user)
 
 
+def _public_user_history_count(pu_id):
+    """How many rows elsewhere point at this member account.
+
+    Guide progress, quiz attempts, KSA levels, division memberships, forum
+    posts — everything somebody accumulates. Counted off the live metadata so a
+    table added later is included without anybody remembering to.
+    """
+    total = 0
+    for table in db.metadata.tables.values():
+        if table.name == 'public_user':
+            continue
+        for col in table.columns:
+            if not any(fk.column.table.name == 'public_user'
+                       for fk in col.foreign_keys):
+                continue
+            try:
+                total += db.session.query(db.func.count()).select_from(table).filter(
+                    col == pu_id).scalar() or 0
+            except Exception:
+                continue
+    return total
+
+
+def _pick_demotion_survivor(mirrors, current_site):
+    """Which mirror becomes the person's account again.
+
+    Whichever one carries their history. This used to be "the mirror on the
+    site the admin happens to be looking at, else the lowest id", which on a
+    multi-site install could keep an empty mirror and delete the original —
+    taking every guide completion, quiz attempt, KSA level and division
+    membership with it.
+
+    Ties (usually because nobody has any history yet) fall back to the current
+    site, then the lowest website id, so the old behaviour still holds when
+    there is nothing to protect.
+    """
+    if not mirrors:
+        return None
+
+    def rank(m):
+        return (_public_user_history_count(m.id),
+                1 if (current_site and m.website_id == current_site.id) else 0,
+                -m.website_id)
+
+    return max(mirrors, key=rank)
+
+
 def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
     """Delete an admin's public mirrors, optionally sparing one.
 
@@ -25904,7 +26816,31 @@ def _delete_admin_mirrors(admin_user_id, keep_public_user_id=None):
             mirrored_admin_user_id=admin_user_id).all():
         if keep_public_user_id is not None and mirror.id == keep_public_user_id:
             continue
+        # A mirror on another site can have a history of its own — progress,
+        # attempts, KSA levels, forum posts made while they were staff there.
+        # Deleting it would take all of that with it, so on a demotion (where
+        # one mirror is being kept) any other mirror that carries history is
+        # detached into an ordinary member account instead.
+        if keep_public_user_id is not None and _public_user_history_count(mirror.id):
+            mirror.mirrored_admin_user_id = None
+            continue
         _delete_public_user_row(mirror)
+
+
+def _github_id_free_on_site(github_id, website_id, exclude_public_user_id=None):
+    """True when no other member of this site already holds that GitHub id.
+
+    PublicUser has a unique (website_id, github_user_id), so handing the link
+    back on demotion must not collide with a separate member account that
+    somehow already carries it. Losing the link is bad; a 500 is worse.
+    """
+    if not github_id:
+        return False
+    q = PublicUser.query.filter(PublicUser.website_id == website_id,
+                                PublicUser.github_user_id == github_id)
+    if exclude_public_user_id:
+        q = q.filter(PublicUser.id != exclude_public_user_id)
+    return q.first() is None
 
 
 def _promote_can():
@@ -26056,6 +26992,15 @@ def admin_public_user_promote(user_id):
         # Carry the GitHub link across so a member who signed up that way can
         # still get in — it is how they authenticate.
         github_user_id=pu.github_user_id,
+        # Same for an authenticator they already set up as a member: it is the
+        # second factor the admin side may well require of them, and re-using
+        # the same secret means the entry already in their app keeps working.
+        # Moved rather than copied, for the reason given below.
+        totp_secret=pu.totp_secret,
+        totp_enabled=pu.totp_enabled,
+        totp_activated_at=pu.totp_activated_at,
+        totp_last_counter=pu.totp_last_counter,
+        totp_recovery_codes=pu.totp_recovery_codes,
         parent_user_id=root_id,
         permission_group_id=group_id,
         permissions=perms if not group_id else {},
@@ -26073,6 +27018,15 @@ def admin_public_user_promote(user_id):
     # public GitHub sign-in match the mirror first and hand out a session
     # without ever running the admin second-factor gate.
     pu.github_user_id = None
+    # The authenticator now lives on the admin row, next to the password hash
+    # it guards. Leaving a copy here would mean disabling it in one place left
+    # it enabled in the other, and the counter that blocks replay would be
+    # tracked in two places at once.
+    pu.totp_secret = None
+    pu.totp_enabled = False
+    pu.totp_activated_at = None
+    pu.totp_last_counter = None
+    pu.totp_recovery_codes = None
     pu.email_verified = True
     pu.email_verified_at = datetime.now(timezone.utc).replace(tzinfo=None)
     pu.is_active_public = True
@@ -26126,14 +27080,26 @@ def admin_user_demote(user_id):
     # Pick the mirror that survives as the real public user: the current admin
     # site if it has one, else the lowest-id mirror.
     current_site = get_admin_website()
-    survivor = None
-    if current_site:
-        survivor = next((m for m in mirrors if m.website_id == current_site.id), None)
-    if survivor is None and mirrors:
-        survivor = min(mirrors, key=lambda m: m.website_id)
+    survivor = _pick_demotion_survivor(mirrors, current_site)
 
     username, email, pw_hash = sub.username, sub.email, sub.password_hash
     first_name, last_name = sub.first_name, sub.last_name
+    # Promotion MOVES the GitHub link from the mirror onto the admin row and
+    # clears it from the mirror, so it lives in exactly one place. Demotion has
+    # to move it back: deleting the admin row without doing so destroyed the
+    # link outright, and somebody who signs in with GitHub then has no way in
+    # at all.
+    github_id = getattr(sub, 'github_user_id', None)
+    # The authenticator moves the same way, and for the same reason: deleting
+    # the admin row without handing it back would silently strip a second
+    # factor the person set up themselves and still expects to be asked for.
+    totp_fields = {
+        'totp_secret': sub.totp_secret,
+        'totp_enabled': sub.totp_enabled,
+        'totp_activated_at': sub.totp_activated_at,
+        'totp_last_counter': sub.totp_last_counter,
+        'totp_recovery_codes': sub.totp_recovery_codes,
+    }
 
     if survivor is not None:
         # Detach the survivor FIRST so deleting the admin can't cascade-delete
@@ -26142,6 +27108,11 @@ def admin_user_demote(user_id):
         survivor.password_hash = pw_hash
         survivor.first_name = first_name
         survivor.last_name = last_name
+        if github_id and _github_id_free_on_site(github_id, survivor.website_id,
+                                                 exclude_public_user_id=survivor.id):
+            survivor.github_user_id = github_id
+        for _f, _v in totp_fields.items():
+            setattr(survivor, _f, _v)
         survivor.email_verified = True
         survivor.is_active_public = True
         survivor.is_banned = False
@@ -26156,6 +27127,9 @@ def admin_user_demote(user_id):
             website_id=current_site.id, username=username, email=email,
             first_name=first_name, last_name=last_name,
             password_hash=pw_hash, email_verified=True, is_active_public=True,
+            github_user_id=(github_id if github_id and _github_id_free_on_site(
+                github_id, current_site.id) else None),
+            **totp_fields,
         )
         db.session.add(survivor)
         db.session.flush()
@@ -26198,7 +27172,9 @@ def create_admin_user():
     if current_user.is_sub_admin and not current_user.has_permission('admin_users.create'):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     data = request.get_json() or {}
-    username = (data.get('username') or '').strip().lower()
+    username, _uname_err = validate_username(data.get('username'))
+    if _uname_err:
+        return _utf8_json({'success': False, 'error': _uname_err}, 400)
     email = (data.get('email') or '').strip().lower()
     password = (data.get('password') or '').strip()
     perms = data.get('permissions') or {}
@@ -26316,6 +27292,16 @@ _USER_REF_IGNORE = {('public_user', 'mirrored_admin_user_id')}
 # else pointing at user.id is attribution — an audit note, not a claim.
 _ADMIN_OWNER_COLS = {'user_id', 'owner_user_id', 'parent_user_id'}
 
+# ...except these, which are named user_id but mean "who did this". Handing a
+# chat message to the owner did not transfer a possession, it rewrote history:
+# messages the demoted admin had sent started appearing as the owner's. These
+# are cleared like any other attribution, leaving the record intact and
+# unattributed.
+_ADMIN_AUTHORSHIP_COLS = {
+    ('admin_chat_message', 'user_id'),
+    ('sms_log', 'user_id'),
+}
+
 # Never re-homed when an admin is deleted:
 #   public_user.mirrored_admin_user_id — mirrors are dealt with before this runs
 #   website.user_id                    — User.websites is delete-orphan, so the
@@ -26378,12 +27364,24 @@ def _rehome_admin_references(user_id, new_owner_id):
                 continue
 
             label = _user_ref_label(table.name, col.name)
-            is_owner_col = col.name in _ADMIN_OWNER_COLS
+            is_owner_col = (col.name in _ADMIN_OWNER_COLS
+                            and (table.name, col.name) not in _ADMIN_AUTHORSHIP_COLS)
 
             if not is_owner_col and col.nullable:
                 db.session.execute(
                     table.update().where(col == user_id).values({col: None}))
                 moved.append((f'{label} (name removed)', int(n)))
+                continue
+
+            # The asset library is one shared pool keyed on the root admin, so
+            # re-pointing a stray row at the owner is not a transfer of
+            # anybody's property — it puts the file back where the library
+            # looks for it. Saying "moved to you" made it read as though a
+            # colleague's files had been taken over.
+            if (table.name, col.name) == ('asset', 'user_id'):
+                db.session.execute(
+                    table.update().where(col == user_id).values({col: new_owner_id}))
+                moved.append((f'{label} (kept in the shared library)', int(n)))
                 continue
 
             if is_owner_col and _column_is_unique(table, col):
@@ -26559,10 +27557,41 @@ def _describe_delete_blockers(user_id, exc):
             'keeps the account as a public user.')
 
 
+def _delete_admin_account(admin):
+    """Remove one admin account. Returns (moved, error_message).
+
+    Shared by the admin-users page and the public account settings page, so
+    closing your own account behaves identically wherever you do it from.
+    Callers are responsible for the checks that differ between them (who may
+    delete whom) and for ending the session afterwards.
+    """
+    root_id = admin.parent_user_id or admin.id
+    try:
+        _delete_admin_mirrors(admin.id)
+        moved = _rehome_admin_references(admin.id, root_id)
+        db.session.delete(admin)
+        db.session.commit()
+        return moved, None
+    except IntegrityError as exc:
+        db.session.rollback()
+        app.logger.warning('_delete_admin_account blocked for id=%s: %s', admin.id, exc)
+        return [], _describe_delete_blockers(admin.id, exc)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('_delete_admin_account failed for id=%s', admin.id)
+        return [], f'Delete failed: {exc}'
+
+
 @app.route('/admin/users/<int:user_id>/delete', methods=['POST'])
 @login_required
 def delete_admin_user(user_id):
-    if current_user.is_sub_admin and not current_user.has_permission('admin_users.delete'):
+    # Closing your own account is not the same right as removing somebody
+    # else's, so it does not need admin_users.delete. The primary owner is
+    # still refused below — that account is the org's root of trust and the
+    # only way out of it is an ownership transfer.
+    deleting_self = (str(user_id) == str(current_user.id))
+    if (current_user.is_sub_admin and not deleting_self
+            and not current_user.has_permission('admin_users.delete')):
         return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
     sub = User.query.get_or_404(user_id)
     if sub.parent_user_id != current_user.root_user_id:
@@ -26574,9 +27603,9 @@ def delete_admin_user(user_id):
                                'Transfer ownership to another admin first (the crown '
                                'button); this account then becomes an ordinary admin.'}, 403)
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
-    if sub.id == current_user.id:
-        return _utf8_json({'success': False,
-                           'error': "You can't delete the account you're signed in with."}, 400)
+    # Deleting yourself is allowed for anyone but the owner (refused above).
+    # It used to be blocked outright, which left an admin unable to close their
+    # own account without asking somebody else to do it for them.
     # Explicitly remove public mirrors first. The FK has ondelete=CASCADE in
     # the model, but the auto-migrator that added the column doesn't always
     # carry that to the live schema, so we delete defensively — and everything
@@ -26601,6 +27630,15 @@ def delete_admin_user(user_id):
         db.session.rollback()
         app.logger.exception('delete_admin_user failed for id=%s', user_id)
         return _utf8_json({'success': False, 'error': f'Delete failed: {exc}'}, 500)
+    if deleting_self:
+        # The session now points at a row that no longer exists; every later
+        # request would fail on the user loader. End it here and send them to
+        # the login page rather than leaving a half-dead session behind.
+        logout_user()
+        session.clear()
+        return _utf8_json({'success': True, 'self_deleted': True,
+                           'redirect': url_for('login'),
+                           'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
     return _utf8_json({'success': True,
                        'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
 
@@ -26956,7 +27994,13 @@ def save_code_section(section_id):
         data = request.get_json(force=True, silent=True) or {}
         code = data.get('code', '')
         agent_id = data.get('agent_id')
-        client_version = data.get('version')
+
+        # This endpoint has always accepted a client version and ignored it.
+        # It autosaves on a 600ms debounce, so an unheeded stale write here is
+        # the easiest way in the whole builder to wipe somebody's code.
+        conflict = _section_conflict(section, data.get('version'))
+        if conflict:
+            return conflict
 
         # Full assignment + flag_modified ensures SQLAlchemy detects the JSON change
         from sqlalchemy.orm.attributes import flag_modified
@@ -28622,7 +29666,8 @@ def public_register():
         # or username turned out to exist.
         _reg_probe_record(ip)
 
-        username = (request.form.get('username') or '').strip().lower()
+        username, _uname_err = validate_username(
+            request.form.get('username'), website=website)
         email_raw = (request.form.get('email') or '').strip()
         email = valid_email(email_raw)
         password = request.form.get('password') or ''
@@ -28639,6 +29684,13 @@ def public_register():
         if not username or not password or (require_email and not email):
             flash('Please fill out all fields.' if require_email
                   else 'Please enter a username and password.', 'error')
+            return _register_redirect()
+
+        # Letters and digits, a sane length, and nothing on the site's banned
+        # word list. Checked before the uniqueness probe below so a rejected
+        # name never counts towards the probing throttle.
+        if _uname_err:
+            flash(_uname_err, 'error')
             return _register_redirect()
 
         # A supplied-but-malformed email is rejected up front so it never reaches
@@ -28895,8 +29947,14 @@ def _github_public_login(gh_id, ctx, access_token=None):
         if pu.is_banned or not pu.is_active_public:
             flash('That account is not currently active.', 'error')
             return redirect(url_for('public_login', website_prefix=ctx['prefix'] or None))
+        _dest = ctx['next'] or _website_home_url(website)
+        # Proving control of the GitHub account is one factor; an enrolled
+        # authenticator is the second, and GitHub does not stand in for it.
+        _totp_step = begin_public_totp(pu, _dest, remember=True)
+        if _totp_step:
+            return _totp_step
         public_user_login(pu, remember=True)
-        return redirect(ctx['next'] or _website_home_url(website))
+        return redirect(_dest)
 
     # An admin's GitHub link lives on their User row, not on the PublicUser
     # mirror, so the lookup above misses them and they'd be pushed into signing
@@ -28966,9 +30024,10 @@ def github_choose_username():
         return redirect(url_for('public_login'))
 
     if request.method == 'POST':
-        username = (request.form.get('username') or '').strip().lower()
-        if not username or len(username) < 3:
-            flash('Please choose a username of at least 3 characters.', 'error')
+        username, _uname_err = validate_username(
+            request.form.get('username'), website=website)
+        if _uname_err:
+            flash(_uname_err, 'error')
             return redirect(request.path)
         conflict = public_username_taken_anywhere(username)
         if conflict:
@@ -29096,15 +30155,31 @@ def public_login():
                 # to `public_admin_2fa` instead of `two_factor_login`, and on
                 # success we land on the requested public URL rather than the
                 # admin dashboard.
-                _needs_2fa = admin_requires_2fa(admin)
+                # Which factor, decided by the same function the admin form
+                # uses — this branch used to assume an emailed code and turn
+                # away anyone whose only factor was an authenticator, which is
+                # exactly what a promoted member usually has.
+                _state = admin_second_factor_state(admin)
+                _needs_2fa = _state['required']
                 _two_fa_email = _admin_two_fa_email(admin)
                 if _needs_2fa:
                     next_q = safe_next or _website_home_url(website)
-                    if not _two_fa_email:
-                        # Defensive fallback — shouldn't normally happen.
+
+                    if _state['method'] == 'totp':
+                        session['pre_2fa_user_id'] = admin.id
+                        session['pre_2fa_public_next_url'] = next_q
+                        session['pre_2fa_public_website_prefix'] = website_prefix or ''
+                        session['pre_2fa_remember'] = remember
+                        session.pop('pre_2fa_admin_key', None)
+                        _rl_record(ip, login_value, success=True)
+                        return redirect(url_for('public_admin_totp'))
+
+                    if _state['method'] != 'email' or not _two_fa_email:
+                        # Required, but they hold no usable factor yet. The
+                        # admin login page is where enrolment lives.
                         flash('Your admin account requires two-factor verification, '
-                              'but no 2FA email is configured. Use the admin '
-                              'login page.', 'error')
+                              'but no second factor is set up yet. Sign in on the '
+                              'admin login page to set one up.', 'error')
                         return redirect(url_for('login', next=next_q))
 
                     session['pre_2fa_user_id'] = admin.id
@@ -29198,6 +30273,14 @@ def public_login():
                 public_user.id)
             public_user.two_factor_enabled = False
             db.session.commit()
+
+        # The authenticator comes first when both are enrolled: it needs no
+        # working mail server and no code in transit, and its recovery codes
+        # are the backup.
+        _totp_step = begin_public_totp(public_user, next_url, remember)
+        if _totp_step:
+            _rl_record(ip, login_value, success=True)
+            return _totp_step
 
         if getattr(public_user, 'two_factor_enabled', False):
             code = generate_two_factor_code()
@@ -29464,8 +30547,13 @@ def public_login_link(token):
             display_name=display_name,
             confirm_url=request.path,
             is_admin_link=bool(admin),
-            will_need_code=bool(admin and admin_requires_2fa(admin)
-                                and not _login_link_covers_2fa(admin)),
+            # A member with an authenticator is asked for a code after this
+            # button too, so the page should say so rather than implying the
+            # link is the last step.
+            will_need_code=bool(
+                (admin and admin_requires_2fa(admin)
+                 and not _login_link_covers_2fa(admin))
+                or (public_user and public_totp_required(public_user))),
         )
 
     if admin:
@@ -29536,9 +30624,16 @@ def public_login_link(token):
 
     db.session.commit()
 
-    # No 2FA step on purpose: public-user 2FA is an emailed code, and this
-    # link already proves control of that same inbox.
     _rl_record(get_request_ip(), public_user.email or '', success=True)
+
+    # The emailed code is skipped on purpose — this link already proves control
+    # of that same inbox, so the code would prove nothing new. An authenticator
+    # is a different matter: it is deliberately not in the mailbox, so the link
+    # says nothing about it and the step still has to happen.
+    _totp_step = begin_public_totp(public_user, next_target)
+    if _totp_step:
+        return _totp_step
+
     public_user_login(public_user)
 
     return redirect(next_target)
@@ -30704,6 +31799,255 @@ def public_email_2fa_possible(public_user):
     return bool(getattr(public_user, 'email', None)) and bool(public_user.email_verified)
 
 
+def public_totp_available(website):
+    """Whether members of this site may protect their account with an app.
+
+    Off by default — it is a site's choice whether to offer it at all, the same
+    way the emailed code is. Unlike the emailed code it needs no mailbox, so
+    it is the second factor that works for members who sign in with GitHub or
+    on a site that doesn't collect addresses.
+    """
+    return bool(website is not None and getattr(website, 'public_totp_enabled', False))
+
+
+def totp_account_for(public_user):
+    """The row that actually holds this person's authenticator enrolment.
+
+    A staff profile is a projection of an admin account, and promotion moves
+    the enrolment onto that admin row — next to the password hash it guards —
+    leaving the mirror's own totp_* columns deliberately empty. Reading the
+    mirror therefore told a staff member their authenticator was off while it
+    was in fact protecting every sign-in they made, and offered them a "Set up"
+    button that would have enrolled a second, unused secret.
+
+    Everything that shows or changes the enrolment goes through here, so the
+    account settings page speaks about the same row the login checks.
+    """
+    admin_id = getattr(public_user, 'mirrored_admin_user_id', None)
+    if admin_id:
+        return db.session.get(User, admin_id) or public_user
+    return public_user
+
+
+def public_totp_required(public_user):
+    """True when this member must pass the authenticator step to sign in.
+
+    An unreadable secret is not a usable factor — every code would be rejected
+    — so it deliberately does not count, and the caller falls through to
+    whatever other factor applies rather than presenting a challenge nothing
+    could satisfy.
+    """
+    return (bool(getattr(public_user, 'totp_enabled', False))
+            and totp_secret_is_readable(public_user))
+
+
+def begin_public_totp(public_user, next_url, remember=False):
+    """Hand a signing-in member to the authenticator step, or None to proceed.
+
+    Every path that establishes a member session goes through here. Password
+    login is the obvious one, but the magic link and GitHub sign-in matter
+    more: both used to log the member straight in on the reasoning that
+    public-user 2FA *is* an emailed code, so a link delivered to that inbox
+    already proved it. An authenticator is an independent factor — the whole
+    point is that it is not in the mailbox — so that reasoning does not carry,
+    and skipping it would let anyone holding the inbox walk past it.
+    """
+    if not public_totp_required(public_user):
+        return None
+    session['pub_totp_user_id'] = public_user.id
+    session['pub_totp_next_url'] = next_url
+    session['pub_pending_remember'] = bool(remember)
+    return redirect(url_for('public_totp_challenge'))
+
+
+def _public_totp_guard(require_site_setting=True):
+    """(public_user, website, error_response) for the member TOTP routes.
+
+    `require_site_setting` is False for turning it OFF and for the login
+    challenge: a member who enrolled while the site allowed it must still be
+    able to sign in and switch it off after the site turns the option back off,
+    or disabling the feature would lock out everyone already using it.
+    """
+    public_user = get_public_user()
+    if not public_user:
+        return None, None, _utf8_json({'error': 'Not logged in'}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return None, None, _utf8_json({'error': 'Not found'}, 404)
+    if require_site_setting and not public_totp_available(website):
+        return None, None, _utf8_json(
+            {'error': 'Authenticator apps are not enabled for this site.'}, 400)
+    return public_user, website, None
+
+
+@app.route('/<string:prefix>/account/2fa/app/setup', methods=['GET', 'POST'])
+@app.route('/account/2fa/app/setup', methods=['GET', 'POST'], defaults={'prefix': None})
+def public_totp_setup(prefix=None):
+    """Enrol an authenticator app on a member account."""
+    public_user, website, err = _public_totp_guard()
+    if err:
+        # A browser navigating here deserves a page, not raw JSON.
+        if request.method == 'GET':
+            return redirect(url_for('public_account_settings', prefix=prefix))
+        return err
+
+    # Enrolling against a key that dies at the next restart produces an
+    # enrolment that silently stops working — the same trap the admin flow
+    # refuses, for the same reason.
+    if _SECRET_KEY_IS_EPHEMERAL:
+        flash('This site has no SECRET_KEY set, so an authenticator enrolment '
+              'would stop working the next time the server restarts. Ask an '
+              'administrator to set one up first.', 'error')
+        return redirect(url_for('public_account_settings', prefix=prefix))
+
+    if request.method == 'POST':
+        secret = session.get('pub_totp_setup_secret')
+        if not secret:
+            flash('Setup expired. Please start again.', 'error')
+            return redirect(url_for('public_totp_setup', prefix=prefix))
+        ok, counter = verify_totp(secret, request.form.get('code', ''))
+        if not ok:
+            flash('That code did not match. Check your authenticator and try again.', 'error')
+            return redirect(url_for('public_totp_setup', prefix=prefix))
+
+        account = totp_account_for(public_user)
+        account.totp_secret = encrypt_api_key(secret)
+        account.totp_enabled = True
+        account.totp_activated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        account.totp_last_counter = counter
+        plain, hashed = generate_totp_recovery_codes()
+        account.totp_recovery_codes = hashed
+        db.session.commit()
+        session.pop('pub_totp_setup_secret', None)
+        # Shown exactly once — only hashes are kept.
+        session['pub_totp_recovery_plain'] = plain
+        app.logger.info('TOTP enrolled from the public site for %s id=%s',
+                        'admin' if account is not public_user else 'public user',
+                        account.id)
+        return redirect(url_for('public_totp_recovery_codes', prefix=prefix))
+
+    secret = session.get('pub_totp_setup_secret')
+    if not secret:
+        secret = generate_totp_secret()
+        session['pub_totp_setup_secret'] = secret
+    uri = totp_provisioning_uri(secret, public_user.username or 'member',
+                                website.name or 'Uwebia')
+    return render_template('public_totp_setup.html', website=website,
+                           public_user=public_user, secret=secret,
+                           qr_svg=_generate_qr_svg(uri, box_size=6, border=2),
+                           provisioning_uri=uri)
+
+
+@app.route('/<string:prefix>/account/2fa/app/recovery-codes')
+@app.route('/account/2fa/app/recovery-codes', defaults={'prefix': None})
+def public_totp_recovery_codes(prefix=None):
+    """The one and only showing of the recovery codes."""
+    public_user, website, err = _public_totp_guard(require_site_setting=False)
+    if err:
+        return redirect(url_for('public_login'))
+    codes = session.pop('pub_totp_recovery_plain', None)
+    if not codes:
+        return redirect(url_for('public_account_settings', prefix=prefix))
+    return render_template('public_totp_recovery_codes.html', website=website,
+                           public_user=public_user, codes=codes)
+
+
+@app.route('/<string:prefix>/account/2fa/app/disable', methods=['POST'])
+@app.route('/account/2fa/app/disable', methods=['POST'], defaults={'prefix': None})
+def public_totp_disable(prefix=None):
+    # Deliberately not gated on the site setting — see _public_totp_guard.
+    public_user, website, err = _public_totp_guard(require_site_setting=False)
+    if err:
+        return err
+    account = totp_account_for(public_user)
+    account.totp_enabled = False
+    account.totp_secret = None
+    account.totp_activated_at = None
+    account.totp_last_counter = None
+    account.totp_recovery_codes = None
+    db.session.commit()
+    app.logger.info('TOTP disabled from the public site for %s id=%s',
+                    'admin' if account is not public_user else 'public user',
+                    account.id)
+    return _utf8_json({'success': True})
+
+
+@app.route('/2fa/app', methods=['GET', 'POST'])
+def public_totp_challenge():
+    """The authenticator step of a member signing in."""
+    user_id = session.get('pub_totp_user_id')
+    if not user_id:
+        return redirect(url_for('public_login'))
+    public_user = db.session.get(PublicUser, user_id)
+    if not public_user or not public_user.totp_enabled:
+        session.pop('pub_totp_user_id', None)
+        return redirect(url_for('public_login'))
+    website = public_user.website or get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    # Enrolled but unreadable: every code would be rejected with no way to tell
+    # why. Say so, and let recovery codes through — they are hashed
+    # independently of SECRET_KEY, so they still work.
+    secret_lost = not totp_secret_is_readable(public_user)
+    ip = get_request_ip()
+
+    if request.method == 'POST':
+        if _rl_check(ip, public_user.username or '')['locked']:
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('public_totp_challenge'))
+
+        submitted = (request.form.get('code') or '').strip()
+        use_recovery = bool(request.form.get('use_recovery'))
+        accepted = False
+
+        if use_recovery:
+            if consume_totp_recovery_code(public_user, submitted):
+                app.logger.info('TOTP recovery code used for public user id=%s',
+                                public_user.id)
+                flash(f'Recovery code accepted. {len(public_user.totp_recovery_codes or [])} left.',
+                      'success')
+                accepted = True
+        else:
+            ok, counter = verify_totp(user_totp_secret(public_user), submitted,
+                                      last_used_counter=public_user.totp_last_counter)
+            if ok:
+                # Burn the step so the same code can't be replayed while it is
+                # still inside its validity window.
+                public_user.totp_last_counter = counter
+                db.session.commit()
+                accepted = True
+
+        if accepted:
+            if public_user.is_banned or not public_user.is_active_public:
+                flash('Account is no longer accessible.', 'error')
+                return redirect(url_for('public_login'))
+            next_url = session.pop('pub_totp_next_url', None) or _website_home_url(website)
+            remember = bool(session.pop('pub_pending_remember', False))
+            session.pop('pub_totp_user_id', None)
+            _rl_record(ip, public_user.username or '', success=True)
+            public_user_login(public_user, remember=remember)
+            return redirect(next_url)
+
+        if secret_lost and not use_recovery:
+            # Not a wrong code — the stored secret is unreadable, so don't
+            # spend an attempt on a guess that could never have succeeded.
+            flash('This account’s authenticator secret can no longer be read '
+                  '(the server’s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('public_totp_challenge'))
+
+        _rl_record(ip, public_user.username or '', success=False)
+        flash('Invalid code.', 'error')
+        return redirect(url_for('public_totp_challenge'))
+
+    return render_template('public_totp_challenge.html', website=website,
+                           public_user=None,
+                           has_recovery=bool(public_user.totp_recovery_codes),
+                           secret_lost=secret_lost)
+
+
 @app.route('/<string:prefix>/account/settings')
 @app.route('/account/settings', defaults={'prefix': None})
 def public_account_settings(prefix=None):
@@ -30720,11 +32064,32 @@ def public_account_settings(prefix=None):
     if (prefix or None) != (website.url_prefix or None):
         return redirect(url_for('public_account_settings', prefix=website.url_prefix))
     setup_pending = session.get('pub_2fa_user_id') == public_user.id and session.get('pub_2fa_purpose') == 'setup'
+    # A staff profile mirrors an admin account, and closing it closes that
+    # account too — which is allowed, and is how an admin leaves the
+    # organisation without having to ask somebody else to remove them. The one
+    # account that cannot go this way is the primary owner's: deleting the root
+    # of the admin panel is an ownership transfer, not an account closure.
+    _mirrored_admin = (db.session.get(User, public_user.mirrored_admin_user_id)
+                       if public_user.is_admin_mirror else None)
+    _totp_acct = totp_account_for(public_user)
     return render_template(
         'public_account_settings.html',
         website=website,
         public_user=public_user,
         setup_pending=setup_pending,
+        mirror_is_primary_owner=bool(_mirrored_admin is not None
+                                     and _mirrored_admin.parent_user_id is None),
+        # Offered where the site allows it — but also whenever they are already
+        # enrolled, so turning the site option off doesn't hide the only switch
+        # that would turn it back off.
+        totp_available=(public_totp_available(website)
+                        or bool(_totp_acct.totp_enabled)),
+        totp_enabled=bool(_totp_acct.totp_enabled),
+        totp_secret_lost=(bool(_totp_acct.totp_enabled)
+                          and not totp_secret_is_readable(_totp_acct)),
+        # Staff manage the enrolment on the admin account behind this profile,
+        # so say so rather than letting it look like a second, separate one.
+        totp_is_staff_account=(_totp_acct is not public_user),
         # Already on but no longer offerable (the site turned 2FA off, or the
         # address went away) still shows the card — otherwise the only switch
         # that turns it back off would be out of reach.
@@ -30817,10 +32182,12 @@ def public_account_set_display_name(prefix=None):
         return _utf8_json({'error': 'Not found'}, 404)
 
     body = request.get_json(silent=True) or {}
-    raw = (request.form.get('display_username') or body.get('display_username') or '').strip()
-    new_name = raw or None
-    if new_name and len(new_name) > 80:
-        return _utf8_json({'error': 'Display name is too long (max 80 chars).'}, 400)
+    cleaned, err = validate_display_name(
+        request.form.get('display_username') or body.get('display_username'),
+        website=website)
+    if err:
+        return _utf8_json({'error': err}, 400)
+    new_name = cleaned or None
 
     conflict = display_username_collision(new_name, website.id, exclude_public_user_id=public_user.id)
     if conflict:
@@ -30893,14 +32260,36 @@ def public_account_delete(prefix=None):
     website = public_user.website
     if not website or website.is_draft or not website_uses_public_accounts(website):
         return _utf8_json({'error': 'Not found'}, 404)
-    # A staff mirror is a projection of an admin account, not an account in its
-    # own right — deleting the row here removes nothing (the next sign-in
-    # recreates it) while looking like it worked. Say so instead of pretending.
+    # A staff mirror is a projection of an admin account: deleting this row on
+    # its own removes nothing, because the next sign-in recreates it. That used
+    # to be the end of the matter — "ask an owner" — which left an admin unable
+    # to leave the organisation from the page that offers to close accounts.
+    # Now it closes the account the mirror belongs to, which takes the mirror
+    # with it. Only the primary owner is refused, because removing the root of
+    # the admin panel is an ownership transfer, not an account closure.
     if public_user.is_admin_mirror:
-        return _utf8_json(
-            {'error': 'This is your staff profile, which mirrors your admin account — '
-                      'deleting it here would not remove anything. Ask an owner to '
-                      'remove your staff account instead.'}, 400)
+        admin = db.session.get(User, public_user.mirrored_admin_user_id)
+        if admin is None:
+            # The mirror outlived its admin; nothing above it to remove.
+            public_user_logout()
+            db.session.delete(public_user)
+            db.session.commit()
+            return _utf8_json({'success': True})
+        if admin.parent_user_id is None:
+            return _utf8_json(
+                {'error': 'This account is the primary owner of the admin panel and '
+                          'cannot be deleted. Transfer ownership to another admin '
+                          'first; this account then becomes an ordinary admin.'}, 403)
+
+        moved, err = _delete_admin_account(admin)
+        if err:
+            return _utf8_json({'error': err}, 409)
+        public_user_logout()
+        logout_user()
+        session.clear()
+        return _utf8_json({'success': True,
+                           'moved': [{'what': lbl, 'count': n} for lbl, n in moved]})
+
     public_user_logout()
     db.session.delete(public_user)
     db.session.commit()
@@ -30971,6 +32360,100 @@ def _login_link_covers_2fa(admin):
     return two_fa_email.strip().lower() == (admin.email or '').strip().lower()
 
 
+def _finish_public_admin_login(user, website, next_url):
+    """Complete an admin sign-in that started on the public site.
+
+    Shared by the emailed-code and authenticator challenges so both land the
+    same way: signed in as the admin, recognised on the public side through
+    their mirror, and back at the page they asked for rather than the
+    dashboard.
+    """
+    login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
+    if admin_url_key_required_for_user(user):
+        session['admin_path_verified'] = True
+    _stamp_login(user)
+    _clear_public_admin_2fa_session()
+
+    # Mirror the post-password success path from public_login so the public
+    # side recognises the admin as a signed-in member too.
+    mirror = ensure_admin_public_mirror(user, website)
+    if mirror:
+        public_user_login(mirror)
+    return redirect(next_url)
+
+
+@app.route('/2fa/admin/app', methods=['GET', 'POST'])
+def public_admin_totp():
+    """Admin authenticator challenge reached via the public login form.
+
+    The public form only ever knew how to email a code, so an admin whose one
+    factor is an authenticator was turned away at it — "no 2FA email is
+    configured, use the admin login page" — even though their app was working.
+    Promotion makes that the common case, because a member who enrolled an app
+    carries it onto the admin row and often holds no separate 2FA mailbox.
+    """
+    user_id = session.get('pre_2fa_user_id')
+    next_url = session.get('pre_2fa_public_next_url')
+    website_prefix = session.get('pre_2fa_public_website_prefix') or ''
+    if not user_id or not next_url:
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+    user = db.session.get(User, user_id)
+    if not user or not user.totp_enabled:
+        _clear_public_admin_2fa_session()
+        return redirect(url_for('public_login',
+                                website_prefix=(website_prefix or None)))
+    website = get_live_website(url_prefix=(website_prefix or None)) or get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+
+    secret_lost = not totp_secret_is_readable(user)
+
+    if request.method == 'POST':
+        if two_factor_lockout_active(user):
+            flash(f'Too many incorrect codes. Try again in {_RL_LOCKOUT_MINUTES} minutes.',
+                  'error')
+            return redirect(url_for('public_admin_totp'))
+
+        submitted = (request.form.get('code') or '').strip()
+        use_recovery = bool(request.form.get('use_recovery'))
+
+        if use_recovery:
+            if consume_totp_recovery_code(user, submitted):
+                app.logger.info('TOTP recovery code used for admin id=%s (public form)',
+                                user.id)
+                flash(f'Recovery code accepted. {len(user.totp_recovery_codes or [])} left.',
+                      'success')
+                return _finish_public_admin_login(user, website, next_url)
+        else:
+            ok, counter = verify_totp(user_totp_secret(user), submitted,
+                                      last_used_counter=user.totp_last_counter)
+            if ok:
+                user.totp_last_counter = counter
+                db.session.commit()
+                return _finish_public_admin_login(user, website, next_url)
+
+        if secret_lost and not use_recovery:
+            flash('This account\u2019s authenticator secret can no longer be read '
+                  '(the server\u2019s SECRET_KEY changed). Use a recovery code, '
+                  'then set the authenticator up again.', 'error')
+            return redirect(url_for('public_admin_totp'))
+
+        if register_failed_two_factor_attempt(user):
+            _clear_public_admin_2fa_session()
+            flash('Too many incorrect codes. Please sign in again.', 'error')
+            return redirect(url_for('public_login',
+                                    website_prefix=(website_prefix or None)))
+        flash('Invalid code.', 'error')
+        return redirect(url_for('public_admin_totp'))
+
+    return render_template('public_totp_challenge.html', website=website,
+                           public_user=None,
+                           has_recovery=bool(user.totp_recovery_codes),
+                           secret_lost=secret_lost,
+                           submit_url=url_for('public_admin_totp'))
+
+
 @app.route('/2fa/admin', methods=['GET', 'POST'])
 def public_admin_2fa():
     """Admin 2FA challenge reached via the public login form. The code-email
@@ -31013,18 +32496,7 @@ def public_admin_2fa():
             flash('Invalid verification code.', 'error')
             return redirect(url_for('public_admin_2fa'))
 
-        login_user(user, remember=bool(session.pop('pre_2fa_remember', False)))
-        if admin_url_key_required_for_user(user):
-            session['admin_path_verified'] = True
-        _stamp_login(user)
-        _clear_public_admin_2fa_session()
-
-        # Mirror the post-password success path from public_login so the
-        # public side recognises the admin as a signed-in member too.
-        mirror = ensure_admin_public_mirror(user, website)
-        if mirror:
-            public_user_login(mirror)
-        return redirect(next_url)
+        return _finish_public_admin_login(user, website, next_url)
 
     return render_template(
         'public_2fa.html',
@@ -31421,10 +32893,16 @@ def public_org_invite(token):
     if pu.membership_status == 'invited':
         _set_public_membership_status(pu, 'member')
         db.session.commit()
+    _dest = url_for('public_account_settings', prefix=website.url_prefix or None)
     if not pu.is_admin_mirror:
+        # Accepting an invite signs them in, so it is a sign-in path like any
+        # other and owes the same second factor.
+        _totp_step = begin_public_totp(pu, _dest)
+        if _totp_step:
+            return _totp_step
         public_user_login(pu)
     flash(f"Welcome — you're now a member of {org_name}.", 'success')
-    return redirect(url_for('public_account_settings', prefix=website.url_prefix or None))
+    return redirect(_dest)
 
 
 def send_admin_login_link_email(admin, website, next_url='', dest='public'):
@@ -31848,11 +33326,14 @@ def display_username_collision(name, website_id, exclude_public_user_id=None):
     if exclude_public_user_id:
         pu_q = pu_q.filter(PublicUser.id != exclude_public_user_id)
 
-    if pu_q.filter(PublicUser.display_username == n).first():
+    # Compared case-insensitively on both sides: display names keep the case
+    # they were typed in now, so a plain == would let "Seth" and "seth" coexist
+    # and let one person pass for another.
+    if pu_q.filter(db.func.lower(PublicUser.display_username) == n).first():
         return 'Another user on this site already uses that display name.'
-    if pu_q.filter(PublicUser.username == n).first():
+    if pu_q.filter(db.func.lower(PublicUser.username) == n).first():
         return "That name is taken by another user's login username."
-    if User.query.filter(User.username == n).first():
+    if User.query.filter(db.func.lower(User.username) == n).first():
         # Admins on this site share the namespace; allow a user to pick their
         # own admin's name only via the admin mirror path (handled elsewhere).
         if not exclude_public_user_id:
@@ -33078,6 +34559,65 @@ def opaque_hex_filter(color, fallback='#ffffff'):
     return fallback
 
 
+def _wrap_tables_for_scrolling(html):
+    """Give every top-level table its own horizontal scroll container.
+
+    A five-column table is perfectly reasonable to write and impossible to fit
+    on a phone. Without a container of its own it either squashes into unreadable
+    slivers or pushes the whole page sideways, so the reader ends up scrolling
+    the site to read a row. The wrapper confines that scrolling to the table.
+
+    Markdown tables never nest, so counting is unnecessary — but the count is
+    kept anyway so that if a nested table ever arrives, the wrapper still pairs
+    with the outermost one instead of closing early and leaving stray markup.
+    """
+    if not html or '<table' not in html.lower():
+        return html
+
+    out = []
+    depth = 0
+    pos = 0
+    for m in re.finditer(r'<table(?=[\s>])|</table\s*>', html, re.IGNORECASE):
+        out.append(html[pos:m.start()])
+        token = m.group(0)
+        if token.lower().startswith('</'):
+            depth -= 1
+            out.append(token)
+            if depth == 0:
+                out.append('</div>')
+        else:
+            if depth == 0:
+                out.append('<div class="uw-table-scroll">')
+            depth += 1
+            out.append(token)
+        pos = m.end()
+    out.append(html[pos:])
+
+    # Unbalanced markup would leave an unclosed div that swallows the rest of
+    # the page, so bail out rather than emit it.
+    if depth != 0:
+        return html
+    return ''.join(out)
+
+
+@app.template_filter('scroll_tables')
+def scroll_tables_filter(html):
+    """Give admin-authored HTML's tables their own horizontal scroll container.
+
+    For the places that render stored HTML straight into the page — guide
+    lessons, the newsletter web view — where a wide table would otherwise drag
+    the whole page sideways on a phone. Wrapping server-side means it holds at
+    every width, not only below the mobile breakpoint.
+
+    Returns Markup, so callers do not add `|safe` on top of it. That is
+    deliberate: the trust decision (this is admin-authored HTML) is the same one
+    `|safe` was already making at each of these call sites.
+    """
+    if not html:
+        return Markup('')
+    return Markup(_wrap_tables_for_scrolling(str(html)))
+
+
 @app.template_filter('render_markdown')
 def render_markdown_filter(text):
     """Render raw markdown to HTML for the markdown section type.
@@ -33098,7 +34638,7 @@ def render_markdown_filter(text):
             extensions=['extra', 'sane_lists', 'nl2br', 'toc'],
             output_format='html5',
         )
-        return Markup(html)
+        return Markup(_wrap_tables_for_scrolling(html))
     except Exception as exc:
         app.logger.warning('render_markdown failed: %s', exc)
         # Fall back to escaped text in a <pre> so the page still renders.
@@ -38172,6 +39712,9 @@ def admin_post_save(cid):
     pid = data.get('id')
     if pid:
         post = Post.query.filter_by(id=int(pid), collection_id=cid).first_or_404()
+        conflict = _conflict_response(post, data, label='article', content_attr='content')
+        if conflict:
+            return conflict
         # Slug: use provided or keep existing
         raw_slug = (data.get('slug') or '').strip()
         if raw_slug:
@@ -38184,7 +39727,7 @@ def admin_post_save(cid):
         post.comments_enabled = comments_enabled
         post.comments_require_login = comments_require_login
         post.comments_moderation    = comments_moderation
-        post.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        _bump_version(post)
         # Apply the publish-date override last so it survives any of the
         # field assignments above. A set value backdates (or future-dates) a
         # draft as well — clearing reverts to "publish action will set it".
@@ -38217,6 +39760,9 @@ def admin_post_save(cid):
         'id': post.id,
         'slug': post.slug,
         'status': post.status,
+        # The editor keeps this and sends it back, so the next save can be
+        # checked against what is actually stored.
+        'version': post.version or 1,
     }})
 
 
@@ -38468,6 +40014,484 @@ def _unique_guide_node_slug(guide_id, base_slug, exclude_id=None):
         counter += 1
 
 
+# ── Live presence ────────────────────────────────────────────────────────────
+# How long a heartbeat counts for. The client beats every 5s, so this tolerates
+# two dropped beats before someone is shown as gone — long enough to survive a
+# slow request, short enough that a closed laptop clears within a few seconds.
+PRESENCE_STALE_SECONDS = 16
+PRESENCE_TYPES = ('guide', 'quiz', 'page', 'post', 'newsletter', 'resource')
+
+
+def _conflict_response(obj, data, label='item', content_attr=None, title_attr='title'):
+    """Refuse a save built on a copy somebody has already replaced.
+
+    These editors post the whole document in one request, so without a check
+    the later save simply lands on top and the earlier one is gone with nothing
+    on screen to say so. The client sends back the version it loaded; if the
+    stored one has moved, hand back who moved it and what it now says, and let
+    a person decide.
+
+    Returns a 409 response to return, or None when the save may proceed.
+    `base_version` is optional so a page loaded before this shipped keeps
+    working, and `force` is the deliberate "yes, overwrite them" path.
+    """
+    base = data.get('base_version')
+    if base in ('', None) or data.get('force'):
+        return None
+    try:
+        base = int(base)
+    except (TypeError, ValueError):
+        return None
+    current = getattr(obj, 'version', None) or 1
+    if base == current:
+        return None
+
+    other = None
+    if getattr(obj, 'updated_by_id', None):
+        other = db.session.get(User, obj.updated_by_id)
+    updated_at = getattr(obj, 'updated_at', None)
+    payload = {
+        'success': False,
+        'conflict': True,
+        'error': (f'{other.username if other else "Someone else"} saved this {label} '
+                  f'while you were editing it. Your copy is out of date.'),
+        'saved_by': (other.username if other else None),
+        'saved_at': (updated_at.isoformat() if updated_at else None),
+        'current_version': current,
+        'current_title': getattr(obj, title_attr, None) if title_attr else None,
+    }
+    if content_attr:
+        payload['current_content'] = getattr(obj, content_attr, None) or ''
+    return _utf8_json(payload, 409)
+
+
+def _force_requested():
+    """True when the client explicitly chose to overwrite. Sent as a form field
+    by the builder's form posts and as JSON by its fetch callers."""
+    if request.form.get('_force') in ('1', 'true', 'on'):
+        return True
+    body = request.get_json(silent=True) or {}
+    return bool(body.get('force'))
+
+
+def _section_conflict(section, supplied_version):
+    """Refuse a page-section save built on a version somebody has replaced.
+
+    The scaffolding for this existed and was left switched off, with a note
+    that enforcing it would false-positive because several callers save the
+    same section. That was true, and it was the callers that were wrong: the
+    calendar-style, product-grid and code autosaves each bumped the version
+    without telling the card, so the NEXT ordinary save looked stale. They send
+    and refresh the version now, which is what makes enforcing this safe.
+
+    A section's content is arbitrary JSON, not one text body, so there is no
+    sensible "paste theirs into your editor". The client offers reload or
+    overwrite instead — see UwebiaConflict.handle with no applyTheirs.
+    """
+    if supplied_version in ('', None):
+        return None                      # caller opted out (or predates this)
+    if _force_requested():
+        return None                      # "overwrite theirs", chosen deliberately
+    try:
+        supplied = int(supplied_version)
+    except (TypeError, ValueError):
+        return None
+    current = section.version or 0
+    if supplied == current:
+        return None
+
+    who = None
+    page = db.session.get(PublicPageContent, section.page_content_id)
+    if page is not None and getattr(page, 'last_edited_by_id', None):
+        who = db.session.get(User, page.last_edited_by_id)
+    return jsonify({
+        'status': 'conflict',
+        'conflict': True,
+        'error': (f'{who.username if who else "Someone else"} changed this section '
+                  f'while you were editing it. Your copy is out of date.'),
+        'saved_by': (who.username if who else None),
+        'saved_at': (section.updated_at.isoformat() if section.updated_at else None),
+        'current_version': current,
+        'section_id': section.id,
+        'section_type': section.section_type,
+    }), 409
+
+
+def _bump_version(obj):
+    """Record a save: new version, when, and by whom."""
+    obj.version = (getattr(obj, 'version', None) or 1) + 1
+    if hasattr(obj, 'updated_at'):
+        obj.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    try:
+        if hasattr(obj, 'updated_by_id') and current_user.is_authenticated:
+            obj.updated_by_id = current_user.id
+    except Exception:
+        pass
+
+
+def _presence_prune():
+    """Forget heartbeats that stopped arriving."""
+    cutoff = (datetime.now(timezone.utc).replace(tzinfo=None)
+              - timedelta(seconds=PRESENCE_STALE_SECONDS * 4))
+    db.session.query(EditingPresence).filter(
+        EditingPresence.last_seen_at < cutoff).delete(synchronize_session=False)
+
+
+def _presence_peers(root_user_id, resource_type, resource_id, exclude_user_id):
+    """Everyone else currently on this document."""
+    fresh = (datetime.now(timezone.utc).replace(tzinfo=None)
+             - timedelta(seconds=PRESENCE_STALE_SECONDS))
+    rows = (EditingPresence.query
+            .filter(EditingPresence.root_user_id == root_user_id,
+                    EditingPresence.resource_type == resource_type,
+                    EditingPresence.resource_id == resource_id,
+                    EditingPresence.user_id != exclude_user_id,
+                    EditingPresence.last_seen_at >= fresh)
+            .all())
+    if not rows:
+        return []
+    users = {u.id: u for u in User.query.filter(
+        User.id.in_([r.user_id for r in rows])).all()}
+    out = []
+    for r in rows:
+        u = users.get(r.user_id)
+        if not u:
+            continue
+        name = (u.display_name if getattr(u, 'display_name', None) else None) or u.username
+        out.append({
+            'user_id': r.user_id,
+            'name': name,
+            'initials': ''.join(p[0] for p in str(name).split()[:2]).upper() or '?',
+            'context_id': r.context_id,
+            'context_label': r.context_label,
+            'is_editing': bool(r.is_editing),
+        })
+    out.sort(key=lambda p: p['name'].lower())
+    return out
+
+
+@app.route('/admin/presence/ping', methods=['POST'])
+@login_required
+def admin_presence_ping():
+    """Heartbeat: record where I am, and hear who else is here.
+
+    Deliberately cheap and side-effect free beyond the one upsert — this runs
+    every few seconds per open editor, per admin.
+    """
+    data = request.get_json(silent=True) or {}
+    rtype = (data.get('resource_type') or '').strip()
+    if rtype not in PRESENCE_TYPES:
+        return _utf8_json({'success': False, 'error': 'Unknown resource type'}, 400)
+    try:
+        rid = int(data.get('resource_id'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Missing resource id'}, 400)
+
+    context_id = data.get('context_id')
+    try:
+        context_id = int(context_id) if context_id not in ('', None) else None
+    except (TypeError, ValueError):
+        context_id = None
+    label = (data.get('context_label') or '')[:200] or None
+    root_id = current_user.root_user_id
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    row = EditingPresence.query.filter_by(
+        user_id=current_user.id, resource_type=rtype, resource_id=rid).first()
+    if row is None:
+        row = EditingPresence(user_id=current_user.id, resource_type=rtype,
+                              resource_id=rid, root_user_id=root_id)
+        db.session.add(row)
+    row.root_user_id = root_id
+    row.context_id = context_id
+    row.context_label = label
+    row.is_editing = bool(data.get('is_editing'))
+    row.last_seen_at = now
+
+    try:
+        _presence_prune()
+        db.session.commit()
+    except IntegrityError:
+        # Two beats from the same person raced the insert. Harmless — the other
+        # one won and holds the same data.
+        db.session.rollback()
+
+    return _utf8_json({
+        'success': True,
+        'peers': _presence_peers(root_id, rtype, rid, current_user.id),
+        'stale_after': PRESENCE_STALE_SECONDS,
+    })
+
+
+# ── Live co-editing (Yjs relay) ──────────────────────────────────────────────
+# Transport is a poll against Postgres rather than a websocket, because that is
+# what this deployment supports: 3 sync gunicorn workers, no Redis. Yjs keeps
+# the document and the transport separate, so swapping this for a websocket
+# later changes nothing in the editor.
+COLLAB_AWARENESS_STALE_SECONDS = 20
+COLLAB_COMPACT_THRESHOLD = 150      # rows before a client is asked to snapshot
+
+
+def _collab_resolve(doc_key):
+    """(record, version) for a doc_key the current admin may edit, else None.
+
+    The key arrives from the browser, so it is never trusted: each type is
+    resolved to a real row and put through the same ownership and permission
+    checks its own editor uses. Without this, "guide_node:<any id>" would be a
+    read/write channel into another organisation's content.
+    """
+    try:
+        kind, raw_id = str(doc_key).split(':', 1)
+        rid = int(raw_id)
+    except (ValueError, AttributeError):
+        return None
+
+    website = get_admin_website()
+    if not website or not is_owner(website):
+        return None
+
+    def gated(perm):
+        return not (current_user.is_sub_admin
+                    and not current_user.has_permission(perm))
+
+    if kind == 'guide_node':
+        node = db.session.get(GuideNode, rid)
+        if node is None:
+            return None
+        guide = db.session.get(Guide, node.guide_id)
+        if not guide or guide.website_id != website.id or not can_access_guide(guide):
+            return None
+        if not gated('guides.edit'):
+            return None
+        return node, (node.version or 1)
+
+    if kind == 'post':
+        post = db.session.get(Post, rid)
+        if post is None or post.website_id != website.id or not gated('posts.edit'):
+            return None
+        return post, (post.version or 1)
+
+    if kind == 'newsletter_campaign':
+        camp = db.session.get(NewsletterCampaign, rid)
+        if camp is None or not gated('newsletters.manage'):
+            return None
+        news = db.session.get(Newsletter, camp.newsletter_id)
+        if not news or news.website_id != website.id:
+            return None
+        # A sent campaign is frozen; co-editing one would imply otherwise.
+        if camp.status == 'sent':
+            return None
+        return camp, (camp.version or 1)
+
+    if kind == 'quiz_question':
+        qq = db.session.get(QuizQuestion, rid)
+        if qq is None or not gated('quizzes.edit'):
+            return None
+        quiz = db.session.get(Quiz, qq.quiz_id)
+        if not quiz or quiz.website_id != website.id or not can_access_quiz(quiz):
+            return None
+        return qq, (qq.version or 1)
+
+    if kind == 'page_section':
+        section = db.session.get(PageSection, rid)
+        if section is None or not gated('sections.edit'):
+            return None
+        page = db.session.get(PublicPageContent, section.page_content_id)
+        if not page or page.website_id != website.id:
+            return None
+        return section, (section.version or 0)
+
+    return None
+
+
+def _collab_sync_one(data):
+    """Sync exactly one document. Returns a plain dict, never a response.
+
+    Split out from the route so several documents can be carried in one
+    request: the page builder has a Quill per section, and a request per
+    section per second would be a self-inflicted denial of service.
+    """
+    doc_key = (data.get('doc_key') or '')[:120]
+    resolved = _collab_resolve(doc_key)
+    if resolved is None:
+        return {'doc_key': doc_key, 'success': False,
+                'error': 'Unknown or forbidden document'}
+    record, record_version = resolved
+    root_id = current_user.root_user_id
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    try:
+        since = int(data.get('since') or 0)
+    except (TypeError, ValueError):
+        since = 0
+
+    # ── push ──
+    update_b64 = data.get('update')
+    if update_b64:
+        try:
+            blob = base64.b64decode(update_b64)
+        except Exception:
+            return {'doc_key': doc_key, 'success': False, 'error': 'Malformed update'}
+        if len(blob) > 2 * 1024 * 1024:
+            return {'doc_key': doc_key, 'success': False, 'error': 'Update too large'}
+        db.session.add(CollabUpdate(doc_key=doc_key, root_user_id=root_id,
+                                    payload=blob))
+
+    # A snapshot subsumes everything up to the point it was taken, so those
+    # rows can go. This is what stops the log growing without bound.
+    snap_b64 = data.get('snapshot')
+    if snap_b64:
+        try:
+            snap = base64.b64decode(snap_b64)
+        except Exception:
+            snap = None
+        if snap:
+            db.session.add(CollabUpdate(doc_key=doc_key, root_user_id=root_id,
+                                        payload=snap, is_snapshot=True))
+            db.session.flush()
+            upto = data.get('upto')
+            try:
+                upto = int(upto)
+            except (TypeError, ValueError):
+                upto = 0
+            if upto:
+                CollabUpdate.query.filter(
+                    CollabUpdate.doc_key == doc_key,
+                    CollabUpdate.id <= upto).delete(synchronize_session=False)
+
+    # ── awareness (cursors) ──
+    aw_b64 = data.get('awareness')
+    if aw_b64:
+        try:
+            aw = base64.b64decode(aw_b64)
+        except Exception:
+            aw = None
+        if aw and len(aw) <= 64 * 1024:
+            row = CollabAwareness.query.filter_by(doc_key=doc_key,
+                                                  user_id=current_user.id).first()
+            if row is None:
+                row = CollabAwareness(doc_key=doc_key, user_id=current_user.id,
+                                      root_user_id=root_id, payload=aw)
+                db.session.add(row)
+            row.payload = aw
+            row.root_user_id = root_id
+            row.updated_at = now
+
+    try:
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()      # two beats raced; the other one won
+
+    # ── pull ──
+    rows = (CollabUpdate.query
+            .filter(CollabUpdate.doc_key == doc_key,
+                    CollabUpdate.root_user_id == root_id,
+                    CollabUpdate.id > since)
+            .order_by(CollabUpdate.id).limit(500).all())
+    total = db.session.query(db.func.count()).select_from(CollabUpdate.__table__).filter(
+        CollabUpdate.doc_key == doc_key).scalar() or 0
+
+    fresh = now - timedelta(seconds=COLLAB_AWARENESS_STALE_SECONDS)
+    aw_rows = (CollabAwareness.query
+               .filter(CollabAwareness.doc_key == doc_key,
+                       CollabAwareness.root_user_id == root_id,
+                       CollabAwareness.user_id != current_user.id,
+                       CollabAwareness.updated_at >= fresh).all())
+    CollabAwareness.query.filter(
+        CollabAwareness.updated_at < now - timedelta(
+            seconds=COLLAB_AWARENESS_STALE_SECONDS * 6)).delete(synchronize_session=False)
+    db.session.commit()
+
+    # Exactly one client may put the stored content into an empty document.
+    # Granted for a short window so a browser that dies mid-seed doesn't leave
+    # the lesson permanently blank.
+    may_seed = False
+    if total == 0:
+        doc_row = CollabDoc.query.filter_by(doc_key=doc_key).first()
+        if doc_row is None:
+            doc_row = CollabDoc(doc_key=doc_key)
+            db.session.add(doc_row)
+        stale = (doc_row.seed_granted_at is None
+                 or (now - doc_row.seed_granted_at).total_seconds() > 15)
+        if stale or doc_row.seed_granted_to == current_user.id:
+            doc_row.seed_granted_to = current_user.id
+            doc_row.seed_granted_at = now
+            may_seed = True
+        try:
+            db.session.commit()
+        except IntegrityError:
+            # Another worker created the row first; theirs holds the grant.
+            db.session.rollback()
+            may_seed = False
+
+    return {
+        'doc_key': doc_key,
+        'success': True,
+        'since': (rows[-1].id if rows else since),
+        'updates': [base64.b64encode(r.payload).decode('ascii') for r in rows],
+        'awareness': [base64.b64encode(r.payload).decode('ascii') for r in aw_rows],
+        'may_seed': may_seed,
+        # Everyone in the session tracks the saved version from here, so the
+        # one who saves next is never working from a stale number.
+        'record_version': record_version,
+        'compact': total > COLLAB_COMPACT_THRESHOLD,
+    }
+
+
+@app.route('/admin/collab/sync', methods=['POST'])
+@login_required
+def admin_collab_sync():
+    """One round trip for every document a browser currently has open.
+
+    A request may carry a single document (the original shape, still accepted)
+    or a `docs` list. The page builder opens one shared document per rich-text
+    section, so batching is what keeps this to one request per second per
+    editor rather than one per section.
+    """
+    data = request.get_json(silent=True) or {}
+    batch = data.get('docs')
+
+    if batch is None:
+        one = _collab_sync_one(data)
+        if not one.get('success'):
+            return _utf8_json(one, 403)
+        return _utf8_json(one)
+
+    if not isinstance(batch, list):
+        return _utf8_json({'success': False, 'error': 'docs must be a list'}, 400)
+    # A browser has a bounded number of editors open; anything past this is not
+    # a real editing session.
+    if len(batch) > 40:
+        return _utf8_json({'success': False, 'error': 'Too many documents'}, 400)
+
+    results = []
+    for entry in batch:
+        if isinstance(entry, dict):
+            results.append(_collab_sync_one(entry))
+    # A forbidden document among several is reported per document rather than
+    # failing the whole batch — one stale section id must not stop the rest of
+    # the page syncing.
+    return _utf8_json({'success': True, 'docs': results})
+
+
+@app.route('/admin/presence/leave', methods=['POST'])
+@login_required
+def admin_presence_leave():
+    """Best-effort goodbye on navigating away. Never required for correctness —
+    a row nobody refreshes ages out on its own."""
+    data = request.get_json(silent=True) or {}
+    rtype = (data.get('resource_type') or '').strip()
+    try:
+        rid = int(data.get('resource_id'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': True})
+    EditingPresence.query.filter_by(
+        user_id=current_user.id, resource_type=rtype, resource_id=rid
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
 def _stamp_editor(obj):
     """Record who last edited a Guide/Quiz/Resource and when. Called from the
     interactive admin edit routes (never from backup import, which preserves the
@@ -38497,6 +40521,9 @@ def _serialize_guide_node(node, include_content=False):
         'slug': node.slug,
         'sort_order': node.sort_order,
         'is_published': node.is_published,
+        # The editor sends this back on save so a write built on a stale copy
+        # can be spotted rather than silently landing on top of someone else's.
+        'version': node.version or 1,
         'children': [_serialize_guide_node(c, include_content)
                      for c in node.children.order_by(GuideNode.sort_order)],
     }
@@ -39095,6 +41122,37 @@ def admin_guide_node_save(gid):
         node = GuideNode.query.filter_by(id=int(nid), guide_id=gid).first_or_404()
         if parent_id == node.id:
             return _utf8_json({'success': False, 'error': 'A node cannot be its own parent'}, 400)
+
+        # Refuse a save built on a copy someone has since replaced. Without
+        # this the whole lesson body is posted verbatim and the later save
+        # wins, so two admins in one lesson meant one of them lost their work
+        # with nothing on screen to say so.
+        #
+        # base_version is optional: a page loaded before this shipped, or a new
+        # node, simply doesn't send one and keeps the old behaviour rather than
+        # being locked out.
+        base_version = data.get('base_version')
+        if base_version not in ('', None) and not data.get('force'):
+            try:
+                base_version = int(base_version)
+            except (TypeError, ValueError):
+                base_version = None
+            current_version = node.version or 1
+            if base_version is not None and base_version != current_version:
+                other = (db.session.get(User, node.updated_by_id)
+                         if node.updated_by_id else None)
+                return _utf8_json({
+                    'success': False,
+                    'conflict': True,
+                    'error': (f'{other.username if other else "Someone else"} saved this '
+                              f'lesson while you were editing it. Your copy is out of date.'),
+                    'saved_by': (other.username if other else None),
+                    'saved_at': (node.updated_at.isoformat() if node.updated_at else None),
+                    'current_version': current_version,
+                    # Their text, so the editor can show it or let you keep yours.
+                    'current_content': node.content or '',
+                    'current_title': node.title,
+                }, 409)
         raw_slug = (data.get('slug') or '').strip()
         if raw_slug:
             node.slug = _unique_guide_node_slug(gid, _slugify_post(raw_slug), exclude_id=node.id)
@@ -39109,6 +41167,11 @@ def admin_guide_node_save(gid):
         if 'is_published' in data:
             node.is_published = bool(data['is_published'])
         node.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        node.version = (node.version or 1) + 1
+        try:
+            node.updated_by_id = current_user.id
+        except Exception:
+            pass
     else:
         raw_slug = (data.get('slug') or '').strip()
         base = _slugify_post(raw_slug if raw_slug else title)
@@ -43059,10 +45122,15 @@ def admin_quiz_question_save(qid):
     qq_id = data.get('id')
     if qq_id:
         qq = QuizQuestion.query.filter_by(id=int(qq_id), quiz_id=qid).first_or_404()
+        conflict = _conflict_response(qq, data, label='question', content_attr='prompt',
+                                      title_attr='prompt')
+        if conflict:
+            return conflict
         qq.question_type = qtype
         qq.prompt = prompt
         qq.config = cfg
         qq.points = points
+        _bump_version(qq)
     else:
         max_sort = db.session.query(db.func.max(QuizQuestion.sort_order)).filter_by(quiz_id=qid).scalar()
         qq = QuizQuestion(quiz_id=qid, question_type=qtype, prompt=prompt, config=cfg,
@@ -49847,12 +51915,16 @@ def admin_newsletter_campaign_save(nid):
             return _utf8_json({'success': False, 'error': 'Campaign not found'}, 404)
         if campaign.status == 'sent':
             return _utf8_json({'success': False, 'error': 'Cannot edit a sent campaign'}, 400)
+        conflict = _conflict_response(campaign, data, label='campaign',
+                                      content_attr='html_body', title_attr='subject')
+        if conflict:
+            return conflict
         subject_changed = (campaign.subject != subject)
         campaign.subject = subject
         campaign.html_body = html
         campaign.plain_body = _html_to_plain(html)
         campaign.email_server_id = int(server_id) if server_id else None
-        campaign.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        _bump_version(campaign)
         if sent_at_override is not None:
             campaign.sent_at = sent_at_override
         elif clear_sent_at:
@@ -49876,6 +51948,7 @@ def admin_newsletter_campaign_save(nid):
     return _utf8_json({'success': True, 'campaign': {
         'id': campaign.id, 'status': campaign.status,
         'subject': campaign.subject, 'slug': campaign.slug,
+        'version': campaign.version or 1,
     }})
 
 

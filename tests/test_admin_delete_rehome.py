@@ -184,6 +184,75 @@ def main_test():
               db.session.get(main.Calendar, cal_id).user_id == owner_id)
 
 
+    print('\n[6] demoting hands the GitHub link back')
+    # Promotion MOVES the link from the mirror onto the admin row and clears it
+    # from the mirror. Demotion deleted that row without moving it back, so an
+    # admin who signs in with GitHub was left with no way in at all.
+    owner_id, sub_id, asset_id, cal_id = setup()
+    with app.app_context():
+        site = main.Website(user_id=owner_id, name='Main', is_draft=False)
+        db.session.add(site)
+        db.session.commit()
+        sub = db.session.get(main.User, sub_id)
+        sub.github_user_id = 987654
+        mirror = main.PublicUser(website_id=site.id, username=sub.username,
+                                 mirrored_admin_user_id=sub.id)
+        db.session.add(mirror)
+        db.session.commit()
+        site_id, mirror_id = site.id, mirror.id
+        check('the admin holds the link, the mirror does not',
+              sub.github_user_id == 987654 and mirror.github_user_id is None)
+
+    with app.test_client() as c:
+        with c.session_transaction() as s:
+            s['_user_id'] = str(owner_id)
+            s['_fresh'] = True
+            s['admin_website_id'] = site_id
+        r = c.post(f'/admin/users/{sub_id}/demote')
+        check(f'the demote succeeds — got {r.status_code}', r.status_code == 200)
+
+    with app.app_context():
+        survivor = db.session.get(main.PublicUser, mirror_id)
+        check('the surviving member account still exists', survivor is not None)
+        check('and now carries the GitHub link',
+              survivor is not None and survivor.github_user_id == 987654)
+        check('so signing in with GitHub still finds them',
+              main.PublicUser.query.filter_by(website_id=site_id,
+                                              github_user_id=987654).first() is not None)
+        check('and no admin row holds it any more',
+              main.User.query.filter_by(github_user_id=987654).first() is None)
+
+    print('\n[7] a colliding link is dropped rather than crashing')
+    owner_id, sub_id, asset_id, cal_id = setup()
+    with app.app_context():
+        site = main.Website(user_id=owner_id, name='Main', is_draft=False)
+        db.session.add(site)
+        db.session.commit()
+        sub = db.session.get(main.User, sub_id)
+        sub.github_user_id = 555
+        db.session.add_all([
+            main.PublicUser(website_id=site.id, username=sub.username,
+                            mirrored_admin_user_id=sub.id),
+            # Somebody else on the same site already holds it, which the unique
+            # (website_id, github_user_id) index would refuse.
+            main.PublicUser(website_id=site.id, username='someoneelse',
+                            github_user_id=555),
+        ])
+        db.session.commit()
+        site_id = site.id
+    with app.test_client() as c:
+        with c.session_transaction() as s:
+            s['_user_id'] = str(owner_id)
+            s['_fresh'] = True
+            s['admin_website_id'] = site_id
+        r = c.post(f'/admin/users/{sub_id}/demote')
+        check(f'the demote still succeeds — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('and the existing holder keeps it',
+              main.PublicUser.query.filter_by(username='someoneelse').first()
+              .github_user_id == 555)
+
+
 if __name__ == '__main__':
     main_test()
     print('\n' + ('ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED: {FAILURES}'))

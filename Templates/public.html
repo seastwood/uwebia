@@ -395,6 +395,51 @@
         margin: 0.8em 0;
         width: 100%;
     }
+
+    /* ── Wide tables on narrow screens ──────────────────────────────────────
+       A five-column table is reasonable to write and impossible to fit on a
+       phone. Left alone it either squashes into unreadable slivers or pushes
+       the whole page sideways, so the reader scrolls the site to read a row.
+       Each table gets a scroll container of its own instead, which keeps the
+       page body from ever scrolling horizontally.
+
+       Markdown tables are wrapped server-side (_wrap_tables_for_scrolling).
+       Rich-text and code sections hold admin-authored HTML we don't rewrite,
+       so those tables become their own scroll container below. */
+    .uw-table-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+        margin: 0.8em 0;
+    }
+    .uw-table-scroll > table { margin: 0; }
+
+    @media (max-width: 700px) {
+        /* width:100% inside a scroll container can only ever squash to fit —
+           it never overflows, so it never scrolls. Sizing to content with a
+           100% floor keeps narrow tables full-width and lets wide ones spill
+           into the scroller. Headers stay on one line so the columns keep a
+           sensible minimum width rather than collapsing a word at a time. */
+        .uw-table-scroll > table {
+            width: auto;
+            min-width: 100%;
+        }
+        .uw-table-scroll > table th { white-space: nowrap; }
+
+        /* No wrapper to give these, so the table becomes its own scroller.
+           The nowrap headers are what make it actually scroll: a block-level
+           table with auto layout otherwise just squashes to fit and never
+           overflows, so there is nothing to scroll. */
+        .text-area table,
+        .code-section-output table {
+            display: block;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .text-area table th,
+        .code-section-output table th { white-space: nowrap; }
+    }
     .markdown-area th,
     .markdown-area td {
         border: 1px solid rgba(127,127,127,0.3);
@@ -412,6 +457,23 @@
     }
     .markdown-area > :first-child { margin-top: 0; }
     .markdown-area > :last-child  { margin-bottom: 0; }
+
+    /* ── Text section container placement ───────────────────────────────────
+       A capped or shrink-to-fit container is narrower than the section, so it
+       has to sit somewhere. It follows the text's own alignment — the setting
+       in the toolbar — rather than being centred by the mere presence of a max
+       width, which is what used to happen. Left is the default, so no rule. */
+    .text-area:has(.ql-align-center) { margin-left: auto; margin-right: auto; }
+    .text-area:has(.ql-align-right)  { margin-left: auto; margin-right: 0; }
+
+    /* "Fit content": the box hugs the text instead of filling the section.
+       Padding, radius, shadow and margins all still apply — only the width
+       changes. Capped at 100% so a long unbroken line cannot push it wider
+       than the section. */
+    .text-area.is-fit-content {
+        width: fit-content;
+        max-width: 100%;
+    }
 
     /* Normalize paragraph spacing inside Quill-rendered text so it matches
        the editor preview. Browser default p margins + preserved-blank-line
@@ -1902,6 +1964,22 @@
     width: 100%;
 }
 
+/* "Fit the text" has to beat the width:100% above, which sits later in this
+   stylesheet at the same specificity and was silently winning — the box kept
+   filling its cell however the section was configured. */
+.public-section-cell > .text-area.is-fit-content {
+    width: fit-content;
+}
+
+/* The cell centres whatever it holds. For a text box that is narrower than the
+   cell — capped by a max width, or hugging its text — that centring happens
+   before the box's own alignment gets a say, so a left-aligned block still
+   landed in the middle. Let the box place itself; the rules further up move it
+   with margins according to the alignment set in the toolbar. */
+.public-section-cell:has(> .text-area) {
+    justify-content: flex-start;
+}
+
 .code-section-output {
     display: block;
     box-sizing: border-box;
@@ -1940,6 +2018,28 @@
     max-width: 100%;
     margin-left: 0;
     margin-right: 0;
+}
+
+/* …but a text box narrowed by a max width, or hugging its own text, is no
+   longer filling the cell, so it has to be placed within it. These come after
+   the reset above and are scoped to the cell so they outrank it — the earlier
+   unscoped .text-area:has(...) rules lost to it on source order alone, which
+   is why setting a max width left everything pinned to the left. Placement
+   follows the alignment set in the text toolbar. */
+.public-section-cell > .text-area:has(.ql-align-center) {
+    margin-left: auto;
+    margin-right: auto;
+}
+.public-section-cell > .text-area:has(.ql-align-right) {
+    margin-left: auto;
+    margin-right: 0;
+}
+
+/* The max width is the author's ceiling; the blanket max-width:100% above must
+   not be the thing that decides it. Only meaningful when an inline max-width
+   is present, which is exactly when this matters. */
+.public-section-cell > .text-area.is-fit-content {
+    max-width: 100%;
 }
 
 @media (max-width: 760px) {
@@ -4520,11 +4620,18 @@ box-sizing: border-box;
                                 {% set g = bg_hex[2:4]|int(base=16) if bg_hex|length >= 6 else 0 %}
                                 {% set b = bg_hex[4:6]|int(base=16) if bg_hex|length >= 6 else 0 %}
 
-                                <div class="text-area" style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
+                                {% set container_width = section.content.get('container_width', 'block') %}
+                                {# No auto margins here on purpose. Setting a max width used to add
+                                   `margin-left:auto; margin-right:auto`, which centred the whole
+                                   container no matter what the toolbar's alignment said. Where the
+                                   box sits is decided by the text's own alignment instead — see
+                                   .text-area:has(.ql-align-*) in the stylesheet. #}
+                                <div class="text-area{% if container_width == 'fit' %} is-fit-content{% endif %}"
+                                     style="background: rgba({{ r }}, {{ g }}, {{ b }}, {{ opacity }});
             padding: {{ padding }}px;
             border-radius: {{ radius }}px;
             box-shadow: {{ shadow_css }};
-            {% if text_max_width and text_max_width != '0' %}width: auto; max-width: {{ text_max_width }}px; margin-left: auto; margin-right: auto;{% endif %}">
+            {% if text_max_width and text_max_width != '0' %}max-width: {{ text_max_width }}px;{% endif %}">
                                     {{ section.content['html'] | safe }}
                                 </div>
 

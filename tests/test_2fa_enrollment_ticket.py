@@ -2,6 +2,11 @@
 
     venv/bin/python tests/test_2fa_enrollment_ticket.py
 
+These run with the org-wide ticket policy turned ON. It is off by default:
+requiring an owner-issued code before any admin could enrol an authenticator
+stranded every newly created admin at their first sign-in, asking for a code
+nobody had issued. See test_enroll_ticket_optional.py for that default.
+
 The app derives every path from os.path.dirname(__file__), so this copies
 main.py into a throwaway directory (with Templates/icons/static symlinked) and
 imports it from there. It therefore builds its own SQLite database and CANNOT
@@ -66,6 +71,11 @@ def fresh_users():
     db.session.commit()
     anchor = User(username='owner', parent_user_id=None)
     anchor.set_password('ownerpass')
+    # Tickets are an opt-in policy, not the default — requiring one of every
+    # admin meant a newly created one could not finish their first sign-in.
+    # This file is about the ticket mechanism, so it opts in; the default
+    # (enrol yourself) is covered by test_enroll_ticket_optional.py.
+    anchor.org_require_enroll_ticket = True
     db.session.add(anchor)
     db.session.commit()
     sub = User(username='student', parent_user_id=anchor.id)

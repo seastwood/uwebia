@@ -297,7 +297,11 @@ def test_asset_usage():
               counts.get(unused.id) == 0)
 
         # The cache must actually serve repeat calls, not silently rescan.
-        main._asset_usage_cache['index'] = {'/static/uploads/x/sentinel.png': 7}
+        # The index maps a stored FILENAME to the (table, row) pairs that
+        # reference it — it used to be URL -> count, and changed when the
+        # library gained "show me where this is used".
+        main._asset_usage_cache['index'] = {
+            'sentinel.png': [('page_section', n) for n in range(7)]}
         main._asset_usage_cache['at'] = main.time.time()
         sentinel = main.Asset(user_id=1, original_filename='s.png',
                               stored_filename='sentinel.png',
@@ -319,8 +323,14 @@ def test_backup_roundtrip():
         data = main._serialize_backup(anchor.id)
         check('retention is exported in owner_settings',
               data['owner_settings'].get('ip_retention_days') == 45)
-        check('the enrolment ticket is NOT exported',
-              not any('enroll_ticket' in k for k in data['owner_settings']))
+        # The ticket itself is a live credential and must not travel in a
+        # backup. The policy that decides whether tickets are required at all
+        # is not a secret, and has to survive a restore like the other org
+        # settings — so name the secret rather than matching on 'ticket'.
+        check('the enrolment ticket itself is NOT exported',
+              not any(k.startswith('totp_enroll_ticket') for k in data['owner_settings']))
+        check('but the policy that requires one is',
+              'org_require_enroll_ticket' in data['owner_settings'])
         check('the IP recording switch is exported',
               'store_visitor_ips' in data['owner_settings'])
 

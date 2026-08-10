@@ -1,0 +1,53 @@
+/* Font and size dropdown labels for the Quill toolbar.
+ *
+ * Quill's snow theme labels these two pickers with a catch-all:
+ *
+ *     .ql-picker.ql-font .ql-picker-item::before { content: 'Sans Serif'; }
+ *     .ql-picker.ql-size .ql-picker-item::before { content: 'Normal'; }
+ *
+ * and then overrides it only for the values IT ships (serif, monospace,
+ * small/large/huge). Point a picker at a custom whitelist and every entry
+ * inherits the catch-all instead — seven identical "Sans Serif" rows and
+ * fourteen identical "Normal" rows, with nothing to tell them apart.
+ *
+ * So every value in the whitelist needs a rule of its own. Kept in one file
+ * rather than copied into each editor, because copied-into-each-editor is how
+ * the guide, quiz and newsletter editors ended up without it while the post
+ * editor had it.
+ *
+ * The values here must match the FONTS and SIZES arrays the editors register
+ * with Quill. Adding one to those arrays without adding it here brings the
+ * catch-all back for that entry.
+ */
+
+/* ── Font ──────────────────────────────────────────────────────────────── */
+.ql-snow .ql-picker.ql-font .ql-picker-label::before { content: 'Font'; }
+
+/* Each name is shown in its own typeface, so the list is picked from by eye. */
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Arial"]::before           { content: 'Arial';           font-family: Arial, sans-serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Georgia"]::before         { content: 'Georgia';         font-family: Georgia, serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Times New Roman"]::before { content: 'Times New Roman'; font-family: 'Times New Roman', serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Verdana"]::before         { content: 'Verdana';         font-family: Verdana, sans-serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Trebuchet MS"]::before    { content: 'Trebuchet MS';    font-family: 'Trebuchet MS', sans-serif; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Courier New"]::before     { content: 'Courier New';     font-family: 'Courier New', monospace; }
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-value="Impact"]::before          { content: 'Impact';          font-family: Impact, sans-serif; }
+
+/* ── Size ──────────────────────────────────────────────────────────────── */
+.ql-snow .ql-picker.ql-size .ql-picker-label::before { content: 'Size'; }
+
+/* Numbers only, at a uniform size. Previewing each at its true size would put
+   a 96px row in a dropdown built for one line of text. */
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="10px"]::before { content: '10'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="12px"]::before { content: '12'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="14px"]::before { content: '14'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="16px"]::before { content: '16'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="18px"]::before { content: '18'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="20px"]::before { content: '20'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="24px"]::before { content: '24'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="28px"]::before { content: '28'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="32px"]::before { content: '32'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="40px"]::before { content: '40'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="48px"]::before { content: '48'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="64px"]::before { content: '64'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="80px"]::before { content: '80'; }
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-value="96px"]::before { content: '96'; }

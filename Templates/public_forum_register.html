@@ -76,7 +76,9 @@ Create Forum Account
             For your privacy, please choose a username that is <strong>not your real name</strong>.
         </p>
         {% endif %}
-        <input name="username" placeholder="Username" required>
+        <input name="username" placeholder="Username" required
+               minlength="3" maxlength="30" pattern="[A-Za-z0-9]+(-[A-Za-z0-9]+)*"
+               title="Letters, numbers and single dashes, 3-30 characters">
         {% if not website or website.require_public_email %}
         <input name="email" type="email" placeholder="Email" required>
         {% endif %}

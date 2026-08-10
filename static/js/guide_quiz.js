@@ -86,6 +86,17 @@
 .uwq-rich iframe.ql-video { width:100%; max-width:560px; aspect-ratio:16/9; border:0; border-radius:10px; }
 .uwq-rich blockquote { border-left:3px solid rgba(94,238,248,0.5); margin:0.6em 0; padding:4px 0 4px 14px; opacity:0.85; }
 .uwq-rich pre { background:rgba(0,0,0,0.3); padding:12px; border-radius:8px; overflow:auto; font-size:0.85rem; }
+/* Prompts and text blocks are inserted as HTML at runtime, so there is no
+   server-side wrapper to lean on — the table becomes its own scroll container
+   instead. Without the nowrap headers it would just squash to fit the screen
+   and never overflow, so there would be nothing to scroll. */
+.uwq-rich table, .uwq-text-body table { border-collapse:collapse; max-width:100%; }
+.uwq-rich th, .uwq-rich td, .uwq-text-body th, .uwq-text-body td { border:1px solid rgba(127,127,127,0.3); padding:6px 10px; }
+.uwq-rich th, .uwq-text-body th { background:rgba(127,127,127,0.12); font-weight:700; }
+@media (max-width:700px) {
+  .uwq-rich table, .uwq-text-body table { display:block; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .uwq-rich table th, .uwq-text-body table th { white-space:nowrap; }
+}
 .uwq-rich ul, .uwq-rich ol { padding-left:1.5em; margin:0 0 0.6em; }
 .uwq-rich .ql-align-center { text-align:center; }
 .uwq-rich .ql-align-right { text-align:right; }
