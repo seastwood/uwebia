@@ -395,6 +395,51 @@
         margin: 0.8em 0;
         width: 100%;
     }
+
+    /* ── Wide tables on narrow screens ──────────────────────────────────────
+       A five-column table is reasonable to write and impossible to fit on a
+       phone. Left alone it either squashes into unreadable slivers or pushes
+       the whole page sideways, so the reader scrolls the site to read a row.
+       Each table gets a scroll container of its own instead, which keeps the
+       page body from ever scrolling horizontally.
+
+       Markdown tables are wrapped server-side (_wrap_tables_for_scrolling).
+       Rich-text and code sections hold admin-authored HTML we don't rewrite,
+       so those tables become their own scroll container below. */
+    .uw-table-scroll {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        max-width: 100%;
+        margin: 0.8em 0;
+    }
+    .uw-table-scroll > table { margin: 0; }
+
+    @media (max-width: 700px) {
+        /* width:100% inside a scroll container can only ever squash to fit —
+           it never overflows, so it never scrolls. Sizing to content with a
+           100% floor keeps narrow tables full-width and lets wide ones spill
+           into the scroller. Headers stay on one line so the columns keep a
+           sensible minimum width rather than collapsing a word at a time. */
+        .uw-table-scroll > table {
+            width: auto;
+            min-width: 100%;
+        }
+        .uw-table-scroll > table th { white-space: nowrap; }
+
+        /* No wrapper to give these, so the table becomes its own scroller.
+           The nowrap headers are what make it actually scroll: a block-level
+           table with auto layout otherwise just squashes to fit and never
+           overflows, so there is nothing to scroll. */
+        .text-area table,
+        .code-section-output table {
+            display: block;
+            max-width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        .text-area table th,
+        .code-section-output table th { white-space: nowrap; }
+    }
     .markdown-area th,
     .markdown-area td {
         border: 1px solid rgba(127,127,127,0.3);

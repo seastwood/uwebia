@@ -34428,6 +34428,47 @@ def opaque_hex_filter(color, fallback='#ffffff'):
     return fallback
 
 
+def _wrap_tables_for_scrolling(html):
+    """Give every top-level table its own horizontal scroll container.
+
+    A five-column table is perfectly reasonable to write and impossible to fit
+    on a phone. Without a container of its own it either squashes into unreadable
+    slivers or pushes the whole page sideways, so the reader ends up scrolling
+    the site to read a row. The wrapper confines that scrolling to the table.
+
+    Markdown tables never nest, so counting is unnecessary — but the count is
+    kept anyway so that if a nested table ever arrives, the wrapper still pairs
+    with the outermost one instead of closing early and leaving stray markup.
+    """
+    if not html or '<table' not in html.lower():
+        return html
+
+    out = []
+    depth = 0
+    pos = 0
+    for m in re.finditer(r'<table(?=[\s>])|</table\s*>', html, re.IGNORECASE):
+        out.append(html[pos:m.start()])
+        token = m.group(0)
+        if token.lower().startswith('</'):
+            depth -= 1
+            out.append(token)
+            if depth == 0:
+                out.append('</div>')
+        else:
+            if depth == 0:
+                out.append('<div class="uw-table-scroll">')
+            depth += 1
+            out.append(token)
+        pos = m.end()
+    out.append(html[pos:])
+
+    # Unbalanced markup would leave an unclosed div that swallows the rest of
+    # the page, so bail out rather than emit it.
+    if depth != 0:
+        return html
+    return ''.join(out)
+
+
 @app.template_filter('render_markdown')
 def render_markdown_filter(text):
     """Render raw markdown to HTML for the markdown section type.
@@ -34448,7 +34489,7 @@ def render_markdown_filter(text):
             extensions=['extra', 'sane_lists', 'nl2br', 'toc'],
             output_format='html5',
         )
-        return Markup(html)
+        return Markup(_wrap_tables_for_scrolling(html))
     except Exception as exc:
         app.logger.warning('render_markdown failed: %s', exc)
         # Fall back to escaped text in a <pre> so the page still renders.
