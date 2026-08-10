@@ -145,11 +145,23 @@ def main_test():
     with admin.session_transaction() as s:
         s['_user_id'] = str(owner_id)
         s['_fresh'] = True
-    r = admin.post('/admin/dashboard/settings/2fa/enroll-ticket-policy',
-                   json={'enabled': False})
+    # The policy moved onto the Admins page, alongside the other org-wide admin
+    # switches, and changing it now needs the same confirmation they do.
+    def policy(enabled, **extra):
+        payload = {k: bool(getattr(db.session.get(main.User, owner_id), k, False))
+                   for k in main.ADMIN_ACCESS_SETTINGS}
+        payload['org_require_enroll_ticket'] = enabled
+        payload.update(extra)
+        return admin.post('/admin/users/admins/settings', json=payload)
+
+    with app.app_context():
+        r = policy(False)
+    check(f'a change is refused unconfirmed — got {r.status_code}', r.status_code == 401)
+    with app.app_context():
+        r = policy(False, password='ownerpassword')
     d = r.get_json() or {}
-    check(f'it can be turned off — got {r.status_code}',
-          r.status_code == 200 and d.get('org_require_enroll_ticket') is False)
+    check(f'confirmed, it can be turned off — got {r.status_code}',
+          r.status_code == 200 and d.get('success') is True)
     with app.app_context():
         check('which is stored on the anchor, so it survives ownership changes',
               db.session.get(main.User, owner_id).org_require_enroll_ticket is False)
@@ -157,11 +169,13 @@ def main_test():
               main.mid_login_enrollment_needs_ticket(
                   db.session.get(main.User, newbie_id)) is False)
 
-    r = admin.post('/admin/dashboard/settings/2fa/enroll-ticket-policy',
-                   json={'enabled': True})
-    d = r.get_json() or {}
-    check('turning it on names who is left without a way in',
-          'newbie' in (d.get('stranded') or []))
+    with app.app_context():
+        r = policy(True, password='ownerpassword')
+    check(f'and turned back on — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('which the login gate then honours',
+              main.mid_login_enrollment_needs_ticket(
+                  db.session.get(main.User, newbie_id)) is True)
 
     print('\n[5] issuing somebody a code makes it required for them')
     owner_id, site_id, newbie_id = setup()

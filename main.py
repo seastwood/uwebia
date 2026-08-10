@@ -11180,136 +11180,6 @@ def disable_two_factor_authentication():
     })
 
 
-@app.route('/admin/dashboard/settings/2fa/org-policy/start', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_start():
-    """Begin enabling the org-wide 2FA requirement.
-
-    The point of this step is to prove the acting admin can actually complete a
-    second factor before it is imposed on everyone. Which factor doesn't matter:
-    an authenticator app is confirmed directly in /confirm with no email at all,
-    which is what makes the policy usable by admins who hold no mailbox.
-    """
-    if totp_secret_is_readable(current_user):
-        return _utf8_json({'success': True, 'method': 'totp',
-                           'message': 'Enter the current code from your authenticator app '
-                                      'to turn on org-wide 2FA.'})
-
-    es = get_email_settings()
-    if not (es and es.is_active):
-        return _utf8_json({'success': False,
-            'error': 'Set up an authenticator app, or configure an active email server, '
-                     'so a second factor can be verified before requiring it of everyone.'}, 400)
-    to_email = current_user.email
-    if not to_email:
-        return _utf8_json({'success': False,
-            'error': 'This account has no email address. Set up an authenticator app first.'}, 400)
-    code = generate_two_factor_code()
-    set_pending_two_factor_code(current_user.id, code, 'org_activation')
-    try:
-        send_two_factor_email(to_email, code, purpose='activation')
-    except Exception as e:
-        clear_pending_two_factor_code()
-        return _utf8_json({'success': False, 'error': f'Could not send code: {e}'}, 400)
-    session['pending_2fa_email'] = to_email
-    return _utf8_json({'success': True,
-                       'message': f'Verification code sent to {to_email}. Enter it to turn on org-wide 2FA.'})
-
-
-@app.route('/admin/dashboard/settings/2fa/org-policy/confirm', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_confirm():
-    """Verify the acting admin's second factor, then turn the policy on.
-
-    Accepts whichever factor they actually hold: an authenticator code is
-    checked directly, otherwise the emailed code issued by /start.
-    """
-    code = ((request.get_json() or {}).get('code') or '').strip()
-    if not code:
-        return _utf8_json({'success': False, 'error': 'Please enter the verification code.'}, 400)
-
-    if totp_secret_is_readable(current_user):
-        ok, counter = verify_totp(user_totp_secret(current_user), code,
-                                  last_used_counter=current_user.totp_last_counter)
-        if not ok:
-            if register_failed_two_factor_attempt(current_user):
-                return _utf8_json({'success': False,
-                                   'error': 'Too many incorrect codes. Try again shortly.'}, 400)
-            return _utf8_json({'success': False,
-                               'error': 'That code did not match your authenticator app.'}, 400)
-        # Spend the step so the same code can't be replayed at a login.
-        current_user.totp_last_counter = counter
-    else:
-        err = get_pending_two_factor_error(current_user.id, 'org_activation')
-        if err:
-            clear_pending_two_factor_code()
-            return _utf8_json({'success': False, 'error': err}, 400)
-        expected_hash = session.get('pending_2fa_code_hash')
-        if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt(current_user):
-                return _utf8_json({'success': False,
-                                   'error': 'Too many incorrect codes. Request a new one.'}, 400)
-            return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
-
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    anchor.org_require_2fa = True
-    anchor.org_2fa_email_settings_version = get_email_settings_fingerprint(get_email_settings())
-    anchor.org_2fa_needs_attention = False
-    db.session.commit()
-    clear_pending_two_factor_code()
-    session.pop('pending_2fa_email', None)
-    return _utf8_json({'success': True, 'org_require_2fa': True})
-
-
-@app.route('/admin/dashboard/settings/2fa/org-policy/disable', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_disable():
-    """Turn off the org-wide 2FA requirement (no code needed to relax it)."""
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    anchor.org_require_2fa = False
-    anchor.org_2fa_email_settings_version = None
-    anchor.org_2fa_needs_attention = False
-    db.session.commit()
-    return _utf8_json({'success': True, 'org_require_2fa': False})
-
-
-@app.route('/admin/dashboard/settings/2fa/enroll-ticket-policy', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_enroll_ticket_policy():
-    """Turn the owner-issued-ticket requirement for mid-login enrolment on/off.
-
-    Off (the default) lets an admin set up their own authenticator the first
-    time they sign in. On means an owner must issue them a ticket first — no
-    code, no enrolment.
-    """
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    want = bool((request.get_json(silent=True) or {}).get('enabled'))
-
-    # Turning it on while admins are mid-enrolment would lock them out with no
-    # warning, so say who is affected rather than just flipping the switch.
-    stranded = []
-    if want:
-        stranded = [u.username for u in admins_without_second_factor(anchor.id)
-                    if not totp_enrollment_ticket_pending(u)]
-
-    anchor.org_require_enroll_ticket = want
-    db.session.commit()
-    app.logger.info('org enrolment-ticket policy set to %s by admin id=%s',
-                    want, current_user.id)
-    return _utf8_json({'success': True, 'org_require_enroll_ticket': want,
-                       'stranded': stranded})
-
-
 @app.route('/admin/dashboard/settings/github', methods=['POST'])
 @login_required
 @require_perm('settings.edit')
@@ -11334,83 +11204,139 @@ def save_github_login_settings():
     return _utf8_json({'success': True, 'configured': github_login_is_configured()})
 
 
-@app.route('/admin/dashboard/settings/admin-privacy', methods=['POST'])
-@login_required
-@require_perm('settings.edit')
-def save_admin_privacy_settings():
-    """Org-wide admin privacy: name collection and GitHub-only sign-in.
+# The org-wide switches that govern every admin account, with the wording the
+# confirmation dialog shows. Lives next to the guards below so a new switch
+# cannot be added without deciding what turning it on actually costs.
+ADMIN_ACCESS_SETTINGS = {
+    'org_require_2fa': 'Require Two-Factor for All Admins',
+    'org_require_enroll_ticket': 'Require a Setup Code to Enrol an Authenticator',
+    'org_admin_collect_names': 'Collect Admin Real Names',
+    'org_admin_github_only': 'GitHub Sign-In Only',
+    'org_admin_email_restricted': 'Restrict Admin Email Addresses',
+}
 
-    Turning names off purges the ones already stored — leaving them would make
-    the setting cosmetic, which is not what it promises.
+
+def admin_access_blockers(anchor, wanted):
+    """Why a set of org-wide admin switches would be unsafe to apply, or None.
+
+    Every one of these can lock the organisation out of its own admin area, so
+    the checks matter more than the switches. Extracted from the routes that
+    used to own them so one confirmation can apply them together and still get
+    the same answers.
     """
-    if not current_user.is_full_admin:
-        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    def turning_on(key):
+        return bool(wanted.get(key)) and not bool(getattr(anchor, key, False))
 
-    data = request.get_json() or {}
-    collect_names = bool(data.get('collect_names'))
-    github_only = bool(data.get('github_only'))
-    email_restricted = bool(data.get('email_restricted',
-                                     getattr(anchor, 'org_admin_email_restricted', False)))
-
-    if email_restricted and not getattr(anchor, 'org_admin_email_restricted', False):
-        # Turning this ON removes email 2FA from every admin without a grant, so
-        # refuse unless each of them already has a working authenticator. Same
-        # reasoning as the GitHub-only guard: a privacy setting must not become
-        # a lockout.
+    if turning_on('org_admin_email_restricted'):
+        # Removes email 2FA from every admin without a grant, so refuse unless
+        # each of them already holds a working authenticator.
         stranded = [u.username for u in User.query.all()
                     if u.id != anchor.id
                     and not getattr(u, 'email_allowed', False)
                     and u.email
                     and not totp_secret_is_readable(u)]
         if stranded:
-            return _utf8_json(
-                {'success': False,
-                 'error': 'These admins would lose their only second factor. Grant them '
-                          'email access, or have them set up an authenticator app first: '
-                          + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else '')}, 400)
+            return ('These admins would lose their only second factor. Grant them '
+                    'email access, or have them set up an authenticator app first: '
+                    + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else ''))
 
-    if github_only and not github_login_is_configured():
-        return _utf8_json({'success': False,
-                           'error': 'Add your GitHub OAuth app credentials before turning this on.'}, 400)
-
-    if github_only:
-        # Refusing this is the whole safety property: without a linked GitHub
-        # account AND a working second factor, flipping this switch would lock
-        # the org out of its own admin area.
-        blockers = []
-        for u in User.query.all():
-            if not u.github_user_id:
-                blockers.append(u.username)
+    if wanted.get('org_admin_github_only'):
+        if not github_login_is_configured():
+            return 'Add your GitHub OAuth app credentials before turning this on.'
+        blockers = [u.username for u in User.query.all() if not u.github_user_id]
         if blockers:
-            return _utf8_json(
-                {'success': False,
-                 'error': 'These admins have not linked a GitHub account yet, so they would '
-                          'be locked out: ' + ', '.join(blockers[:8])
-                          + ('…' if len(blockers) > 8 else '')}, 400)
+            return ('These admins have not linked a GitHub account yet, so they would '
+                    'be locked out: ' + ', '.join(blockers[:8])
+                    + ('…' if len(blockers) > 8 else ''))
         if not any(u.totp_enabled for u in User.query.all()):
-            return _utf8_json(
-                {'success': False,
-                 'error': 'Set up an authenticator app for at least one admin first — in '
-                          'GitHub-only mode the emailed code is unavailable.'}, 400)
+            return ('Set up an authenticator app for at least one admin first — in '
+                    'GitHub-only mode the emailed code is unavailable.')
 
-    anchor.org_admin_github_only = github_only
-    anchor.org_admin_collect_names = collect_names
-    anchor.org_admin_email_restricted = email_restricted
+    if turning_on('org_require_2fa'):
+        # Requiring a second factor of everyone while unable to pass one
+        # yourself is how an org locks itself out. The old flow proved this by
+        # mailing a code; the confirmation now proves it directly, so all that
+        # is left is to check a factor exists at all.
+        state = admin_second_factor_state(current_user)
+        if state['method'] is None:
+            return ('Set up your own second factor first — an authenticator app, or '
+                    'an email address that can receive a code. Requiring it of '
+                    'everyone while you cannot pass it would lock you out.')
+    return None
+
+
+def apply_admin_access_settings(anchor, wanted):
+    """Apply the org-wide admin switches. Returns how many names were purged."""
+    if 'org_require_2fa' in wanted:
+        on = bool(wanted['org_require_2fa'])
+        anchor.org_require_2fa = on
+        # The fingerprint is what auto-disables the policy if the mail settings
+        # change under it; it only means anything while the policy is on.
+        anchor.org_2fa_email_settings_version = (
+            get_email_settings_fingerprint(get_email_settings()) if on else None)
+        anchor.org_2fa_needs_attention = False
+    if 'org_require_enroll_ticket' in wanted:
+        anchor.org_require_enroll_ticket = bool(wanted['org_require_enroll_ticket'])
+    if 'org_admin_github_only' in wanted:
+        anchor.org_admin_github_only = bool(wanted['org_admin_github_only'])
+    if 'org_admin_email_restricted' in wanted:
+        anchor.org_admin_email_restricted = bool(wanted['org_admin_email_restricted'])
 
     purged = 0
-    if not collect_names:
-        for u in User.query.filter(db.or_(User.first_name.isnot(None),
-                                          User.last_name.isnot(None))).all():
-            if u.first_name or u.last_name:
-                u.first_name = None
-                u.last_name = None
-                purged += 1
+    if 'org_admin_collect_names' in wanted:
+        collect = bool(wanted['org_admin_collect_names'])
+        anchor.org_admin_collect_names = collect
+        if not collect:
+            # Leaving the names in place would make the setting cosmetic, which
+            # is not what it promises.
+            for u in User.query.filter(db.or_(User.first_name.isnot(None),
+                                              User.last_name.isnot(None))).all():
+                if u.first_name or u.last_name:
+                    u.first_name = None
+                    u.last_name = None
+                    purged += 1
+    return purged
+
+
+@app.route('/admin/users/admins/settings', methods=['POST'])
+@login_required
+def admin_users_access_settings():
+    """The org-wide admin switches, confirmed the same way the public ones are.
+
+    One request applies them together, so an admin confirms once rather than
+    per switch, and the guards all see the same intended end state.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'error': 'No primary owner found.'}, 400)
+
+    data = request.get_json() or {}
+    wanted = {k: bool(data[k]) for k in ADMIN_ACCESS_SETTINGS if k in data}
+
+    changes = [{'key': k, 'label': ADMIN_ACCESS_SETTINGS[k], 'to': v}
+               for k, v in wanted.items()
+               if bool(getattr(anchor, k, False)) != v]
+
+    if changes:
+        blocked = admin_access_blockers(anchor, wanted)
+        if blocked:
+            return _utf8_json({'error': blocked}, 400)
+        ok, err, method = verify_admin_reauth(current_user, data)
+        if not ok:
+            return _utf8_json({'error': err, 'needs_reauth': method,
+                               'changes': changes}, 401)
+
+    purged = apply_admin_access_settings(anchor, wanted)
     db.session.commit()
+    if changes:
+        app.logger.info('admin access settings changed by admin id=%s: %s',
+                        current_user.id,
+                        ', '.join(f"{c['label']}={'on' if c['to'] else 'off'}"
+                                  for c in changes))
     return _utf8_json({'success': True, 'purged': purged,
-                       'github_only': github_only, 'collect_names': collect_names})
+                       'changed': [c['key'] for c in changes]})
 
 
 @app.route('/admin/dashboard/settings/logging', methods=['POST'])
@@ -25833,7 +25759,13 @@ def admin_users_page():
     # because someone opened this page.
     org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
 
+    _anchor_for_access = get_main_admin()
     return render_template('admin_users.html',
+                           # The org-wide admin switches, and how this admin
+                           # will be asked to confirm a change to them.
+                           admin_access={k: bool(getattr(_anchor_for_access, k, False))
+                                         for k in ADMIN_ACCESS_SETTINGS},
+                           access_reauth_method=admin_reauth_method(current_user),
                            sub_admins=sub_admins,
                            org_requires_2fa=org_requires_2fa,
                            unprotected_admin_ids=unprotected_ids,

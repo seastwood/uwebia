@@ -228,7 +228,105 @@ def main_test():
           page_keys == guarded)
 
 
+def admin_test():
+    """The same treatment for the switches that govern every ADMIN account.
+
+    These used to live on the Settings page's Site tab, three separate cards
+    each saving instantly with no confirmation at all.
+    """
+    app.config['WTF_CSRF_ENABLED'] = False
+
+    print('\n[8] the admin policy card is on the Admins page, collapsed')
+    owner_id, site_id, member_id, _ = setup()
+    page = as_owner(owner_id, site_id).get('/admin/users').get_data(as_text=True)
+    check('the card is there', 'Admin Access &amp; Policy' in page
+          or 'Admin Access & Policy' in page)
+    body = re.search(r'id="adminAccessBody"([^>]*)>', page)
+    check('and starts collapsed', bool(body) and 'hidden' in body.group(1))
+    for key in main.ADMIN_ACCESS_SETTINGS:
+        check(f'{key} has a switch', f'atog-{key}' in page)
+
+    print('\n[9] and it left the settings page')
+    settings = as_owner(owner_id, site_id).get('/admin/dashboard/settings').get_data(as_text=True)
+    for gone in ('Organization 2FA Policy', 'Admin Privacy', 'Authenticator Setup Codes'):
+        check(f'"{gone}" is no longer on the settings page', gone not in settings)
+    check('with a pointer to where it went', 'Admin Access &amp; Policy' in settings)
+
+    print('\n[10] changing one needs the same confirmation')
+    c = as_owner(owner_id, site_id)
+    base = {k: False for k in main.ADMIN_ACCESS_SETTINGS}
+    base['org_admin_collect_names'] = True
+
+    r = c.post('/admin/users/admins/settings', json=base)
+    check(f'no change, no questions — got {r.status_code}', r.status_code == 200)
+    check('and nothing reported as changed', (r.get_json() or {}).get('changed') == [])
+
+    want = dict(base, org_require_enroll_ticket=True)
+    r = c.post('/admin/users/admins/settings', json=want)
+    d = r.get_json() or {}
+    check(f'a change is refused unconfirmed — got {r.status_code}', r.status_code == 401)
+    check(f'asking for a password ({d.get("needs_reauth")})',
+          d.get('needs_reauth') == 'password')
+    check('and naming the switch',
+          (d.get('changes') or [{}])[0].get('label')
+          == 'Require a Setup Code to Enrol an Authenticator')
+    with app.app_context():
+        check('nothing applied',
+              not db.session.get(main.User, owner_id).org_require_enroll_ticket)
+
+    r = c.post('/admin/users/admins/settings', json=dict(want, password='ownerpassword'))
+    check(f'confirmed, it applies — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('the switch moved',
+              db.session.get(main.User, owner_id).org_require_enroll_ticket is True)
+
+    print('\n[11] admin names are purged only once confirmed')
+    with app.app_context():
+        owner = db.session.get(main.User, owner_id)
+        owner.first_name, owner.last_name = 'Ada', 'Lovelace'
+        db.session.commit()
+    want = dict(base, org_admin_collect_names=False, org_require_enroll_ticket=True)
+    r = c.post('/admin/users/admins/settings', json=want)
+    check(f'refused unconfirmed — got {r.status_code}', r.status_code == 401)
+    with app.app_context():
+        check('the name survives',
+              db.session.get(main.User, owner_id).first_name == 'Ada')
+    r = c.post('/admin/users/admins/settings', json=dict(want, password='ownerpassword'))
+    check(f'confirmed — got {r.status_code}', r.status_code == 200)
+    check(f'it reports what it removed ({(r.get_json() or {}).get("purged")})',
+          (r.get_json() or {}).get('purged') == 1)
+    with app.app_context():
+        check('and the name is gone',
+              db.session.get(main.User, owner_id).first_name is None)
+
+    print('\n[12] the guards that stop a lockout still run')
+    owner_id, site_id, member_id, _ = setup()
+    c = as_owner(owner_id, site_id)
+    base = {k: False for k in main.ADMIN_ACCESS_SETTINGS}
+    base['org_admin_collect_names'] = True
+    # GitHub-only with nobody linked would shut the whole org out.
+    r = c.post('/admin/users/admins/settings',
+               json=dict(base, org_admin_github_only=True, password='ownerpassword'))
+    d = r.get_json() or {}
+    check(f'GitHub-only is refused — got {r.status_code}', r.status_code == 400)
+    check(f'explaining why ({(d.get("error") or "")[:40]}…)',
+          'GitHub' in (d.get('error') or ''))
+    check('and it is refused BEFORE asking for a password',
+          'needs_reauth' not in d)
+    with app.app_context():
+        check('nothing applied',
+              not db.session.get(main.User, owner_id).org_admin_github_only)
+
+    print('\n[13] and every switch on the card is one the server guards')
+    tpl = open(os.path.join(_REPO, 'Templates', 'admin_users.html')).read()
+    keys = re.search(r'const ADMIN_ACCESS_KEYS = \[(.*?)\];', tpl, re.S)
+    page_keys = set(re.findall(r"'([a-z0-9_]+)'", keys.group(1))) if keys else set()
+    check(f'the page and the server agree on {len(main.ADMIN_ACCESS_SETTINGS)} switches',
+          page_keys == set(main.ADMIN_ACCESS_SETTINGS))
+
+
 if __name__ == '__main__':
     main_test()
+    admin_test()
     print('\n' + ('ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED: {FAILURES}'))
     sys.exit(1 if FAILURES else 0)

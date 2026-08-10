@@ -315,6 +315,75 @@
     white-space: nowrap; margin-left: 6px; vertical-align: middle;
 }
 .uw-btn.is-ticket { background: rgba(120,180,255,0.16); color: #94c2ff; border-color: rgba(120,180,255,0.4); }
+/* Org-wide admin switches — same shape as the public members card */
+.au-access-card {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 22px;
+}
+.au-collapse-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    width: 100%; text-align: left;
+    background: none; border: none; padding: 0; margin: 0;
+    color: inherit; font: inherit; cursor: pointer;
+}
+.au-collapse-hint { font-size: 0.8rem; color: rgba(255,255,255,0.4); }
+.au-collapse-chevron {
+    margin-left: auto; font-size: 0.85rem; color: rgba(255,255,255,0.45);
+    transition: transform 0.18s ease;
+}
+.au-collapse-head[aria-expanded="true"] .au-collapse-chevron { transform: rotate(180deg); }
+.au-collapse-body { padding-top: 16px; }
+
+.au-toggle-row {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+    position: relative;
+}
+.au-toggle-label { margin: 0; font-size: 0.9rem; font-weight: 600; }
+.au-toggle-help {
+    margin: 3px 0 0; font-size: 0.79rem; line-height: 1.5;
+    color: rgba(255,255,255,0.45);
+}
+.au-toggle-track {
+    flex-shrink: 0; width: 38px; height: 20px; margin-top: 2px;
+    border-radius: 999px; border: 1px solid rgba(255,255,255,0.2);
+    background: rgba(255,255,255,0.08);
+    position: relative; cursor: pointer;
+    transition: background 0.18s, border-color 0.18s;
+}
+.au-toggle-track::after {
+    content: ''; position: absolute; top: 3px; left: 3px;
+    width: 12px; height: 12px; border-radius: 50%;
+    background: rgba(255,255,255,0.4);
+    transition: transform 0.18s, background 0.18s;
+}
+.au-toggle-track.on { background: rgba(94,238,200,0.2); border-color: rgba(94,238,200,0.5); }
+.au-toggle-track.on::after { transform: translateX(18px); background: #5eeec8; }
+.au-save-status {
+    margin-left: 10px; font-size: 0.82rem; color: #5eeec8;
+    opacity: 0; transition: opacity 0.2s;
+}
+.au-save-status.visible { opacity: 1; }
+
+/* Confirmation dialog */
+.au-confirm-list { margin: 0 0 16px; padding: 0; list-style: none; max-height: 240px; overflow-y: auto; }
+.au-confirm-list li {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 7px 0; font-size: 0.88rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.au-confirm-state { font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em; }
+.au-confirm-on { color: #5eeec8; }
+.au-confirm-off { color: #ff9a9a; }
+.au-confirm-warn {
+    background: rgba(255,196,84,0.1); border: 1px solid rgba(255,196,84,0.32);
+    color: #ffd08a; border-radius: 9px; padding: 10px 12px;
+    font-size: 0.83rem; line-height: 1.45; margin-bottom: 14px;
+}
+
 .au-2fa-notice {
     border: 1px solid rgba(255,120,120,0.35); background: rgba(255,120,120,0.07);
     border-radius: 12px; padding: 14px 16px; margin-bottom: 18px;
@@ -461,6 +530,59 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
         {% endfor %}
     </div>
     {% endif %}
+    {% endif %}
+
+    {% if current_user.is_full_admin %}
+    {# The org-wide switches that govern every admin account. Collapsed by
+       default and confirmed on change, the same as the equivalent card for
+       public members — these decide how admins get in, and one of them deletes
+       the names already on file. #}
+    <div class="au-access-card">
+        <button type="button" class="au-collapse-head" id="adminAccessHead"
+                aria-expanded="false" aria-controls="adminAccessBody"
+                onclick="toggleAdminAccess()">
+            <span class="au-section-title" style="margin:0;">Admin Access &amp; Policy</span>
+            <span class="au-collapse-hint">Applies to every admin account</span>
+            <i class="fas fa-chevron-down au-collapse-chevron" id="adminAccessChev"></i>
+        </button>
+
+        <div class="au-collapse-body" id="adminAccessBody" hidden>
+            {% set _atog = [
+                ('org_require_2fa', 'Require Two-Factor for All Admins',
+                 'Every admin must pass a second factor at login, whether or not they enabled it themselves. An authenticator app or an emailed code both satisfy it.',
+                 admin_access['org_require_2fa']),
+                ('org_require_enroll_ticket', 'Require a Setup Code to Enrol an Authenticator',
+                 'An admin setting up an authenticator during sign-in must first be handed a single-use code by an owner. Leave off and they can enrol themselves, which is what lets a new admin finish their first sign-in unaided.',
+                 admin_access['org_require_enroll_ticket']),
+                ('org_admin_collect_names', 'Collect Admin Real Names',
+                 'Record admins\' first & last names. Turning this OFF permanently deletes the names already stored — for orgs whose admins are students or minors.',
+                 admin_access['org_admin_collect_names']),
+                ('org_admin_github_only', 'GitHub Sign-In Only',
+                 'Remove the username/password form from the admin area so GitHub is the only way in. Every admin must already have a linked GitHub account and at least one must hold an authenticator.',
+                 admin_access['org_admin_github_only']),
+                ('org_admin_email_restricted', 'Restrict Admin Email Addresses',
+                 'Only admins individually granted email access may hold an address. Those without one use an authenticator as their second factor.',
+                 admin_access['org_admin_email_restricted']),
+            ] %}
+            {% for key, label, help, checked in _atog %}
+            <div class="au-toggle-row">
+                <span class="au-toggle-track{{ ' on' if checked else '' }}"
+                      id="atrack-{{ key }}" onclick="toggleAdminSetting('{{ key }}')"></span>
+                <input type="checkbox" id="atog-{{ key }}" {{ 'checked' if checked else '' }}
+                       style="position:absolute;opacity:0;pointer-events:none;">
+                <div>
+                    <p class="au-toggle-label">{{ label }}</p>
+                    <p class="au-toggle-help">{{ help }}</p>
+                </div>
+            </div>
+            {% endfor %}
+
+            <button class="uw-btn uw-btn-primary" id="adminAccessSave" onclick="saveAdminAccess()">
+                <i class="fas fa-save"></i> Save Settings
+            </button>
+            <span class="au-save-status" id="adminAccessStatus">Saved!</span>
+        </div>
+    </div>
     {% endif %}
 
     {% if current_user.is_full_admin and unprotected_admin_ids %}
@@ -987,6 +1109,35 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
 </div>
 
 <!-- 2FA setup code — shown exactly once; we only keep the hash -->
+<!-- Confirming a change to the org-wide admin switches -->
+<div class="uw-overlay" id="adminAccessOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="adminAccessTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="adminAccessTitle">Confirm admin policy changes</h3>
+            <button class="uw-modal-close" onclick="closeAdminAccessConfirm()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin:0 0 12px;">
+                These apply to every admin account on this organization.
+            </p>
+            <ul class="au-confirm-list" id="adminAccessList"></ul>
+            <div class="au-confirm-warn" id="adminAccessWarn" hidden></div>
+            <div id="adminAccessError" style="display:none;color:#ff8888;font-size:0.84rem;margin-bottom:12px;"></div>
+            <div id="adminAccessAuthField" hidden>
+                <label id="adminAccessAuthLabel">Your password</label>
+                <input id="adminAccessAuth" type="password" autocomplete="current-password">
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.4);margin:6px 0 0;"
+                   id="adminAccessAuthHint"></p>
+            </div>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="uw-btn uw-btn-secondary" onclick="closeAdminAccessConfirm()">Cancel</button>
+            <button type="button" class="uw-btn uw-btn-primary" id="adminAccessConfirmBtn"
+                    onclick="confirmAdminAccessSave()">Apply changes</button>
+        </div>
+    </div>
+</div>
+
 <div class="uw-overlay" id="ticketModalOverlay">
     <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="ticketModalTitle">
         <div class="uw-modal-header">
@@ -1015,6 +1166,185 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
 </div>
 
 <script>
+/* ── Org-wide admin switches ─────────────────────────────────────────────── */
+const ADMIN_ACCESS_KEYS = ['org_require_2fa', 'org_require_enroll_ticket',
+    'org_admin_collect_names', 'org_admin_github_only', 'org_admin_email_restricted'];
+
+// What this admin will be asked for. The server decides again on arrival.
+const ADMIN_REAUTH_METHOD = {{ access_reauth_method|tojson if access_reauth_method is defined else 'null' }};
+
+// Spelled out for the switches that destroy data or can shut people out.
+// `when` is the direction that does the damage — off for name collection,
+// on for the rest — so the warning only appears when it applies.
+const ADMIN_ACCESS_CONSEQUENCES = {
+    org_admin_collect_names: { when: false, text:
+        'Turning this off permanently deletes the first and last names already ' +
+        'recorded for every admin. That cannot be undone.' },
+    org_admin_github_only: { when: true, text:
+        'Turning this on removes the username and password form from the admin ' +
+        'area, so a linked GitHub account becomes the only way in.' },
+    org_require_2fa: { when: true, text:
+        'Turning this on requires every admin to pass a second factor. Admins ' +
+        'with nothing enrolled will have to set one up before they can continue.' },
+    org_admin_email_restricted: { when: true, text:
+        'Turning this on takes email 2FA away from admins without an individual ' +
+        'grant — an authenticator becomes their only factor.' },
+};
+
+const ADMIN_ACCESS_BASELINE = {};
+function captureAdminAccessBaseline() {
+    ADMIN_ACCESS_KEYS.forEach(k => {
+        const el = document.getElementById('atog-' + k);
+        if (el) ADMIN_ACCESS_BASELINE[k] = el.checked;
+    });
+}
+
+function toggleAdminAccess() {
+    const body = document.getElementById('adminAccessBody');
+    const head = document.getElementById('adminAccessHead');
+    if (!body || !head) return;
+    const opening = body.hasAttribute('hidden');
+    if (opening) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
+    head.setAttribute('aria-expanded', opening ? 'true' : 'false');
+}
+
+function toggleAdminSetting(key) {
+    const chk = document.getElementById('atog-' + key);
+    const track = document.getElementById('atrack-' + key);
+    if (!chk || !track) return;
+    chk.checked = !chk.checked;
+    track.classList.toggle('on', chk.checked);
+}
+
+function adminAccessChanges() {
+    const out = [];
+    ADMIN_ACCESS_KEYS.forEach(k => {
+        const el = document.getElementById('atog-' + k);
+        if (!el || !(k in ADMIN_ACCESS_BASELINE)) return;
+        if (el.checked !== ADMIN_ACCESS_BASELINE[k]) {
+            const row = document.getElementById('atrack-' + k);
+            const label = row && row.parentElement.querySelector('.au-toggle-label');
+            out.push({ key: k, label: label ? label.textContent.trim() : k, to: el.checked });
+        }
+    });
+    return out;
+}
+
+function closeAdminAccessConfirm() {
+    document.getElementById('adminAccessOverlay').classList.remove('open');
+    document.body.classList.remove('uw-modal-open');
+    document.getElementById('adminAccessAuth').value = '';
+    document.getElementById('adminAccessError').style.display = 'none';
+}
+
+function openAdminAccessConfirm(changes, method, message) {
+    document.getElementById('adminAccessList').innerHTML = changes.map(c =>
+        '<li><span class="au-confirm-state ' + (c.to ? 'au-confirm-on' : 'au-confirm-off') + '">'
+        + (c.to ? 'ON' : 'OFF') + '</span><span>' + escapeHtml(c.label) + '</span></li>').join('');
+
+    const notes = changes
+        .filter(c => ADMIN_ACCESS_CONSEQUENCES[c.key] &&
+                     ADMIN_ACCESS_CONSEQUENCES[c.key].when === c.to)
+        .map(c => ADMIN_ACCESS_CONSEQUENCES[c.key].text);
+    const warn = document.getElementById('adminAccessWarn');
+    if (notes.length) { warn.innerHTML = notes.join('<br><br>'); warn.removeAttribute('hidden'); }
+    else { warn.setAttribute('hidden', ''); }
+
+    const field = document.getElementById('adminAccessAuthField');
+    const label = document.getElementById('adminAccessAuthLabel');
+    const hint  = document.getElementById('adminAccessAuthHint');
+    const input = document.getElementById('adminAccessAuth');
+    if (method === 'totp') {
+        field.removeAttribute('hidden');
+        label.textContent = 'Authenticator code';
+        hint.textContent = 'From the app you set up for this account.';
+        input.type = 'text'; input.inputMode = 'numeric';
+        input.autocomplete = 'one-time-code'; input.maxLength = 6;
+    } else if (method === 'password') {
+        field.removeAttribute('hidden');
+        label.textContent = 'Your password';
+        hint.textContent = 'Confirming it is still you at the keyboard.';
+        input.type = 'password'; input.removeAttribute('inputmode');
+        input.autocomplete = 'current-password'; input.removeAttribute('maxlength');
+    } else {
+        field.setAttribute('hidden', '');
+    }
+
+    const err = document.getElementById('adminAccessError');
+    if (message) { err.textContent = message; err.style.display = 'block'; }
+    else { err.style.display = 'none'; }
+
+    document.getElementById('adminAccessOverlay').classList.add('open');
+    document.body.classList.add('uw-modal-open');
+    if (!field.hasAttribute('hidden')) setTimeout(() => input.focus(), 60);
+}
+
+function confirmAdminAccessSave() {
+    const field = document.getElementById('adminAccessAuthField');
+    const secret = field.hasAttribute('hidden')
+        ? '' : document.getElementById('adminAccessAuth').value.trim();
+    saveAdminAccess(secret);
+}
+
+async function saveAdminAccess(secret) {
+    const changes = adminAccessChanges();
+    if (changes.length && secret === undefined) {
+        openAdminAccessConfirm(changes, ADMIN_REAUTH_METHOD, null);
+        return;
+    }
+    const btn = document.getElementById('adminAccessSave');
+    const confirmBtn = document.getElementById('adminAccessConfirmBtn');
+    btn.disabled = true;
+    if (confirmBtn) confirmBtn.disabled = true;
+
+    const payload = {};
+    ADMIN_ACCESS_KEYS.forEach(k => {
+        const el = document.getElementById('atog-' + k);
+        if (el) payload[k] = el.checked;
+    });
+    if (secret) { payload.password = secret; payload.totp_code = secret; }
+
+    try {
+        const r = await fetch('/admin/users/admins/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const d = await r.json();
+        if (r.status === 401 && d.needs_reauth !== undefined) {
+            openAdminAccessConfirm(d.changes || changes, d.needs_reauth, d.error);
+            return;
+        }
+        if (!d.success) {
+            // A guard refused — say so where they can see it, dialog or page.
+            const open = document.getElementById('adminAccessOverlay').classList.contains('open');
+            if (open) {
+                const err = document.getElementById('adminAccessError');
+                err.textContent = d.error || 'Could not save.';
+                err.style.display = 'block';
+            } else {
+                alert(d.error || 'Could not save.');
+            }
+            return;
+        }
+        closeAdminAccessConfirm();
+        captureAdminAccessBaseline();
+        const status = document.getElementById('adminAccessStatus');
+        status.textContent = d.purged
+            ? 'Saved — ' + d.purged + ' name(s) removed'
+            : 'Saved!';
+        status.classList.add('visible');
+        setTimeout(() => status.classList.remove('visible'), 3000);
+    } catch (e) {
+        alert('Request failed: ' + e);
+    } finally {
+        btn.disabled = false;
+        if (confirmBtn) confirmBtn.disabled = false;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', captureAdminAccessBaseline);
+
 function escapeHtml(value) {
     return String(value || '')
         .replaceAll('&', '&amp;')
