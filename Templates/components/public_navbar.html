@@ -1972,6 +1972,18 @@ html.gv-guide .public-cart-btn { display: none !important; }
             .replace(/&/g, '&amp;').replace(/</g, '&lt;')
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+        // Must cover every `type` _public_search_website emits.
+        const SEARCH_TYPE_LABELS = {
+            page: 'Page',
+            post: 'Post',
+            product: 'Product',
+            newsletter: 'Newsletter',
+            guide: 'Guide',
+            lesson: 'Lesson',
+            quiz: 'Quiz',
+            resource: 'Resource',
+        };
+
         function highlight(text, q) {
             if (!q) return esc(text);
             const safe = esc(text);
@@ -1991,8 +2003,13 @@ html.gv-guide .public-cart-btn { display: none !important; }
                 return;
             }
             const html = state.items.map(r => {
-                const typeLabel = r.type === 'post' ? 'Post' : 'Page';
-                const extra = r.type === 'post' && r.collection
+                // Anything not in this map used to fall through to "Page",
+                // which mislabelled products and newsletter issues as pages.
+                const typeLabel = SEARCH_TYPE_LABELS[r.type] || 'Page';
+                // The second line of context — a post's collection, a lesson's
+                // guide, a guide or quiz's category. Shown whenever the server
+                // sends one rather than for posts alone.
+                const extra = r.collection
                     ? ` <span style="opacity:0.55;font-weight:500;font-size:0.74rem;letter-spacing:0;text-transform:none;color:rgba(255,255,255,0.6);">${esc(r.collection)}</span>` : '';
                 return `<a class="public-navbar-search-result" href="${esc(r.url)}">
                     <div class="public-navbar-search-result-title">

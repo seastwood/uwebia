@@ -24907,7 +24907,12 @@ def _public_search_website(website, query, limit=40):
       - Pages (name/slug + every section's text content)
       - Published Posts (title, excerpt, body)
       - Store products (name, description) — only when store is enabled
+      - Guides (title/description) and their published lessons (title/content)
+      - Public quizzes and resources (title/description)
       - Newsletter campaigns that have been sent (subject + plain body)
+
+    Everything in the Education group follows the same visibility rules the
+    public index uses, so search can never name something the index hides.
 
     Match strategy: case-insensitive substring on every text-bearing
     field. We pull a ~160-char snippet around the first match so the UI
@@ -25088,6 +25093,105 @@ def _public_search_website(website, query, limit=40):
                 'title': product.name or 'Untitled product',
                 'url': product_url + '#' + text_directive,
                 'snippet': _snippet(hit_text),
+            })
+
+    # ── Guides, quizzes and resources ─────────────────────────────────
+    # The Education section. Visibility mirrors public_guides_index exactly —
+    # search must not surface the title of something the index would hide, or
+    # it becomes a way to read the shape of members-only content without being
+    # a member.
+    try:
+        public_user = _public_user_for_website(website)
+        viewer_is_member = _viewer_is_org_member(website, public_user)
+    except Exception:
+        viewer_is_member = False
+
+    def _visible(rows):
+        return [r for r in rows if viewer_is_member or not getattr(r, 'members_only', False)]
+
+    # Guides: the guide itself, and each published lesson under it. A lesson
+    # hit links straight to the lesson rather than the cover, since that is
+    # where the words the reader searched for actually are.
+    if len(results) < limit:
+        try:
+            guides = _visible(Guide.query.filter_by(
+                website_id=website.id, status='published').order_by(
+                Guide.sort_order, Guide.id).limit(300).all())
+        except Exception:
+            guides = []
+        for g in guides:
+            if len(results) >= limit:
+                break
+            guide_url = f'{base}/guides/{g.slug}'
+            hit_text = _hit(g.title, g.description)
+            if hit_text is not None:
+                results.append({
+                    'type': 'guide',
+                    'title': g.title or 'Untitled guide',
+                    'url': guide_url + '#' + text_directive,
+                    'snippet': _snippet(hit_text),
+                    'collection': g.category.name if g.category_id and g.category else '',
+                })
+            try:
+                nodes = [n for n in (g.nodes or []) if n.is_published]
+            except Exception:
+                nodes = []
+            for n in nodes:
+                if len(results) >= limit:
+                    break
+                node_hit = _hit(n.title, n.content)
+                if node_hit is None:
+                    continue
+                results.append({
+                    'type': 'lesson',
+                    'title': n.title or 'Untitled lesson',
+                    'url': f'{guide_url}/{n.slug}#{text_directive}',
+                    'snippet': _snippet(node_hit),
+                    'collection': g.title or '',
+                })
+
+    # Quizzes listed on the public Quizzes tab. /quiz/<id> has no prefixed
+    # variant, so it is NOT built from `base`.
+    if len(results) < limit:
+        try:
+            quizzes = _visible(Quiz.query.filter_by(
+                website_id=website.id, is_public=True).limit(300).all())
+        except Exception:
+            quizzes = []
+        for qz in quizzes:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(qz.title, qz.description)
+            if hit_text is None:
+                continue
+            results.append({
+                'type': 'quiz',
+                'title': qz.title or 'Untitled quiz',
+                'url': f'/quiz/{qz.id}#{text_directive}',
+                'snippet': _snippet(hit_text),
+                'collection': qz.category.name if qz.category_id and qz.category else '',
+            })
+
+    # Resources. Same note about the URL not being prefixed.
+    if len(results) < limit:
+        try:
+            resources = _visible(Resource.query.filter_by(
+                website_id=website.id, is_public=True).order_by(
+                Resource.sort_order, Resource.id).limit(300).all())
+        except Exception:
+            resources = []
+        for res in resources:
+            if len(results) >= limit:
+                break
+            hit_text = _hit(res.title, res.description, res.content)
+            if hit_text is None:
+                continue
+            results.append({
+                'type': 'resource',
+                'title': res.title or 'Untitled resource',
+                'url': f'/resource/{res.id}#{text_directive}',
+                'snippet': _snippet(hit_text),
+                'collection': res.category.name if res.category_id and res.category else '',
             })
 
     # ── Newsletter campaigns (sent only) ──────────────────────────────
