@@ -355,7 +355,8 @@
        showing an empty hamburger). When responsive items collapse into it (compact
        mode), CSS reveals it again. #}
     {% set _has_pinned_dropdown = (
-        (user_has_perm('storage.view') and 'storage' not in _nd)
+        user_has_perm('trash.view')
+        or (user_has_perm('storage.view') and 'storage' not in _nd)
         or (user_has_perm('notifications.view') and 'notifications' not in _nd)
         or 'ai_agents' not in _nd
         or 'plugins' not in _nd
@@ -369,6 +370,15 @@
             <div class="nav-tools-dropdown-content" id="navToolsDropdownContent">
                 <div class="nav-tools-scroll-cue nav-tools-scroll-cue--top" aria-hidden="true">▲ more above</div>
                 {# ── Pinned items — always present in the dropdown ── #}
+                {# Trash is deliberately not checked against admin_navbar_disabled:
+                   the way back from an accidental deletion should not be
+                   something a settings toggle can hide. It lives only here, in
+                   the dropdown, so it never competes for room on the bar. #}
+                {% if user_has_perm('trash.view') %}
+                <a href="{{ url_for('admin_trash_page') }}" class="nav-tools-item">
+                    <i class="fas fa-trash-can"></i><span>Trash</span>
+                </a>
+                {% endif %}
                 {% if user_has_perm('storage.view') and 'storage' not in _nd %}
                 <a href="{{ url_for('admin_storage_connections') }}" class="nav-tools-item">
                     <i class="fas fa-cloud"></i><span>External Drives</span>

@@ -50,7 +50,8 @@ from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+from decimal import Decimal
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import send_file, after_this_request
 
@@ -1018,6 +1019,10 @@ class User(UserMixin, db.Model):
     # owner having to hand every new admin a code.
     org_require_enroll_ticket = db.Column(db.Boolean, nullable=False, default=False,
                                           server_default=_sa_false())
+    # How long deleted things stay recoverable, in days. 0 or NULL means until
+    # somebody empties the bin. Accounts ignore this and always go within
+    # TRASH_MAX_DAYS_PEOPLE.
+    trash_retention_days = db.Column(db.Integer, nullable=True)
     # Email-settings fingerprint captured when the org policy was verified; if it
     # no longer matches, the policy auto-disables (mirrors per-user 2FA). The
     # needs-attention flag lets the UI explain why it switched off.
@@ -1188,7 +1193,7 @@ def _perm_label(key):
         'payments': 'Payments',
         'ai_agents': 'AI Agents', 'forum': 'Forum', 'comments': 'Comments',
         'messages': 'Messages', 'settings': 'Settings', 'templates': 'Templates',
-        'admin_users': 'Admin Users',
+        'admin_users': 'Admin Users', 'trash': 'Trash',
     }
     action_labels = {
         'view': 'view', 'edit': 'edit', 'create': 'create', 'delete': 'delete',
@@ -4184,6 +4189,44 @@ class QuizDraft(db.Model):
 # on the public guides page's "Resources" tab (grouped by category, like guides
 # and quizzes). Four kinds: an external link, a downloadable library file, an
 # embedded video, or a self-contained rich-text page.
+class TrashItem(db.Model):
+    """A deleted thing, kept so it can be put back.
+
+    A snapshot rather than a soft-delete flag: nothing else in the app has to
+    learn to filter out deleted rows, so a listing can never accidentally show
+    something that is in the bin. The cost is that restoring has to rebuild the
+    row and its children from the payload, which is what the registry below
+    describes.
+    """
+    __tablename__ = 'trash_item'
+    id            = db.Column(db.Integer, primary_key=True)
+    # Scoped to the organisation, so one org can never see another's bin.
+    root_user_id  = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    website_id    = db.Column(db.Integer, nullable=True, index=True)
+    item_type     = db.Column(db.String(40), nullable=False, index=True)
+    # What it was called, captured at deletion — the row is gone, so the list
+    # has nothing else to show.
+    label         = db.Column(db.String(300), nullable=False, default='')
+    detail        = db.Column(db.String(300), nullable=True)
+    payload       = db.Column(db.JSON, nullable=False)
+    deleted_at    = db.Column(db.DateTime, nullable=False, index=True,
+                              default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
+    # When this must be gone by. NULL means it is kept until somebody empties
+    # the bin — except for accounts, which always carry a date (see
+    # TRASH_MAX_DAYS_PEOPLE).
+    expires_at    = db.Column(db.DateTime, nullable=True, index=True)
+
+    deleted_by = db.relationship('User', foreign_keys=[deleted_by_id])
+
+
+# Accounts are people, not content. However long an org chooses to keep its
+# deleted pages, a deleted person's record goes within this many days.
+TRASH_MAX_DAYS_PEOPLE = 60
+
+
 class PublicUserFavorite(db.Model):
     """A member starring something in the Education section to find it again.
 
@@ -7278,6 +7321,7 @@ def delete_asset(asset_id):
         pool_user_id = asset.user_id
 
         # Delete DB record first.
+        move_to_trash(asset, 'asset')
         db.session.delete(asset)
         db.session.commit()
 
@@ -18959,6 +19003,12 @@ def _start_ip_retention_scheduler():
             try:
                 with app.app_context():
                     prune_expired_ips()
+                    # Same daily cadence, same day-granularity rule: anything in
+                    # the bin past its date goes, whether or not an admin has
+                    # opened the page that would otherwise trigger the sweep.
+                    gone = purge_expired_trash()
+                    if gone:
+                        print(f"[trash] purged {gone} expired item(s)")
             except Exception as loop_err:
                 print(f"[ip-retention] scheduler error: {loop_err}")
             time.sleep(86400)  # once a day is plenty for a day-granularity rule
@@ -25674,6 +25724,12 @@ ADMIN_PERMISSIONS = {
         'create': 'Save new templates',
         'delete': 'Delete templates',
     }},
+    'trash': {'label': 'Trash', 'actions': {
+        'view': 'Open the trash and see what was deleted',
+        'restore': 'Restore deleted items',
+        'purge': 'Permanently delete items and empty the trash',
+        'settings': 'Set how long deleted items are kept',
+    }},
     'admin_users': {'label': 'Admin Users', 'actions': {
         'view': 'View admin users',
         'create': 'Create admin users',
@@ -26820,6 +26876,8 @@ def _delete_public_user_row(public_user):
     added later is handled the day it appears instead of resurrecting this
     same bug.
     """
+    move_to_trash(public_user, 'public_user')
+
     pu_id = public_user.id
     for table in db.metadata.tables.values():
         if table.name == 'public_user':
@@ -26837,6 +26895,8 @@ def _delete_public_user_row(public_user):
     # loaded is now stale — including collections the ORM delete below would
     # otherwise try to cascade over.
     db.session.expire_all()
+    # Photographed before the references above are cleared, so the bin holds
+    # the account as it was rather than a stripped shell.
     db.session.delete(public_user)
 
 
@@ -27650,6 +27710,10 @@ def _delete_admin_account(admin):
     Callers are responsible for the checks that differ between them (who may
     delete whom) and for ending the session afterwards.
     """
+    # Snapshot first: the helpers below re-home everything the account owns,
+    # so by the time it is deleted the row no longer describes what was lost.
+    move_to_trash(admin, 'admin_user', root_user_id=(admin.parent_user_id or admin.id))
+
     root_id = admin.parent_user_id or admin.id
     try:
         _delete_admin_mirrors(admin.id)
@@ -29230,6 +29294,8 @@ def delete_calendar_route(calendar_id):
     # Bulk-delete children first so a large (e.g. externally-synced) calendar
     # deletes quickly instead of ORM-cascading row-by-row and timing out.
     # Events must go before subscriptions (events FK subscription_id).
+    # Snapshot before the bulk deletes below take the events with it.
+    move_to_trash(calendar, 'calendar')
     CalendarEvent.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
     CalendarFeedSubscriber.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
     CalendarSubscription.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
@@ -34685,6 +34751,452 @@ def _wrap_tables_for_scrolling(html):
     return ''.join(out)
 
 
+# ── Trash ───────────────────────────────────────────────────────────────────
+# What each kind of deleted thing is called, how to find its children, and what
+# would collide if it came back. Adding a type here is all it takes for the bin
+# to handle it; the delete route just calls move_to_trash first.
+#
+#   children  (attribute on the parent, model) pairs, dumped with the parent and
+#             re-linked on restore. Grandchildren list their own parent column.
+#   unique    fields that must not clash on the way back, each with the columns
+#             that scope it. A clash stops the restore and asks the admin what
+#             to call it instead.
+def _trash_registry():
+    return {
+        'asset': {
+            'label': 'File', 'model': Asset, 'icon': 'fa-file',
+            'name': lambda o: o.original_filename or o.stored_filename or 'File',
+            'children': [], 'unique': [],
+        },
+        'guide': {
+            'label': 'Guide', 'model': Guide, 'icon': 'fa-book-open',
+            'name': lambda o: o.title,
+            'children': [('nodes', GuideNode, 'guide_id')],
+            'unique': [('slug', ['website_id'])],
+        },
+        'quiz': {
+            'label': 'Quiz', 'model': Quiz, 'icon': 'fa-clipboard-check',
+            'name': lambda o: o.title,
+            'children': [('questions', QuizQuestion, 'quiz_id')],
+            'unique': [],
+        },
+        'resource': {
+            'label': 'Resource', 'model': Resource, 'icon': 'fa-folder-open',
+            'name': lambda o: o.title,
+            'children': [], 'unique': [],
+        },
+        'post': {
+            'label': 'Post', 'model': Post, 'icon': 'fa-newspaper',
+            'name': lambda o: o.title,
+            'children': [], 'unique': [('slug', ['collection_id'])],
+        },
+        'calendar': {
+            'label': 'Calendar', 'model': Calendar, 'icon': 'fa-calendar-days',
+            'name': lambda o: o.name,
+            'children': [('events', CalendarEvent, 'calendar_id')],
+            'unique': [],
+        },
+        'newsletter': {
+            'label': 'Newsletter', 'model': Newsletter, 'icon': 'fa-envelope-open-text',
+            'name': lambda o: o.name,
+            'children': [('campaigns', NewsletterCampaign, 'newsletter_id')],
+            'unique': [('slug', ['website_id'])],
+        },
+        'newsletter_campaign': {
+            'label': 'Newsletter issue', 'model': NewsletterCampaign,
+            'icon': 'fa-envelope', 'name': lambda o: o.subject,
+            'children': [], 'unique': [],
+        },
+        'public_user': {
+            'label': 'Member', 'model': PublicUser, 'icon': 'fa-user',
+            'name': lambda o: o.effective_display_name or o.username,
+            'children': [], 'unique': [('username', []), ('email', [])],
+            'is_person': True,
+        },
+        'admin_user': {
+            'label': 'Admin', 'model': User, 'icon': 'fa-user-shield',
+            'name': lambda o: o.username,
+            'children': [], 'unique': [('username', []), ('email', [])],
+            'is_person': True,
+        },
+    }
+
+
+_TRASH_TYPES_CACHE = None
+
+
+def trash_types():
+    global _TRASH_TYPES_CACHE
+    if _TRASH_TYPES_CACHE is None:
+        _TRASH_TYPES_CACHE = _trash_registry()
+    return _TRASH_TYPES_CACHE
+
+
+def _json_safe(value):
+    if isinstance(value, datetime):
+        return {'__dt__': value.isoformat()}
+    if isinstance(value, date):
+        return {'__d__': value.isoformat()}
+    if isinstance(value, Decimal):
+        return {'__dec__': str(value)}
+    return value
+
+
+def _json_load(value):
+    if isinstance(value, dict):
+        if '__dt__' in value:
+            return datetime.fromisoformat(value['__dt__'])
+        if '__d__' in value:
+            return date.fromisoformat(value['__d__'])
+        if '__dec__' in value:
+            return Decimal(value['__dec__'])
+    return value
+
+
+def _dump_row(obj):
+    return {c.name: _json_safe(getattr(obj, c.name, None))
+            for c in obj.__table__.columns}
+
+
+def _load_row(model, data):
+    cols = {c.name for c in model.__table__.columns}
+    return {k: _json_load(v) for k, v in data.items() if k in cols}
+
+
+def trash_retention_days():
+    """How long the org keeps deleted things, or None for "until emptied"."""
+    anchor = get_main_admin()
+    days = getattr(anchor, 'trash_retention_days', None) if anchor else None
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return None
+    return days if days > 0 else None
+
+
+def move_to_trash(obj, item_type, actor=None, root_user_id=None):
+    """Photograph something before it is deleted. Returns the TrashItem.
+
+    Call this immediately before db.session.delete(obj); the caller still owns
+    the delete, so a route that refuses for other reasons never leaves a
+    phantom entry in the bin.
+    """
+    spec = trash_types().get(item_type)
+    if spec is None:
+        return None
+
+    payload = {'row': _dump_row(obj), 'children': {}}
+    for attr, child_model, fk in spec['children']:
+        try:
+            rows = getattr(obj, attr)
+            rows = rows.all() if hasattr(rows, 'all') else list(rows or [])
+        except Exception:
+            rows = []
+        payload['children'][attr] = {
+            'model': child_model.__name__, 'fk': fk,
+            'rows': [_dump_row(r) for r in rows],
+        }
+
+    if root_user_id is None:
+        try:
+            root_user_id = current_user.root_user_id
+        except Exception:
+            root_user_id = None
+    if root_user_id is None:
+        anchor = get_main_admin()
+        root_user_id = anchor.id if anchor else None
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    days = trash_retention_days()
+    if spec.get('is_person'):
+        # A person's record never outstays this, whatever the org setting says.
+        days = min(days or TRASH_MAX_DAYS_PEOPLE, TRASH_MAX_DAYS_PEOPLE)
+    expires = now + timedelta(days=days) if days else None
+
+    try:
+        name = spec['name'](obj) or ''
+    except Exception:
+        name = ''
+
+    item = TrashItem(
+        root_user_id=root_user_id,
+        website_id=getattr(obj, 'website_id', None),
+        item_type=item_type,
+        label=(str(name) or spec['label'])[:300],
+        detail=None,
+        payload=payload,
+        deleted_at=now,
+        deleted_by_id=(getattr(actor, 'id', None)
+                       or (current_user.id if _safe_authenticated() else None)),
+        expires_at=expires,
+    )
+    db.session.add(item)
+    return item
+
+
+def _safe_authenticated():
+    try:
+        return bool(current_user and current_user.is_authenticated)
+    except Exception:
+        return False
+
+
+def trash_conflicts(item):
+    """What would clash if this came back, as [{field, value, message}].
+
+    Checked before anything is written, so the admin is asked what to call it
+    instead rather than discovering a half-restored mess.
+    """
+    spec = trash_types().get(item.item_type)
+    if not spec:
+        return []
+    row = item.payload.get('row') or {}
+    model = spec['model']
+    out = []
+    for field, scope in spec['unique']:
+        value = _json_load(row.get(field))
+        if value in (None, ''):
+            continue
+        q = model.query.filter(getattr(model, field) == value)
+        for scope_field in scope:
+            q = q.filter(getattr(model, scope_field) == _json_load(row.get(scope_field)))
+        if q.first() is not None:
+            out.append({
+                'field': field,
+                'value': value,
+                'message': f'Another {spec["label"].lower()} already uses '
+                           f'the {field.replace("_", " ")} "{value}".',
+            })
+    return out
+
+
+def restore_trash_item(item, resolutions=None):
+    """Put it back. Returns (ok, error, conflicts)."""
+    spec = trash_types().get(item.item_type)
+    if not spec:
+        return False, 'This kind of item can no longer be restored.', []
+
+    row = dict(item.payload.get('row') or {})
+    for field, value in (resolutions or {}).items():
+        if field in row:
+            row[field] = value
+
+    conflicts = []
+    model = spec['model']
+    for field, scope in spec['unique']:
+        value = _json_load(row.get(field))
+        if value in (None, ''):
+            continue
+        q = model.query.filter(getattr(model, field) == value)
+        for scope_field in scope:
+            q = q.filter(getattr(model, scope_field) == _json_load(row.get(scope_field)))
+        if q.first() is not None:
+            conflicts.append({
+                'field': field, 'value': value,
+                'message': f'Another {spec["label"].lower()} already uses '
+                           f'the {field.replace("_", " ")} "{value}".',
+            })
+    if conflicts:
+        return False, 'Resolve the conflict before restoring.', conflicts
+
+    values = _load_row(model, row)
+    old_id = values.get('id')
+    # Keep the original id when it is still free, so anything that pointed at
+    # this row — a favourite, a link — lines up again.
+    if old_id is not None and db.session.get(model, old_id) is not None:
+        values.pop('id', None)
+
+    obj = model(**values)
+    db.session.add(obj)
+    db.session.flush()
+
+    for attr, child in (item.payload.get('children') or {}).items():
+        child_model = globals().get(child.get('model'))
+        if child_model is None:
+            continue
+        fk = child.get('fk')
+        for crow in child.get('rows') or []:
+            cvalues = _load_row(child_model, crow)
+            cid = cvalues.get('id')
+            if cid is not None and db.session.get(child_model, cid) is not None:
+                cvalues.pop('id', None)
+            cvalues[fk] = obj.id
+            db.session.add(child_model(**cvalues))
+
+    db.session.delete(item)
+    db.session.commit()
+    return True, None, []
+
+
+def purge_expired_trash():
+    """Drop everything past its date. Returns how many went."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = TrashItem.query.filter(TrashItem.expires_at.isnot(None),
+                                  TrashItem.expires_at <= now).all()
+    for row in rows:
+        db.session.delete(row)
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def _trash_scope():
+    """The bin belongs to the organisation, not the admin looking at it."""
+    return current_user.root_user_id if current_user.is_sub_admin else current_user.id
+
+
+def _trash_item_json(item):
+    spec = trash_types().get(item.item_type) or {}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    days_left = None
+    if item.expires_at:
+        # Rounded UP: something deleted a moment ago under a 60-day rule has
+        # 59.99 days left, and reading "59 days" the instant you delete it is
+        # off by one in the direction that matters.
+        secs = (item.expires_at - now).total_seconds()
+        days_left = max(0, -int(-secs // 86400))
+    return {
+        'id': item.id,
+        'type': item.item_type,
+        'type_label': spec.get('label', item.item_type.replace('_', ' ').title()),
+        'icon': spec.get('icon', 'fa-trash'),
+        'label': item.label or '(untitled)',
+        'deleted_at': item.deleted_at.isoformat() if item.deleted_at else None,
+        'deleted_by': (item.deleted_by.username if item.deleted_by else None),
+        'expires_at': item.expires_at.isoformat() if item.expires_at else None,
+        'days_left': days_left,
+        'is_person': bool(spec.get('is_person')),
+        'restorable': item.item_type in trash_types(),
+    }
+
+
+@app.route('/admin/trash')
+@login_required
+@require_perm('trash.view')
+def admin_trash_page():
+    purge_expired_trash()
+    return render_template(
+        'admin_trash.html',
+        retention_days=trash_retention_days() or 0,
+        people_days=TRASH_MAX_DAYS_PEOPLE,
+        type_filters=sorted(
+            [{'key': k, 'label': v['label'], 'icon': v['icon']}
+             for k, v in trash_types().items()], key=lambda x: x['label']),
+        can_restore=current_user.has_permission('trash.restore'),
+        can_purge=current_user.has_permission('trash.purge'),
+        can_configure=current_user.has_permission('trash.settings'),
+    )
+
+
+@app.route('/admin/trash/list')
+@login_required
+@require_perm('trash.view')
+def admin_trash_list():
+    purge_expired_trash()
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = min(100, max(5, request.args.get('per_page', 25, type=int)))
+    kind = (request.args.get('type') or '').strip()
+    search = (request.args.get('q') or '').strip()
+
+    q = TrashItem.query.filter(TrashItem.root_user_id == _trash_scope())
+    if kind and kind in trash_types():
+        q = q.filter(TrashItem.item_type == kind)
+    if search:
+        q = q.filter(TrashItem.label.ilike(f'%{search}%'))
+    total = q.count()
+    rows = (q.order_by(TrashItem.deleted_at.desc(), TrashItem.id.desc())
+             .offset((page - 1) * per_page).limit(per_page).all())
+    return _utf8_json({
+        'success': True,
+        'items': [_trash_item_json(r) for r in rows],
+        'page': page, 'per_page': per_page, 'total': total,
+        'pages': max(1, (total + per_page - 1) // per_page),
+    })
+
+
+def _trash_owned(item_id):
+    return TrashItem.query.filter_by(id=item_id, root_user_id=_trash_scope()).first()
+
+
+@app.route('/admin/trash/<int:item_id>/conflicts')
+@login_required
+@require_perm('trash.restore')
+def admin_trash_conflicts(item_id):
+    item = _trash_owned(item_id)
+    if not item:
+        return _utf8_json({'error': 'Not found'}, 404)
+    return _utf8_json({'success': True, 'conflicts': trash_conflicts(item),
+                       'item': _trash_item_json(item)})
+
+
+@app.route('/admin/trash/<int:item_id>/restore', methods=['POST'])
+@login_required
+@require_perm('trash.restore')
+def admin_trash_restore(item_id):
+    item = _trash_owned(item_id)
+    if not item:
+        return _utf8_json({'error': 'Not found'}, 404)
+    resolutions = (request.get_json(silent=True) or {}).get('resolutions') or {}
+    label = item.label
+    ok, err, conflicts = restore_trash_item(item, resolutions)
+    if not ok:
+        db.session.rollback()
+        return _utf8_json({'success': False, 'error': err,
+                           'conflicts': conflicts}, 409 if conflicts else 400)
+    app.logger.info('trash restore: %s by admin id=%s', label, current_user.id)
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/trash/delete', methods=['POST'])
+@login_required
+@require_perm('trash.purge')
+def admin_trash_delete():
+    """Permanently remove specific items, or everything in the bin."""
+    data = request.get_json(silent=True) or {}
+    q = TrashItem.query.filter(TrashItem.root_user_id == _trash_scope())
+    if data.get('all'):
+        rows = q.all()
+    else:
+        ids = [int(i) for i in (data.get('ids') or []) if str(i).isdigit()]
+        if not ids:
+            return _utf8_json({'error': 'Nothing selected.'}, 400)
+        rows = q.filter(TrashItem.id.in_(ids)).all()
+    for row in rows:
+        db.session.delete(row)
+    db.session.commit()
+    app.logger.info('trash purge: %s item(s) by admin id=%s', len(rows), current_user.id)
+    return _utf8_json({'success': True, 'deleted': len(rows)})
+
+
+@app.route('/admin/trash/retention', methods=['POST'])
+@login_required
+@require_perm('trash.settings')
+def admin_trash_retention():
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'error': 'No primary owner found.'}, 400)
+    try:
+        days = int((request.get_json(silent=True) or {}).get('days') or 0)
+    except (TypeError, ValueError):
+        days = 0
+    days = max(0, min(3650, days))
+    anchor.trash_retention_days = days or None
+
+    # Re-date what is already in the bin, so the setting means the same thing
+    # for things deleted before it was changed.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for item in TrashItem.query.filter_by(root_user_id=_trash_scope()).all():
+        spec = trash_types().get(item.item_type) or {}
+        item_days = days or None
+        if spec.get('is_person'):
+            item_days = min(item_days or TRASH_MAX_DAYS_PEOPLE, TRASH_MAX_DAYS_PEOPLE)
+        item.expires_at = (item.deleted_at + timedelta(days=item_days)) if item_days else None
+    db.session.commit()
+    purge_expired_trash()
+    return _utf8_json({'success': True, 'days': days,
+                       'people_days': TRASH_MAX_DAYS_PEOPLE})
+
+
 @app.template_filter('public_date')
 def public_date_filter(value):
     """A plain absolute date for a public reader: "12 Mar 2026".
@@ -39953,6 +40465,7 @@ def admin_post_delete(cid, pid):
     if not website or not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    move_to_trash(post, 'post')
     db.session.delete(post)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -41059,6 +41572,7 @@ def admin_guides_delete(gid):
         return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
     # A deleted item must not linger in anyone's favourites.
     drop_favorites_for('guide', guide.id)
+    move_to_trash(guide, 'guide')
     db.session.delete(guide)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -42558,6 +43072,7 @@ def admin_resources_delete(rid):
         return website
     # A deleted item must not linger in anyone's favourites.
     drop_favorites_for('resource', r.id)
+    move_to_trash(r, 'resource')
     db.session.delete(r)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -44789,6 +45304,7 @@ def admin_quizzes_delete(qid):
         return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
     # A deleted item must not linger in anyone's favourites.
     drop_favorites_for('quiz', quiz.id)
+    move_to_trash(quiz, 'quiz')
     db.session.delete(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -51929,6 +52445,7 @@ def admin_newsletter_delete(nid):
     nl = _get_newsletter_for_admin(nid)
     if not nl:
         return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    move_to_trash(nl, 'newsletter')
     db.session.delete(nl)
     db.session.commit()
     return _utf8_json({'success': True})
