@@ -25922,6 +25922,10 @@ def admin_public_users_page():
     can_promote_staff = (not current_user.is_sub_admin) or current_user.has_permission('admin_users.promote')
     _sub = current_user.is_sub_admin
     return render_template('admin_public_users.html',
+                           # How this admin will be asked to confirm an access
+                           # change: 'totp', 'password', or None when they hold
+                           # neither and the confirmation stands on its own.
+                           access_reauth_method=admin_reauth_method(current_user),
                            live_websites=live_websites,
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
@@ -26139,6 +26143,78 @@ def admin_public_users_list():
     })
 
 
+def admin_reauth_method(user):
+    """How this admin can prove it is still them: 'totp', 'password' or None.
+
+    The authenticator is preferred where they have a working one — it is the
+    stronger proof and the one an emailless GitHub admin actually holds. None
+    means the account has neither, in which case there is nothing to check
+    against and the deliberate confirmation is the whole protection.
+    """
+    if totp_secret_is_readable(user):
+        return 'totp'
+    if getattr(user, 'password_hash', None):
+        return 'password'
+    return None
+
+
+def verify_admin_reauth(user, data):
+    """(ok, error, method). Confirms an admin is present before a risky change."""
+    method = admin_reauth_method(user)
+    if method is None:
+        return True, None, None
+    if method == 'totp':
+        code = (data.get('totp_code') or '').strip()
+        if not code:
+            return False, 'Enter the code from your authenticator app to confirm.', method
+        ok, counter = verify_totp(user_totp_secret(user), code,
+                                  last_used_counter=user.totp_last_counter)
+        if not ok:
+            return False, 'That code is not right.', method
+        # Burn the step, so the same code cannot be replayed while still valid.
+        user.totp_last_counter = counter
+        db.session.commit()
+        return True, None, method
+    password = data.get('password') or ''
+    if not password or not user.check_password(password):
+        return False, 'That password is not right.', method
+    return True, None, method
+
+
+# Every switch on the Access Settings card, with the wording the confirmation
+# shows. Kept next to the route that applies them so a new switch cannot be
+# added without deciding what turning it on or off actually means.
+PUBLIC_ACCESS_SETTINGS = {
+    'public_users_enabled': 'Enable Public Users',
+    'public_2fa_enabled': 'Two-Factor Authentication',
+    'public_totp_enabled': 'Authenticator App (TOTP)',
+    'require_login_to_view': 'Require Login to View',
+    'public_approval_required': 'Require Admin Approval',
+    'public_email_verification_enabled': 'Email Verification',
+    'public_email_verification_required': 'Verification Required to Login',
+    'visitors_can_see_members': 'Visitors Can See Members',
+    'visitors_can_see_visitors': 'Visitors Can See Other Visitors',
+    'collect_real_names': 'Collect Real Names',
+    'require_public_email': 'Require Email',
+    'allow_public_signup': 'Allow Public Sign-ups',
+    'github_login_enabled': 'GitHub Sign-In',
+    'github_login_only': 'GitHub Sign-In Only',
+}
+
+
+def _public_access_changes(website, data):
+    """Which access settings this request would actually change."""
+    changes = []
+    for key, label in PUBLIC_ACCESS_SETTINGS.items():
+        if key not in data:
+            continue
+        before = bool(getattr(website, key, False))
+        after = bool(data.get(key))
+        if before != after:
+            changes.append({'key': key, 'label': label, 'to': after})
+    return changes
+
+
 @app.route('/admin/users/public/settings', methods=['POST'])
 @login_required
 def admin_public_users_settings():
@@ -26153,6 +26229,23 @@ def admin_public_users_settings():
         website = get_admin_website()
     if not website:
         return _utf8_json({'error': 'No website'}, 400)
+
+    # These decide who can reach the site at all, and one of them — turning off
+    # Collect Real Names — permanently deletes names already on file. A stray
+    # tap should not be able to do any of that, so a change has to be confirmed
+    # by someone who can still prove they are the admin. Saving with nothing
+    # changed asks for nothing.
+    changes = _public_access_changes(website, data)
+    if changes:
+        ok, err, method = verify_admin_reauth(current_user, data)
+        if not ok:
+            return _utf8_json({'error': err, 'needs_reauth': method,
+                               'changes': changes}, 401)
+        app.logger.info('access settings changed on website id=%s by admin id=%s: %s',
+                        website.id, current_user.id,
+                        ', '.join(f"{c['label']}={'on' if c['to'] else 'off'}"
+                                  for c in changes))
+
     website.public_users_enabled               = bool(data.get('public_users_enabled', True))
     website.public_2fa_enabled                 = bool(data.get('public_2fa_enabled', False))
     website.public_totp_enabled                = bool(data.get('public_totp_enabled', False))
@@ -26193,7 +26286,7 @@ def admin_public_users_settings():
             return _utf8_json({'error': 'Enable GitHub sign-in first.'}, 400)
         website.github_login_only = only
     db.session.commit()
-    return _utf8_json({'success': True})
+    return _utf8_json({'success': True, 'changed': [c['key'] for c in changes]})
 
 
 @app.route('/admin/users/public/create', methods=['POST'])

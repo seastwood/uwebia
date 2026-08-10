@@ -55,6 +55,44 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
     color: rgba(255,255,255,0.85); margin: 0 0 16px;
 }
 
+/* Collapsible card head */
+.pu-collapse-head {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    width: 100%; text-align: left;
+    background: none; border: none; padding: 0; margin: 0;
+    color: inherit; font: inherit; cursor: pointer;
+}
+.pu-collapse-head:hover .pu-card-title { color: #fff; }
+.pu-collapse-hint {
+    font-size: 0.8rem; color: rgba(255,255,255,0.4); font-weight: 400;
+}
+.pu-collapse-chevron {
+    margin-left: auto; font-size: 0.85rem;
+    color: rgba(255,255,255,0.45);
+    transition: transform 0.18s ease;
+}
+.pu-collapse-head[aria-expanded="true"] .pu-collapse-chevron { transform: rotate(180deg); }
+.pu-collapse-body { padding-top: 16px; }
+
+/* Confirmation dialog for the access switches */
+.pu-confirm-list {
+    margin: 0 0 16px; padding: 0; list-style: none;
+    max-height: 240px; overflow-y: auto;
+}
+.pu-confirm-list li {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 7px 0; font-size: 0.88rem;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.pu-confirm-state { font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em; }
+.pu-confirm-on  { color: #5eeec8; }
+.pu-confirm-off { color: #ff9a9a; }
+.pu-confirm-warn {
+    background: rgba(255,196,84,0.1); border: 1px solid rgba(255,196,84,0.32);
+    color: #ffd08a; border-radius: 9px; padding: 10px 12px;
+    font-size: 0.83rem; line-height: 1.45; margin-bottom: 14px;
+}
+
 /* Table */
 .pu-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .pu-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
@@ -327,7 +365,19 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
         <!-- Access settings -->
         {% if current_user.is_full_admin %}
         <div class="pu-card">
-            <h2 class="pu-card-title">Access Settings</h2>
+            {# Collapsed by default. These switches decide who can reach the
+               site at all and one of them deletes data, so they should take a
+               deliberate act to get at rather than sitting open under the
+               cursor. #}
+            <button type="button" class="pu-collapse-head" id="access-head-{{ w.id }}"
+                    aria-expanded="false" aria-controls="access-body-{{ w.id }}"
+                    onclick="toggleAccessSettings({{ w.id }})">
+                <span class="pu-card-title" style="margin:0;">Access Settings</span>
+                <span class="pu-collapse-hint">Who can sign up, sign in and see the site</span>
+                <i class="fas fa-chevron-down pu-collapse-chevron" id="access-chev-{{ w.id }}"></i>
+            </button>
+
+            <div class="pu-collapse-body" id="access-body-{{ w.id }}" hidden>
 
             {% set _tog = [
                 ('public_users_enabled',               'Enable Public Users',             'Master switch — when off, registration and login are disabled for this site',              w.public_users_enabled != false),
@@ -364,6 +414,7 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
                 <i class="fas fa-save"></i> Save Settings
             </button>
             <span class="pu-save-status" id="save-status-{{ w.id }}">Saved!</span>
+            </div>
         </div>
         {% endif %}
 
@@ -462,6 +513,29 @@ body { background: #363339; color: #fff; font-family: Roboto, Arial, sans-serif;
 </div>
 
 <!-- Edit modal -->
+<!-- Confirming a change to the access switches. Lists exactly what is about to
+     change, and asks the admin to prove they are still there. -->
+<div class="pu-overlay" id="accessConfirmOverlay" onclick="if(event.target===this)closeAccessConfirm()">
+    <div class="pu-modal">
+        <h3 class="pu-modal-title">Confirm access changes</h3>
+        <div class="pu-modal-error" id="accessConfirmError"></div>
+        <p style="font-size:0.86rem;color:rgba(255,255,255,0.6);margin:0 0 12px;">
+            These control who can sign up, sign in and see this site.
+        </p>
+        <ul class="pu-confirm-list" id="accessConfirmList"></ul>
+        <div class="pu-confirm-warn" id="accessConfirmWarn" hidden></div>
+        <div class="pu-field" id="accessConfirmAuthField" hidden>
+            <label class="pu-label" id="accessConfirmAuthLabel">Password</label>
+            <input class="pu-input" id="accessConfirmAuth" type="password" autocomplete="current-password">
+            <p class="pu-input-hint" id="accessConfirmAuthHint"></p>
+        </div>
+        <div class="pu-modal-footer">
+            <button class="pu-modal-btn pu-modal-btn-cancel" onclick="closeAccessConfirm()">Cancel</button>
+            <button class="pu-modal-btn pu-modal-btn-save" id="accessConfirmBtn" onclick="confirmAccessSave()">Apply changes</button>
+        </div>
+    </div>
+</div>
+
 <div class="pu-overlay" id="editOverlay" onclick="if(event.target===this)closeEdit()">
     <div class="pu-modal">
         <h3 class="pu-modal-title">Edit User</h3>
@@ -1190,6 +1264,67 @@ function executeDelete() {
 }
 
 /* Settings */
+// What this admin will be asked for. The server decides again on arrival — this
+// only picks which field the dialog shows.
+const ACCESS_REAUTH_METHOD = {{ access_reauth_method|tojson if access_reauth_method is defined else 'null' }};
+
+const ACCESS_KEYS = ['public_users_enabled','public_2fa_enabled','public_totp_enabled','require_login_to_view',
+    'public_approval_required','public_email_verification_enabled','public_email_verification_required',
+    'visitors_can_see_members','visitors_can_see_visitors','collect_real_names','require_public_email',
+    'allow_public_signup','github_login_enabled','github_login_only'];
+
+// What each switch is called, and the ones worth spelling out the consequence
+// of. Read off the rendered rows so the wording never drifts from the labels.
+function accessLabel(websiteId, key) {
+    const row = document.getElementById(`track-${websiteId}-${key}`);
+    const label = row && row.parentElement.querySelector('.pu-toggle-label');
+    return label ? label.textContent.trim() : key;
+}
+
+const ACCESS_CONSEQUENCES = {
+    collect_real_names: 'Turning this off permanently deletes the first and last ' +
+        'names already recorded for members of this site. That cannot be undone.',
+    public_users_enabled: 'Turning this off closes registration and sign-in for ' +
+        'this site — existing members will not be able to log in.',
+    github_login_only: 'Turning this on removes the username and password form ' +
+        'entirely, so GitHub becomes the only way in.',
+    require_login_to_view: 'Turning this on hides every public page from visitors ' +
+        'who are not signed in.',
+};
+
+// The values as the page was rendered, so Save can tell what actually changed.
+const ACCESS_BASELINE = {};
+function captureAccessBaseline(websiteId) {
+    const seen = {};
+    ACCESS_KEYS.forEach(k => {
+        const el = document.getElementById(`tog-${websiteId}-${k}`);
+        if (el) seen[k] = el.checked;
+    });
+    ACCESS_BASELINE[String(websiteId)] = seen;
+}
+
+function toggleAccessSettings(websiteId) {
+    const body = document.getElementById(`access-body-${websiteId}`);
+    const head = document.getElementById(`access-head-${websiteId}`);
+    if (!body || !head) return;
+    const open = body.hasAttribute('hidden');
+    if (open) { body.removeAttribute('hidden'); } else { body.setAttribute('hidden', ''); }
+    head.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function accessChanges(websiteId) {
+    const base = ACCESS_BASELINE[String(websiteId)] || {};
+    const out = [];
+    ACCESS_KEYS.forEach(k => {
+        const el = document.getElementById(`tog-${websiteId}-${k}`);
+        if (!el || !(k in base)) return;
+        if (el.checked !== base[k]) {
+            out.push({ key: k, label: accessLabel(websiteId, k), to: el.checked });
+        }
+    });
+    return out;
+}
+
 function toggleSetting(websiteId, key) {
     const chk   = document.getElementById(`tog-${websiteId}-${key}`);
     const track = document.getElementById(`track-${websiteId}-${key}`);
@@ -1198,19 +1333,94 @@ function toggleSetting(websiteId, key) {
     track.classList.toggle('on', chk.checked);
 }
 
-async function saveSettings(websiteId) {
+let _accessPending = null;   // { websiteId, changes }
+
+function closeAccessConfirm() {
+    document.getElementById('accessConfirmOverlay').classList.remove('show');
+    document.getElementById('accessConfirmAuth').value = '';
+    document.getElementById('accessConfirmError').style.display = 'none';
+    _accessPending = null;
+}
+
+function openAccessConfirm(websiteId, changes, method, message) {
+    _accessPending = { websiteId: websiteId, changes: changes };
+
+    const list = document.getElementById('accessConfirmList');
+    list.innerHTML = changes.map(c =>
+        `<li><span class="pu-confirm-state ${c.to ? 'pu-confirm-on' : 'pu-confirm-off'}">`
+        + (c.to ? 'ON' : 'OFF') + `</span><span>${c.label}</span></li>`).join('');
+
+    // Spell out the ones that do something irreversible or lock people out.
+    const notes = changes
+        .filter(c => ACCESS_CONSEQUENCES[c.key])
+        .map(c => ACCESS_CONSEQUENCES[c.key]);
+    const warn = document.getElementById('accessConfirmWarn');
+    if (notes.length) { warn.innerHTML = notes.join('<br><br>'); warn.removeAttribute('hidden'); }
+    else { warn.setAttribute('hidden', ''); }
+
+    const field = document.getElementById('accessConfirmAuthField');
+    const label = document.getElementById('accessConfirmAuthLabel');
+    const hint  = document.getElementById('accessConfirmAuthHint');
+    const input = document.getElementById('accessConfirmAuth');
+    if (method === 'totp') {
+        field.removeAttribute('hidden');
+        label.textContent = 'Authenticator code';
+        hint.textContent = 'From the app you set up for this account.';
+        input.type = 'text'; input.inputMode = 'numeric';
+        input.autocomplete = 'one-time-code'; input.maxLength = 6;
+    } else if (method === 'password') {
+        field.removeAttribute('hidden');
+        label.textContent = 'Your password';
+        hint.textContent = 'Confirming it is still you at the keyboard.';
+        input.type = 'password'; input.removeAttribute('inputmode');
+        input.autocomplete = 'current-password'; input.removeAttribute('maxlength');
+    } else {
+        // Nothing to check against — the confirmation itself is the guard.
+        field.setAttribute('hidden', '');
+    }
+
+    const err = document.getElementById('accessConfirmError');
+    if (message) { err.textContent = message; err.style.display = 'block'; }
+    else { err.style.display = 'none'; }
+
+    document.getElementById('accessConfirmOverlay').classList.add('show');
+    if (!field.hasAttribute('hidden')) setTimeout(() => input.focus(), 60);
+}
+
+function confirmAccessSave() {
+    if (!_accessPending) return;
+    const input = document.getElementById('accessConfirmAuth');
+    const field = document.getElementById('accessConfirmAuthField');
+    const secret = field.hasAttribute('hidden') ? '' : input.value.trim();
+    saveSettings(_accessPending.websiteId, secret);
+}
+
+async function saveSettings(websiteId, secret) {
     const btn    = document.getElementById(`save-btn-${websiteId}`);
     const status = document.getElementById(`save-status-${websiteId}`);
+
+    // Nothing changed? Then there is nothing to confirm and nothing to ask for.
+    const changes = accessChanges(websiteId);
+    if (changes.length && secret === undefined) {
+        openAccessConfirm(websiteId, changes, ACCESS_REAUTH_METHOD, null);
+        return;
+    }
+
     btn.disabled = true;
-    const keys = ['public_users_enabled','public_2fa_enabled','public_totp_enabled','require_login_to_view',
-                  'public_approval_required','public_email_verification_enabled','public_email_verification_required',
-                  'visitors_can_see_members','visitors_can_see_visitors','collect_real_names','require_public_email','allow_public_signup',
-                  'github_login_enabled','github_login_only'];
+    const confirmBtn = document.getElementById('accessConfirmBtn');
+    if (confirmBtn) confirmBtn.disabled = true;
+    const keys = ACCESS_KEYS;
     const payload = { website_id: websiteId };
     keys.forEach(k => {
         const el = document.getElementById(`tog-${websiteId}-${k}`);
         if (el) payload[k] = el.checked;
     });
+    if (secret) {
+        // The server decides which of these it wants; sending both is harmless
+        // and saves the page having to be right about it.
+        payload.password = secret;
+        payload.totp_code = secret;
+    }
     try {
         const r = await fetch('/admin/users/public/settings', {
             method: 'POST',
@@ -1218,7 +1428,14 @@ async function saveSettings(websiteId) {
             body: JSON.stringify(payload)
         });
         const d = await r.json();
+        if (r.status === 401 && d.needs_reauth !== undefined) {
+            // Wrong or missing proof — keep the dialog up and say so.
+            openAccessConfirm(websiteId, d.changes || changes, d.needs_reauth, d.error);
+            return;
+        }
         if (d.success) {
+            closeAccessConfirm();
+            captureAccessBaseline(websiteId);
             status.classList.add('visible');
             setTimeout(() => status.classList.remove('visible'), 2500);
             // Keep the maps the Add-member / edit modals read in sync with the
@@ -1232,17 +1449,24 @@ async function saveSettings(websiteId) {
         alert('Request failed: ' + e);
     } finally {
         btn.disabled = false;
+        const cb = document.getElementById('accessConfirmBtn');
+        if (cb) cb.disabled = false;
     }
 }
 
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeEdit(); closeDelete(); }
+    if (e.key === 'Escape') { closeEdit(); closeDelete(); closeAccessConfirm(); }
+    if (e.key === 'Enter' && document.getElementById('accessConfirmOverlay').classList.contains('show')) confirmAccessSave();
     if (e.key === 'Enter' && document.getElementById('editOverlay').classList.contains('show')) saveEdit();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
     const initial = {{ selected_website_id|tojson if selected_website_id is not none else 'null' }};
     if (initial) reloadList(initial);
+    // Remember how each access card was rendered, so Save knows what moved.
+    document.querySelectorAll('[id^="access-body-"]').forEach(el => {
+        captureAccessBaseline(parseInt(el.id.replace('access-body-', ''), 10));
+    });
 });
 
 // ── Role management ───────────────────────────────────────────────────────────
