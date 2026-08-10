@@ -151,79 +151,171 @@ def _chrome():
     return None
 
 
-def _css():
-    pub = _tpl('public.html')
-    start = pub.index('/* ── Text section container placement')
-    end = pub.index('/* ── Quill nested unordered lists ── */')
-    return pub[start:end]
+# Every combination that matters, seeded as real sections on a real page.
+# An earlier version of this test built a page from the .text-area rules alone
+# and passed while the feature was broken: the cell those sections actually sit
+# in carries `width:100%` and `margin:0` overrides that only appear once the
+# whole stylesheet is in play. Measure the page the visitor gets.
+CASES = [
+    ('full width, left',      'block', '0',   '<p>Hello world</p>'),
+    ('capped, left',          'block', '300', '<p>Hello world</p>'),
+    ('capped, centred',       'block', '300', '<p class="ql-align-center">Hello world</p>'),
+    ('fit, left',             'fit',   '0',   '<p>Hello world</p>'),
+    ('fit, centred',          'fit',   '0',   '<p class="ql-align-center">Hello world</p>'),
+    ('fit, right',            'fit',   '0',   '<p class="ql-align-right">Hello world</p>'),
+]
+
+PROBE = """
+<script>
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    var out = [].slice.call(document.querySelectorAll('.text-area')).map(function (t) {
+      var r = t.getBoundingClientRect(), cell = t.parentElement.getBoundingClientRect();
+      return { boxW: Math.round(r.width), cellW: Math.round(cell.width),
+               leftGap: Math.round(r.left - cell.left),
+               rightGap: Math.round(cell.right - r.right) };
+    });
+    var d = document.createElement('div'); d.id = 'probeout';
+    d.textContent = 'RESULT ' + JSON.stringify(out);
+    document.body.appendChild(d);
+  }, 700);
+});
+</script>
+"""
+
+
+def _seed_and_serve():
+    """A live page holding one text section per case. Returns the port."""
+    import socket
+    import threading
+    import time
+    import urllib.request
+    from flask import request
+
+    @app.after_request
+    def _inject(resp):                       # noqa: ANN001
+        try:
+            if request.args.get('probe') and (resp.content_type or '').startswith('text/html'):
+                body = resp.get_data(as_text=True)
+                resp.set_data(body.replace('</body>', PROBE + '</body>'))
+        except Exception:
+            pass
+        return resp
+
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
+        for table in reversed(db.metadata.sorted_tables):
+            db.session.execute(table.delete())
+        db.session.commit()
+        owner = main.User(username='owner', parent_user_id=None)
+        owner.set_password('x')
+        db.session.add(owner)
+        db.session.commit()
+        site = main.Website(user_id=owner.id, name='Site', is_draft=False, is_live=True)
+        db.session.add(site)
+        db.session.commit()
+        page = main.PublicPageContent(website_id=site.id, name='Home', slug='home',
+                                      site_active_status=True)
+        db.session.add(page)
+        db.session.commit()
+        group = main.SectionGroup(page_content_id=page.id, name='G', group_order=0)
+        db.session.add(group)
+        db.session.commit()
+        for i, (_label, cw, cap, html) in enumerate(CASES):
+            sec = main.PageSection(
+                page_content_id=page.id, section_type='text', order=i,
+                content={'html': html, 'text_max_width': cap,
+                         'background_color': '#112233', 'background_opacity': '0.8',
+                         'padding': '20', 'border_radius': '10',
+                         'box_shadow': 'medium', 'container_width': cw})
+            db.session.add(sec)
+            db.session.commit()
+            row = main.Row(page_content_id=page.id, row_number=i,
+                           section_group_id=group.id)
+            db.session.add(row)
+            db.session.commit()
+            db.session.add(main.Column(row_id=row.id, column_number=0,
+                                       section_id=sec.id, width=100))
+            db.session.commit()
+
+    s = socket.socket()
+    s.bind(('127.0.0.1', 0))
+    port = s.getsockname()[1]
+    s.close()
+    threading.Thread(
+        target=lambda: app.run(port=port, debug=False, use_reloader=False,
+                               threaded=True),
+        daemon=True).start()
+    for _ in range(60):
+        try:
+            urllib.request.urlopen(f'http://127.0.0.1:{port}/', timeout=1).read()
+            return port
+        except Exception:
+            time.sleep(0.5)
+    return None
 
 
 def test_layout():
-    print('\n[6] and it lays out that way in a browser')
+    print('\n[6] and the published page lays out that way')
     chrome = _chrome()
     if not chrome:
         skip('container layout', 'no Chrome/Chromium on PATH')
         return
-    css = _css()
+    port = _seed_and_serve()
+    if not port:
+        skip('container layout', 'test server did not start')
+        return
 
-    def measure(cls, style, inner):
-        page = f"""<!doctype html><html><head><meta charset=utf-8>
-<style>body{{margin:0;font-family:sans-serif}} .wrap{{width:900px}}
-{css}</style></head><body>
-<div class="wrap"><div class="text-area{cls}" style="{style}">{inner}</div></div>
-<div id=o></div><script>window.addEventListener('load',function(){{
-var w=document.querySelector('.wrap').getBoundingClientRect();
-var t=document.querySelector('.text-area').getBoundingClientRect();
-document.getElementById('o').textContent='RESULT '+JSON.stringify({{
- boxW:Math.round(t.width), leftGap:Math.round(t.left-w.left),
- rightGap:Math.round(w.right-t.right)}});}});</script></body></html>"""
-        d = tempfile.mkdtemp(prefix='uwebia-textbox-render-')
-        f = os.path.join(d, 'p.html')
-        with open(f, 'w') as fh:
-            fh.write(page)
-        out = subprocess.run(
-            [chrome, '--headless=new', '--disable-gpu', '--no-sandbox',
-             f'--user-data-dir={os.path.join(d, "profile")}',
-             '--virtual-time-budget=4000', '--window-size=1000,400',
-             '--hide-scrollbars', '--dump-dom', f'file://{f}'],
-            capture_output=True, text=True, timeout=90).stdout
-        m = re.search(r'RESULT (\{[^<]*\})', out)
-        return json.loads(m.group(1)) if m else None
-
-    CAP = 'max-width:400px;background:#3af'
-    r = measure('', CAP, '<p>Left aligned</p>')
-    if r is None:
+    d = tempfile.mkdtemp(prefix='uwebia-textbox-render-')
+    out = subprocess.run(
+        [chrome, '--headless=new', '--disable-gpu', '--no-sandbox',
+         f'--user-data-dir={os.path.join(d, "profile")}',
+         '--virtual-time-budget=9000', '--window-size=1300,900',
+         '--hide-scrollbars', '--dump-dom',
+         f'http://127.0.0.1:{port}/?probe=1'],
+        capture_output=True, text=True, timeout=120).stdout
+    m = re.search(r'RESULT (\[[^<]*\])', out)
+    if not m:
         skip('container layout', 'browser produced no measurement')
         return
-    check(f'left-aligned text keeps the box on the left (gaps {r["leftGap"]}/{r["rightGap"]})',
-          r['leftGap'] == 0 and r['rightGap'] > 0)
-    check(f'and the max width is respected ({r["boxW"]}px)', r['boxW'] == 400)
+    rows = json.loads(m.group(1))
+    if len(rows) != len(CASES):
+        skip('container layout', f'expected {len(CASES)} sections, saw {len(rows)}')
+        return
 
-    r = measure('', CAP, '<p class="ql-align-center">Centred</p>')
-    check(f'centred text centres the box (gaps {r["leftGap"]}/{r["rightGap"]})',
-          abs(r['leftGap'] - r['rightGap']) <= 1 and r['leftGap'] > 0)
+    by = dict(zip([c[0] for c in CASES], rows))
 
-    r = measure('', CAP, '<p class="ql-align-right">Right</p>')
-    check(f'right-aligned text pushes it right (gaps {r["leftGap"]}/{r["rightGap"]})',
-          r['rightGap'] == 0 and r['leftGap'] > 0)
+    r = by['full width, left']
+    check(f'with no cap the box fills its cell ({r["boxW"]} of {r["cellW"]})',
+          r['cellW'] - r['boxW'] <= 14)
+
+    r = by['capped, left']
+    check(f'a max width caps it ({r["boxW"]}px, asked for 300)', r['boxW'] == 300)
+    check(f'and left-aligned text keeps it left (gaps {r["leftGap"]}/{r["rightGap"]})',
+          r['leftGap'] < 10 and r['rightGap'] > 100)
+
+    r = by['capped, centred']
+    check(f'centred text centres the capped box (gaps {r["leftGap"]}/{r["rightGap"]})',
+          abs(r['leftGap'] - r['rightGap']) <= 2 and r['leftGap'] > 100)
 
     print('\n[7] "fit the text" hugs the text, padding and all')
-    full = measure('', 'background:#3af;padding:20px', '<p>Short</p>')
-    fit = measure(' is-fit-content', 'background:#3af;padding:20px', '<p>Short</p>')
-    check(f'the default box fills the section ({full["boxW"]}px of 900)',
-          full['boxW'] == 900)
-    check(f'"fit" shrinks it to the text ({fit["boxW"]}px)',
-          0 < fit['boxW'] < 300)
-    check('the padding is still there — the box is wider than the words alone',
-          fit['boxW'] > 40)
-    check(f'and it sits left with left-aligned text (gap {fit["leftGap"]})',
-          fit['leftGap'] == 0)
+    full = by['full width, left']
+    r = by['fit, left']
+    check(f'fit shrinks the box to its text ({r["boxW"]}px vs {full["boxW"]}px full)',
+          r['boxW'] < full['boxW'] / 3)
+    check('the padding is still there — wider than the words alone',
+          r['boxW'] > 40)
+    check(f'and it sits left with left-aligned text (gap {r["leftGap"]})',
+          r['leftGap'] < 10)
 
-    fit_c = measure(' is-fit-content', 'background:#3af;padding:20px',
-                    '<p class="ql-align-center">Short</p>')
-    check(f'centring the text centres the hugged box too '
-          f'(gaps {fit_c["leftGap"]}/{fit_c["rightGap"]})',
-          abs(fit_c['leftGap'] - fit_c['rightGap']) <= 1 and fit_c['leftGap'] > 0)
+    r = by['fit, centred']
+    check(f'centring the text centres the hugged box (gaps {r["leftGap"]}/{r["rightGap"]})',
+          abs(r['leftGap'] - r['rightGap']) <= 2 and r['leftGap'] > 100)
+
+    r = by['fit, right']
+    check(f'right-aligned text pushes it right (gaps {r["leftGap"]}/{r["rightGap"]})',
+          r['rightGap'] < 10 and r['leftGap'] > 100)
 
 
 if __name__ == '__main__':

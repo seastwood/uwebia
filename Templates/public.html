@@ -1964,6 +1964,22 @@
     width: 100%;
 }
 
+/* "Fit the text" has to beat the width:100% above, which sits later in this
+   stylesheet at the same specificity and was silently winning — the box kept
+   filling its cell however the section was configured. */
+.public-section-cell > .text-area.is-fit-content {
+    width: fit-content;
+}
+
+/* The cell centres whatever it holds. For a text box that is narrower than the
+   cell — capped by a max width, or hugging its text — that centring happens
+   before the box's own alignment gets a say, so a left-aligned block still
+   landed in the middle. Let the box place itself; the rules further up move it
+   with margins according to the alignment set in the toolbar. */
+.public-section-cell:has(> .text-area) {
+    justify-content: flex-start;
+}
+
 .code-section-output {
     display: block;
     box-sizing: border-box;
@@ -2002,6 +2018,28 @@
     max-width: 100%;
     margin-left: 0;
     margin-right: 0;
+}
+
+/* …but a text box narrowed by a max width, or hugging its own text, is no
+   longer filling the cell, so it has to be placed within it. These come after
+   the reset above and are scoped to the cell so they outrank it — the earlier
+   unscoped .text-area:has(...) rules lost to it on source order alone, which
+   is why setting a max width left everything pinned to the left. Placement
+   follows the alignment set in the text toolbar. */
+.public-section-cell > .text-area:has(.ql-align-center) {
+    margin-left: auto;
+    margin-right: auto;
+}
+.public-section-cell > .text-area:has(.ql-align-right) {
+    margin-left: auto;
+    margin-right: 0;
+}
+
+/* The max width is the author's ceiling; the blanket max-width:100% above must
+   not be the thing that decides it. Only meaningful when an inline max-width
+   is present, which is exactly when this matters. */
+.public-section-cell > .text-area.is-fit-content {
+    max-width: 100%;
 }
 
 @media (max-width: 760px) {
