@@ -4452,6 +4452,12 @@
         cursor: grabbing;
     }
 
+    /* Without this the browser treats a press-and-drag on the handle as a page
+       scroll and never delivers the pointermove events the touch drag needs. */
+    .section-drag-handle {
+        touch-action: none;
+    }
+
     .section-label {
         flex: 1;
         min-width: 0;
@@ -17588,12 +17594,91 @@ setTimeout(() => {
                 handle.addEventListener('pointerdown', function (event) {
                     sectionHandleDragArmed = true;
                     event.stopPropagation();
+                    // A finger never produces dragstart, so touch gets its own
+                    // path — see beginTouchSectionDrag.
+                    if (event.pointerType && event.pointerType !== 'mouse') {
+                        beginTouchSectionDrag(event, handle);
+                    }
                 });
 
                 handle.addEventListener('pointerup', function () {
                     sectionHandleDragArmed = false;
                 });
             });
+        }
+
+        /* ── Moving a section by touch ──────────────────────────────────────
+           Sections move with HTML5 drag-and-drop, which touch devices do not
+           fire at all: no dragstart, no dragover, no drop. The handle was
+           therefore dead on a phone — you could see it and press it and nothing
+           happened. Rows and groups were fine because they use Sortable, which
+           has its own touch handling.
+
+           This follows the finger with pointer events and then hands off to the
+           very same moveOrSwapSection the mouse path ends in, so both routes
+           agree about permissions, swapping and refreshing. */
+        function beginTouchSectionDrag(startEvent, handle) {
+            const card = handle.closest('.section-card');
+            const sourceColumn = card && card.closest('.column');
+            if (!card || !sourceColumn) return;
+
+            const sectionId = parseInt(card.dataset.sectionId, 10);
+            const sourceColumnId = parseInt(sourceColumn.dataset.columnId, 10);
+            if (!sectionId || !sourceColumnId) return;
+
+            // Stop the page scrolling under the finger while dragging.
+            startEvent.preventDefault();
+
+            closeOpenSectionPanels();
+            document.body.classList.add('is-sorting', 'is-sorting-sections');
+            card.classList.add('section-card-dragging');
+
+            let hovered = null;
+
+            function columnUnder(event) {
+                // The card follows the finger, so ask what is underneath after
+                // hiding it — otherwise every hit test returns the card itself.
+                const prev = card.style.pointerEvents;
+                card.style.pointerEvents = 'none';
+                const el = document.elementFromPoint(event.clientX, event.clientY);
+                card.style.pointerEvents = prev;
+                const col = el && el.closest ? el.closest('.column') : null;
+                return (col && _columnGroupAccessible(col)) ? col : null;
+            }
+
+            function onMove(event) {
+                event.preventDefault();
+                const col = columnUnder(event);
+                if (col === hovered) return;
+                if (hovered) clearSectionDropState(hovered);
+                hovered = col;
+                if (!hovered) return;
+                hovered.classList.add('section-drop-hover');
+                // Same wording the mouse path uses: dropping onto an occupied
+                // cell swaps, onto an empty one moves.
+                const occupied = !!hovered.querySelector('.section-card');
+                hovered.classList.toggle('will-swap-section', occupied);
+                hovered.classList.toggle('will-move-section', !occupied);
+            }
+
+            function finish(event, commit) {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onCancel);
+                const target = hovered;
+                cleanupSectionDrag();
+                if (!commit || !target) return;
+                const targetColumnId = parseInt(target.dataset.columnId, 10);
+                if (!targetColumnId || targetColumnId === sourceColumnId) return;
+                moveOrSwapSection(sectionId, sourceColumnId, targetColumnId);
+            }
+
+            function onUp(event) { finish(event, true); }
+            function onCancel(event) { finish(event, false); }
+
+            document.addEventListener('pointermove', onMove, { passive: false });
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onCancel);
         }
 
         function handleSectionDragStart(event) {
