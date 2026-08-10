@@ -25,11 +25,14 @@ Two follow-ons, both measured from screenshots rather than asserted about CSS:
             the bottom of the menu showed the bare page through it. The
             scrolling moved to the inner wrapper to pin it.
 
-  blur      `transform` and `opacity < 1` each make an element a backdrop root,
-            which has nothing behind it to sample, so the menu opened clear and
-            only turned frosted once the animation stopped. Against a striped
-            backdrop 15% into the open, pixel variance under the panel was 107
-            (sharp stripes) before and 35 (smeared) after.
+  blur      the open animation faded the panel in, and the panel is translucent
+            by design — so during the fade you were mostly looking at a SHARP
+            page through it. Dropping the fade and keeping the scale fixes it:
+            a transform does not stop backdrop-filter from sampling, so the
+            panel is frosted from the first frame. Against a striped backdrop
+            15% into the open, pixel variance under the panel was 96 with the
+            fade and 0.5 without — 0.5 being what a settled frosted panel
+            measures.
 
 Needs a real browser — layout is the whole question here. Skips (loudly) when
 Chrome isn't on PATH.
@@ -384,26 +387,26 @@ def test_blur_during_open(chrome, port, profile):
         return
 
     print('\n[blur] frosted from the first frame, not just at the end')
-    geo = _measure(chrome, port, profile, 'dropdown', 3, stripes=True)
-    if geo is None:
-        skip('blur during open', 'no measurement')
-        return
-    # Near the top-right: the first corner revealed, so it is covered at every
-    # point in the animation.
-    x = geo['menuRight'] - 25
-    y0, y1 = geo['menuTop'] + 8, geo['menuTop'] + 34
-    outside_x = min(499 - 4, geo['menuRight'] + 25)
-
     for label, freeze in (('fully open', None), ('15% in', 0.15),
                           ('40% in', 0.4), ('80% in', 0.8)):
-        path = os.path.join(_SCRATCH, f'blur_{label.replace(" ", "_").replace("%","")}.png')
+        # The panel is scaled down mid-animation, so its box has to be measured
+        # at the SAME frame the screenshot captures — sampling the settled
+        # geometry would land outside the panel and read the raw backdrop.
+        geo = _measure(chrome, port, profile, 'dropdown', 3,
+                       stripes=True, freeze=freeze)
+        path = os.path.join(_SCRATCH,
+                            'blur_' + label.replace(' ', '_').replace('%', '') + '.png')
         _shoot(chrome, port, profile, 'dropdown', 3, path,
                stripes=True, freeze=freeze)
-        if not os.path.exists(path):
+        if geo is None or not os.path.exists(path):
             skip(f'blur {label}', 'no screenshot')
             continue
         img = Image.open(path).convert('RGB')
-        inside = statistics.pstdev(_column(img, x, y0, y1))
+        cx = geo['menuLeft'] + geo['menuW'] // 2
+        y0 = geo['menuTop'] + max(10, geo['menuH'] // 6)
+        y1 = y0 + 26
+        outside_x = min(img.size[0] - 4, geo['menuRight'] + 25)
+        inside = statistics.pstdev(_column(img, cx, y0, y1))
         backdrop = statistics.pstdev(_column(img, outside_x, y0, y1))
         # Sharp stripes behind => high variance. Blurred => it collapses.
         check(f'{label}: the stripes behind are smeared, not sharp '

@@ -802,22 +802,23 @@
         overflow-y: auto;
         overscroll-behavior: contain;
     }
-    /* Revealed with clip-path rather than transform+opacity, so the blur is
-       live from the first frame.
+    /* Scales out of the hamburger, and deliberately does NOT fade.
 
-       Both `transform` and `opacity < 1` make an element a backdrop root, and
-       a backdrop root has nothing behind it to sample — so backdrop-filter did
-       nothing until the animation finished and the element stopped being one.
-       The panel opened clear and only turned frosted at the end. Measured
-       against a striped backdrop, 15% into the animation: pixel variance under
-       the panel was 111 (sharp stripes, no blur) with transform+opacity, and
-       1.4 (flat, fully blurred) with clip-path.
+       The fade was what let the page show through: the panel is translucent by
+       design (rgba(20,20,20,0.72) plus a blur), so animating opacity from 0
+       means that during the open you are looking at a fraction of a
+       see-through panel over a SHARP backdrop — the blur is applied to the
+       panel, but most of what you see is the page behind it. Measured against
+       a striped backdrop 15% into the open: pixel variance under the panel was
+       96 with the fade and 0.5 without, where 0.5 is what a fully settled
+       frosted panel measures.
 
-       The circle grows from the top-right, which is where the hamburger is —
-       the same intent the old transform-origin had. */
+       Scaling alone does not do that. A transform does not stop
+       backdrop-filter from sampling, so the panel is fully frosted from the
+       first frame and simply grows into place. */
     @keyframes navMenuDrop {
-        from { clip-path: circle(0% at 90% 0%); }
-        to   { clip-path: circle(150% at 90% 0%); }
+        from { transform: scale(0.8) translateY(-6px); }
+        to   { transform: scale(1) translateY(0); }
     }
 
     .public-navbar-menu a {
