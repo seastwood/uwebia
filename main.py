@@ -3980,6 +3980,10 @@ class Quiz(db.Model):
                                   server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
+    # First time this quiz was listed publicly. Kept when it is unlisted again,
+    # the way Guide.published_at is — it records when readers could first see
+    # it, not the current state of the switch.
+    published_at      = db.Column(db.DateTime, nullable=True)
     # Admin who last saved this quiz (settings or any question). SET NULL on
     # admin removal so attribution clears without touching the quiz.
     updated_by_id     = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
@@ -34625,6 +34629,59 @@ def _wrap_tables_for_scrolling(html):
     return ''.join(out)
 
 
+@app.template_filter('public_date')
+def public_date_filter(value):
+    """A plain absolute date for a public reader: "12 Mar 2026".
+
+    format_user_datetime is for admins — it reads a timezone and a format off
+    the signed-in account, neither of which a visitor has. Day-level precision
+    is all these dates are for: whether something is stale, not what hour it
+    was saved.
+    """
+    if not value:
+        return ''
+    try:
+        return value.strftime('%-d %b %Y')
+    except (ValueError, AttributeError):
+        try:
+            return value.strftime('%d %b %Y').lstrip('0')
+        except Exception:
+            return ''
+
+
+@app.template_filter('time_ago')
+def time_ago_filter(value):
+    """How long ago, in the roughest useful terms: "3 days ago", "2 years ago".
+
+    The absolute date says when; this says whether that is recent. Readers are
+    judging whether a guide has been kept up, and "8 months ago" answers that
+    faster than a date they have to subtract from today.
+    """
+    if not value:
+        return ''
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    seconds = (now - value).total_seconds()
+    if seconds < 0:
+        return 'just now'
+    day = 86400.0
+    if seconds < day:
+        return 'today'
+    if seconds < 2 * day:
+        return 'yesterday'
+    days = int(seconds // day)
+    if days < 31:
+        return f'{days} days ago'
+    months = int(days // 30.44)
+    if months < 12:
+        return '1 month ago' if months <= 1 else f'{months} months ago'
+    years = days / 365.25
+    if years < 2:
+        return '1 year ago'
+    return f'{int(years)} years ago'
+
+
 @app.template_filter('scroll_tables')
 def scroll_tables_filter(html):
     """Give admin-authored HTML's tables their own horizontal scroll container.
@@ -44639,6 +44696,8 @@ def admin_quizzes_update(qid):
     # Public listing + access flags.
     if 'is_public' in data:
         quiz.is_public = bool(data['is_public'])
+        if quiz.is_public and not quiz.published_at:
+            quiz.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
     if 'require_login_to_view' in data:
         quiz.require_login_to_view = bool(data['require_login_to_view'])
     if 'members_only' in data:

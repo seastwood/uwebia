@@ -1,9 +1,11 @@
 {% extends 'public_base.html' %}
+{% import 'components/content_dates.html' as dates with context %}
 
 {% set _learn_title = (website.guides_page_title or 'Education') if website else 'Education' %}
 {% block title %}{{ _learn_title }} — {{ website.name if website else _learn_title }}{% endblock %}
 
 {% block head %}
+{{ dates.freshness_styles() }}
 <style>
 .gi-wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
 /* Bottom spacing lives on the row (not the subtitle) so that when the action
@@ -250,6 +252,7 @@
         <div class="gi-body">
             <h2 class="gi-title">{{ g.title }}</h2>
             {% if g.description %}<p class="gi-desc">{{ g.description }}</p>{% endif %}
+            {{ dates.freshness(g.published_at or g.created_at, g.updated_at, compact=true) }}
             {% if _pq and _pq.unmet %}
             {# Plain text (no links) — this card is itself an <a>, so nested
                anchors would be invalid HTML. #}
@@ -290,6 +293,7 @@
             {% if q.description %}<span class="gi-rsc-desc">{{ q.description }}</span>{% endif %}
             <span class="gi-q-meta">
                 <span class="gi-q-count"><i class="fas fa-list-ol"></i> {{ _qcount }} question{{ '' if _qcount == 1 else 's' }}</span>
+                {{ dates.freshness(q.published_at or q.created_at, q.updated_at, compact=true) }}
                 {% if _status == 'passed' %}<span class="gi-q-badge gi-q-passed"><i class="fas fa-check"></i> Passed{% if _qs.percent %} · {{ _qs.percent }}%{% endif %}</span>
                 {% elif _status == 'in_progress' %}<span class="gi-q-badge gi-q-resume"><i class="fas fa-play"></i> In progress</span>
                 {% elif _status == 'attempted' %}<span class="gi-q-badge gi-q-attempted">Best {{ _qs.percent }}%</span>
