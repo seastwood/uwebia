@@ -52,6 +52,12 @@ def setup(with_password=True, with_totp=False):
     with app.app_context():
         db.create_all()
         db.session.remove()
+        # permission_group and user reference each other, so neither can be
+        # sorted before the other and a plain reversed() delete trips the
+        # foreign key. Break the loop first, then clear as usual.
+        db.session.execute(main.User.__table__.update().values(permission_group_id=None))
+        db.session.execute(main.PermissionGroup.__table__.delete())
+        db.session.commit()
         for table in reversed(db.metadata.sorted_tables):
             db.session.execute(table.delete())
         db.session.commit()
@@ -67,6 +73,11 @@ def setup(with_password=True, with_totp=False):
             owner.totp_secret = main.encrypt_api_key(secret)
             owner.totp_enabled = True
         db.session.add(owner)
+        db.session.commit()
+
+        # So the Permission Groups section actually renders and the ordering
+        # check below has something to compare against.
+        db.session.add(main.PermissionGroup(owner_user_id=owner.id, name='Editors'))
         db.session.commit()
 
         site = main.Website(user_id=owner.id, name='Site', is_draft=False,
@@ -243,6 +254,12 @@ def admin_test():
           or 'Admin Access & Policy' in page)
     body = re.search(r'id="adminAccessBody"([^>]*)>', page)
     check('and starts collapsed', bool(body) and 'hidden' in body.group(1))
+    # It sits above Permission Groups, so the policy that governs every admin
+    # is the first thing on the page rather than something to scroll past.
+    marker = '>Permission Groups<'
+    check('the Permission Groups section is on the page', marker in page)
+    check('and the policy card sits above it',
+          marker in page and page.index('au-access-card') < page.index(marker))
     for key in main.ADMIN_ACCESS_SETTINGS:
         check(f'{key} has a switch', f'atog-{key}' in page)
 

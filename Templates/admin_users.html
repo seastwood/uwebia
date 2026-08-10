@@ -507,32 +507,6 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
     </div>
 
     {% if current_user.is_full_admin %}
-    {% if permission_groups %}
-    <p class="au-section-title">Permission Groups</p>
-    <div class="au-list" id="pgList">
-        {% for g in permission_groups %}
-        <div class="pg-card" id="pgCard-{{ g.id }}">
-            <div class="pg-icon"><i class="fas fa-layer-group"></i></div>
-            <div class="pg-info">
-                <div class="pg-name">{{ g.name }}</div>
-                {% if g.description %}<div class="pg-desc">{{ g.description }}</div>{% endif %}
-            </div>
-            <span class="pg-count" id="pgCount-{{ g.id }}">{{ g.members | length }} member{{ 's' if g.members | length != 1 }}</span>
-            <div class="au-actions">
-                <button class="uw-btn uw-btn-secondary" onclick="openGroupModal({{ g.id }})" title="Edit group">
-                    <i class="fas fa-pen"></i>
-                </button>
-                <button class="uw-btn uw-btn-danger" onclick="deleteGroup({{ g.id }}, '{{ g.name | e }}')" title="Delete group">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-    {% endif %}
-
-    {% if current_user.is_full_admin %}
     {# The org-wide switches that govern every admin account. Collapsed by
        default and confirmed on change, the same as the equivalent card for
        public members — these decide how admins get in, and one of them deletes
@@ -583,6 +557,32 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
             <span class="au-save-status" id="adminAccessStatus">Saved!</span>
         </div>
     </div>
+    {% endif %}
+
+    {% if current_user.is_full_admin %}
+    {% if permission_groups %}
+    <p class="au-section-title">Permission Groups</p>
+    <div class="au-list" id="pgList">
+        {% for g in permission_groups %}
+        <div class="pg-card" id="pgCard-{{ g.id }}">
+            <div class="pg-icon"><i class="fas fa-layer-group"></i></div>
+            <div class="pg-info">
+                <div class="pg-name">{{ g.name }}</div>
+                {% if g.description %}<div class="pg-desc">{{ g.description }}</div>{% endif %}
+            </div>
+            <span class="pg-count" id="pgCount-{{ g.id }}">{{ g.members | length }} member{{ 's' if g.members | length != 1 }}</span>
+            <div class="au-actions">
+                <button class="uw-btn uw-btn-secondary" onclick="openGroupModal({{ g.id }})" title="Edit group">
+                    <i class="fas fa-pen"></i>
+                </button>
+                <button class="uw-btn uw-btn-danger" onclick="deleteGroup({{ g.id }}, '{{ g.name | e }}')" title="Delete group">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
     {% endif %}
 
     {% if current_user.is_full_admin and unprotected_admin_ids %}
