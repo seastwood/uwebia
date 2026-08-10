@@ -67,6 +67,17 @@
     font-weight: 700; text-decoration: none;
 }
 .nlp-signup-cta a:hover { opacity: 0.88; }
+
+/* The web view of a campaign renders the same HTML the email does, and a wide
+   table in it would drag the page sideways on a phone. Wrapped server-side
+   (scroll_tables) so each table scrolls in its own box — the EMAIL body is
+   untouched, since mail clients handle overflow containers poorly. */
+.nlp-body .uw-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; margin: 1em 0; }
+.nlp-body .uw-table-scroll > table { margin: 0; }
+@media (max-width: 700px) {
+  .nlp-body .uw-table-scroll > table { width: auto; min-width: 100%; }
+  .nlp-body .uw-table-scroll > table th { white-space: nowrap; }
+}
 </style>
 
 <div class="nlp-page">
@@ -79,7 +90,7 @@
     </div>
 
     <article class="nlp-body">
-        {{ campaign.html_body | safe }}
+        {{ campaign.html_body | scroll_tables }}
     </article>
 
     <div class="nlp-signup-cta">

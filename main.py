@@ -34469,6 +34469,24 @@ def _wrap_tables_for_scrolling(html):
     return ''.join(out)
 
 
+@app.template_filter('scroll_tables')
+def scroll_tables_filter(html):
+    """Give admin-authored HTML's tables their own horizontal scroll container.
+
+    For the places that render stored HTML straight into the page — guide
+    lessons, the newsletter web view — where a wide table would otherwise drag
+    the whole page sideways on a phone. Wrapping server-side means it holds at
+    every width, not only below the mobile breakpoint.
+
+    Returns Markup, so callers do not add `|safe` on top of it. That is
+    deliberate: the trust decision (this is admin-authored HTML) is the same one
+    `|safe` was already making at each of these call sites.
+    """
+    if not html:
+        return Markup('')
+    return Markup(_wrap_tables_for_scrolling(str(html)))
+
+
 @app.template_filter('render_markdown')
 def render_markdown_filter(text):
     """Render raw markdown to HTML for the markdown section type.

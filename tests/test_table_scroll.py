@@ -1,18 +1,30 @@
 """Wide tables scroll inside themselves instead of dragging the page sideways.
 
-    venv/bin/python tests/test_markdown_table_scroll.py
+    venv/bin/python tests/test_table_scroll.py
 
-A five-column table is reasonable to write in a markdown section and impossible
-to fit on a phone. With nothing holding it, the table pushed the whole page
-wider than the screen, so the reader had to scroll the entire site left and
-right to read one row:
+A five-column table is reasonable to write and impossible to fit on a phone.
+With nothing holding it, the table pushed the whole page wider than the screen,
+so the reader had to scroll the entire site left and right to read one row:
 
     BEFORE @500px: page scrolls sideways: true,  no scroll container
     AFTER  @500px: page scrolls sideways: false, table scrolls: true
 
-Markdown tables are wrapped server-side; rich-text and code sections hold
-admin-authored HTML that isn't rewritten, so on narrow screens those tables
-become their own scroll container.
+Covers every public surface that renders admin- or member-authored content:
+
+    page builder  markdown / rich text / code sections
+    guides        lesson HTML
+    quizzes       prompts and text blocks
+    newsletters   the web view of a campaign
+    forum         posts (plain text — see below)
+
+Where the HTML is rendered server-side it is wrapped there, so the fix holds at
+every width. Where it is inserted at runtime (quiz prompts) or authored as raw
+HTML (rich-text and code sections), the table becomes its own scroll container
+on narrow screens instead.
+
+Forum posts are the odd one out: they are plain text and cannot contain a real
+table at all. They hit the same symptom anyway, because pre-wrap keeps a pasted
+ASCII table's rows on one line, and one long URL does it too.
 
 The layout half of this needs a real browser. Those checks run when Chrome is
 on PATH and are skipped (loudly) when it isn't, so the suite still runs
@@ -115,14 +127,43 @@ def test_wrapping():
     check('markdown with no table gains no wrapper', 'uw-table-scroll' not in plain)
 
 
+def _slice(path, start, end):
+    """A block of the shipped CSS, read from source so the test can't drift."""
+    src = open(os.path.join(_REPO, path)).read()
+    return src[src.index(start):src.index(end)]
+
+
 def _css():
-    """The shipped rules, read from the template so the test can't drift."""
-    src = open(os.path.join(_REPO, 'Templates', 'public.html')).read()
-    return src[src.index('.markdown-area {'):src.index('/* Normalize paragraph spacing')]
+    return _slice('Templates/public.html',
+                  '.markdown-area {', '/* Normalize paragraph spacing')
+
+
+# Each public surface: the CSS that governs it, and how its content is placed
+# into the page. `wrap` mirrors what the server does before it reaches the DOM.
+SURFACES = {
+    'page builder (markdown)': dict(
+        css=_css, container='markdown-area', wraps=True),
+    'page builder (rich text)': dict(
+        css=_css, container='text-area', wraps=False),
+    'page builder (code)': dict(
+        css=_css, container='code-section-output', wraps=False),
+    'guides': dict(
+        css=lambda: _slice('Templates/guide_view.html',
+                           '.gv-content {', '.gv-content a:hover'),
+        container='gv-content', wraps=True),
+    'newsletters': dict(
+        css=lambda: _slice('Templates/newsletter_public.html',
+                           '.nlp-body .uw-table-scroll', '</style>'),
+        container='nlp-body', wraps=True),
+    'quizzes': dict(
+        css=lambda: _slice('static/js/guide_quiz.js',
+                           '.uwq-rich table,', '.uwq-rich ul,'),
+        container='uwq-rich', wraps=False),
+}
 
 
 def test_css_present():
-    print('\n[3] the stylesheet carries the rules that make it work')
+    print('\n[3] the page-builder stylesheet carries the rules that make it work')
     css = _css()
     check('the scroll container is defined', '.uw-table-scroll' in css)
     check('it scrolls horizontally', re.search(r'\.uw-table-scroll\s*{[^}]*overflow-x:\s*auto', css))
@@ -142,15 +183,16 @@ def _chrome():
     return None
 
 
-def _measure(chrome, body, width):
+def _measure(chrome, body, width, css=None):
     """Lay the markup out for real and report what scrolls."""
+    css = _css() if css is None else css
     page = f"""<!doctype html><html><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1"><style>
 html,body{{margin:0;font-family:sans-serif;font-size:16px}}
-{_css()}
+{css}
 </style></head><body>{body}<div id=out></div>
 <script>window.addEventListener('load',function(){{
-var s=document.querySelector('.uw-table-scroll')||document.querySelector('table');
+var s=document.querySelector('.uw-table-scroll')||document.querySelector('table')||document.querySelector('.forum-body');
 document.getElementById('out').textContent='RESULT '+JSON.stringify({{
  sideways:document.documentElement.scrollWidth>window.innerWidth+1,
  scrolls:s?(s.scrollWidth>s.clientWidth+1):null}});}});
@@ -170,48 +212,99 @@ document.getElementById('out').textContent='RESULT '+JSON.stringify({{
 
 
 def test_layout():
-    print('\n[4] and the page really stops scrolling sideways')
+    print('\n[4] and on every surface the page really stops scrolling sideways')
     chrome = _chrome()
     if not chrome:
         skip('browser layout checks', 'no Chrome/Chromium on PATH')
         return
-    # Chrome floors the window at 500px wide; that is still well under the
-    # 700px breakpoint, so the narrow-screen rules are the ones in play.
+    # Chrome floors its window at 500px wide; still well under the 700px
+    # breakpoint, so the narrow-screen rules are the ones in play.
     NARROW, WIDE = 500, 1200
 
-    areas = {
-        'markdown': lambda t: f'<div class="markdown-area">{main._wrap_tables_for_scrolling(t)}</div>',
-        'rich text': lambda t: f'<div class="text-area">{t}</div>',
-        'code': lambda t: f'<div class="code-section-output">{t}</div>',
-    }
-    for area, wrap in areas.items():
-        r = _measure(chrome, wrap(WIDE_TABLE), NARROW)
+    for name, spec in SURFACES.items():
+        css = spec['css']()
+        wrap = main._wrap_tables_for_scrolling if spec['wraps'] else (lambda h: h)
+
+        def body(table):
+            return f'<div class="{spec["container"]}">{wrap(table)}</div>'
+
+        r = _measure(chrome, body(WIDE_TABLE), NARROW, css)
         if r is None:
-            skip(f'{area}: wide table on a phone', 'browser produced no measurement')
+            skip(f'{name}: wide table on a phone', 'browser produced no measurement')
             continue
-        check(f'{area}: a wide table does not drag the page sideways', r['sideways'] is False)
-        check(f'{area}: it scrolls inside itself instead', r['scrolls'] is True)
+        check(f'{name}: a wide table does not drag the page sideways',
+              r['sideways'] is False)
+        check(f'{name}: it scrolls inside itself instead', r['scrolls'] is True)
 
-        r = _measure(chrome, wrap(PROSE_TABLE), NARROW)
+        r = _measure(chrome, body(PROSE_TABLE), NARROW, css)
         if r:
-            check(f'{area}: a prose table still wraps rather than scrolling',
+            check(f'{name}: a prose table still wraps rather than scrolling',
                   r['sideways'] is False and r['scrolls'] is False)
 
-        r = _measure(chrome, wrap(NARROW_TABLE), NARROW)
+        r = _measure(chrome, body(NARROW_TABLE), NARROW, css)
         if r:
-            check(f'{area}: a narrow table needs no scrolling',
+            check(f'{name}: a narrow table needs no scrolling',
                   r['sideways'] is False and r['scrolls'] is False)
 
-        r = _measure(chrome, wrap(WIDE_TABLE), WIDE)
+        r = _measure(chrome, body(WIDE_TABLE), WIDE, css)
         if r:
-            check(f'{area}: and on a desktop it is left alone',
+            check(f'{name}: and on a desktop it is left alone',
                   r['sideways'] is False and r['scrolls'] is False)
+
+    print('\n[5] forum posts are plain text, and scroll for a different reason')
+    # No real table can reach a forum post — the body is escaped and displayed
+    # with pre-wrap. But a pasted ASCII table keeps its rows on one line, and a
+    # long URL never breaks, so the page went sideways just the same.
+    forum_css = _slice('Templates/public_forum_thread.html',
+                       '.forum-body {', '    textarea {')
+    # Comfortably wider than any phone, so the check measures the mechanism
+    # rather than whether a borderline sample happens to fit.
+    pasted = ('Scouting results:\n\n'
+              '| Team number | Match    | Alliance | Auto points | Teleop points '
+              '| Endgame     | Result |\n'
+              '|-------------|----------|----------|-------------|---------------'
+              '|-------------|--------|\n'
+              '| 1234567     | Qual 12  | Red 2    | 18          | 44            '
+              '| Climbed high| Win    |\n\n'
+              'See https://example.com/a/very/long/link/that/never/breaks/anywhere/'
+              'at/all/and/keeps/going/well/past/the/edge/of/a/phone/screen\n')
+    r = _measure(chrome, f'<div class="forum-body">{pasted}</div>', NARROW, forum_css)
+    if r is None:
+        skip('forum post on a phone', 'browser produced no measurement')
+    else:
+        check('a pasted table does not drag the page sideways', r['sideways'] is False)
+        check('the post scrolls instead', r['scrolls'] is True)
+    r = _measure(chrome, f'<div class="forum-body">{pasted}</div>', WIDE, forum_css)
+    if r:
+        check('and on a desktop it needs no scrolling', r['scrolls'] is False)
+    check('the alignment of a pasted table is preserved, not re-wrapped',
+          'pre-wrap' in forum_css and 'overflow-x: auto' in forum_css)
+
+
+def test_email_untouched():
+    print('\n[6] the newsletter EMAIL body is not rewritten')
+    # The wrapper is applied by a Jinja filter in the web view only. Mail
+    # clients handle overflow containers poorly, and the stored body is what
+    # gets sent, so it has to come through unchanged.
+    tpl = open(os.path.join(_REPO, 'Templates', 'newsletter_public.html')).read()
+    check('the web view wraps its tables', 'campaign.html_body | scroll_tables' in tpl)
+    stored = '<table><tr><td>rows</td></tr></table>'
+    with app.app_context():
+        rendered = str(main.scroll_tables_filter(stored))
+    check('rendering wraps a copy', rendered.startswith('<div class="uw-table-scroll">'))
+    check('and leaves the stored body alone', stored == '<table><tr><td>rows</td></tr></table>')
+
+    src = open(os.path.join(_REPO, 'main.py')).read()
+    sends = [ln for ln in src.splitlines()
+             if 'scroll_tables' in ln and 'send' in ln.lower()]
+    check(f'no send path applies it ({len(sends)} found)', not sends)
 
 
 if __name__ == '__main__':
     test_wrapping()
     test_css_present()
     test_layout()
+    test_email_untouched()
     tail = f' ({len(SKIPPED)} skipped)' if SKIPPED else ''
     print('\n' + (f'ALL PASSED{tail}' if not FAILURES
                   else f'{len(FAILURES)} FAILED{tail}: {FAILURES}'))
