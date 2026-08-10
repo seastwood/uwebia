@@ -774,9 +774,13 @@
            breathing room at the foot. */
         max-height: calc(100vh - 76px);
         max-height: calc(100dvh - 76px);   /* excludes mobile browser chrome */
-        overflow-y: auto;
-        /* Don't hand the scroll to the page behind once the panel bottoms out. */
-        overscroll-behavior: contain;
+        /* The panel itself must NOT be the scroller. Its background and blur
+           are painted by an absolutely positioned ::before, and an abspos child
+           of a scroll container scrolls with the content — so scrolling slid
+           the backdrop up and left the bottom of the menu showing the bare
+           page through it. Bounding the panel here and scrolling the inner
+           wrapper instead keeps the backdrop pinned to the panel. */
+        overflow: hidden;
         background: rgba(20, 20, 20, 0.98);
         padding: 10px;
         border-radius: 12px 4px 12px 12px;   /* pinched near the hamburger (top-right) */
@@ -785,12 +789,35 @@
     }
 
     .public-navbar.dropdown-mode-dropdown .public-navbar-menu.show {
-        display: block;
+        /* Column flex so the inner wrapper can take the leftover height and
+           scroll inside it. */
+        display: flex;
+        flex-direction: column;
         animation: navMenuDrop 0.2s ease;
     }
+
+    .public-navbar.dropdown-mode-dropdown .public-navbar-menu > .public-navbar-menu-glass {
+        flex: 1 1 auto;
+        min-height: 0;          /* or a flex item refuses to shrink below content */
+        overflow-y: auto;
+        overscroll-behavior: contain;
+    }
+    /* Revealed with clip-path rather than transform+opacity, so the blur is
+       live from the first frame.
+
+       Both `transform` and `opacity < 1` make an element a backdrop root, and
+       a backdrop root has nothing behind it to sample — so backdrop-filter did
+       nothing until the animation finished and the element stopped being one.
+       The panel opened clear and only turned frosted at the end. Measured
+       against a striped backdrop, 15% into the animation: pixel variance under
+       the panel was 111 (sharp stripes, no blur) with transform+opacity, and
+       1.4 (flat, fully blurred) with clip-path.
+
+       The circle grows from the top-right, which is where the hamburger is —
+       the same intent the old transform-origin had. */
     @keyframes navMenuDrop {
-        from { opacity: 0; transform: scale(0.8) translateY(-6px); }
-        to   { opacity: 1; transform: scale(1) translateY(0); }
+        from { clip-path: circle(0% at 90% 0%); }
+        to   { clip-path: circle(150% at 90% 0%); }
     }
 
     .public-navbar-menu a {

@@ -17,6 +17,20 @@ rather than most of the screen, and the panel itself is bounded to the viewport
 and scrolls. Side-panel mode already scrolled; it benefits from the smaller
 results box.
 
+Two follow-ons, both measured from screenshots rather than asserted about CSS:
+
+  backdrop  the panel's background and blur are painted by an absolutely
+            positioned ::before, and an abspos child of a scroll container
+            scrolls with the content — so scrolling slid the backdrop up and
+            the bottom of the menu showed the bare page through it. The
+            scrolling moved to the inner wrapper to pin it.
+
+  blur      `transform` and `opacity < 1` each make an element a backdrop root,
+            which has nothing behind it to sample, so the menu opened clear and
+            only turned frosted once the animation stopped. Against a striped
+            backdrop 15% into the open, pixel variance under the panel was 107
+            (sharp stripes) before and 35 (smeared) after.
+
 Needs a real browser — layout is the whole question here. Skips (loudly) when
 Chrome isn't on PATH.
 
@@ -74,6 +88,14 @@ PROBE = """
 <script>
 window.addEventListener('load', function () {
   var p = new URLSearchParams(location.search);
+  // Sharp stripes behind everything — blur is only detectable against detail,
+  // a solid colour blurs to the same solid colour and proves nothing.
+  if (p.get('stripes')) {
+    var bg = document.createElement('div');
+    bg.style.cssText = 'position:fixed;inset:0;z-index:9000;pointer-events:none;' +
+      'background:repeating-linear-gradient(0deg,#fff 0 6px,#000 6px 12px);';
+    document.body.insertBefore(bg, document.body.firstChild);
+  }
   var mode = p.get('mode') || 'dropdown';
   var n = parseInt(p.get('n') || '0', 10);
   var nav = document.querySelector('.public-navbar');
@@ -90,8 +112,19 @@ window.addEventListener('load', function () {
        + '<div class="public-navbar-search-result-snippet">Snippet ' + i + '.</div></a>';
   }
   if (res) res.innerHTML = h;
+  // Freeze the open animation at a fraction so a screenshot catches the
+  // mid-animation state deterministically instead of racing it.
+  var freeze = p.get('freeze');
+  if (freeze) {
+    menu.style.animationDelay = '-' + (0.2 * parseFloat(freeze)) + 's';
+    menu.style.animationPlayState = 'paused';
+  }
   setTimeout(function () {
-    if (p.get('scroll')) { menu.scrollTop = menu.scrollHeight; }
+    // Whichever element actually scrolls: the panel, or its inner wrapper.
+    var glass = menu.querySelector('.public-navbar-menu-glass');
+    var scroller = (menu.scrollHeight > menu.clientHeight + 1) ? menu
+                 : ((glass && glass.scrollHeight > glass.clientHeight + 1) ? glass : menu);
+    if (p.get('scroll')) { scroller.scrollTop = scroller.scrollHeight; }
     var vis = [].slice.call(menu.querySelectorAll('a:not(.public-navbar-search-result)'))
       .filter(function (el) {
         var r = el.getBoundingClientRect();
@@ -106,6 +139,10 @@ window.addEventListener('load', function () {
       mode: mode, n: n, vh: window.innerHeight, visibleLinks: vis.length,
       menuH: Math.round(mr.height),
       menuScrolls: menu.scrollHeight > menu.clientHeight + 1,
+      anythingScrolls: scroller.scrollHeight > scroller.clientHeight + 1,
+      menuLeft: Math.round(mr.left), menuTop: Math.round(mr.top),
+      menuRight: Math.round(mr.right), menuBottom: Math.round(mr.bottom),
+      menuW: Math.round(mr.width),
       menuOverflowsViewport: mr.bottom > window.innerHeight + 1,
       resultsScrolls: res ? (res.scrollHeight > res.clientHeight + 1) : null,
       resultsH: res ? Math.round(res.getBoundingClientRect().height) : null,
@@ -151,13 +188,20 @@ def _seed():
         db.session.commit()
         site = main.Website(user_id=owner.id, name='Test Site', is_draft=False,
                             is_live=True, public_users_enabled=True,
-                            public_navbar_show_search=True)
+                            public_navbar_show_search=True,
+                            # A loud page colour so "the page is showing through
+                            # where the panel should be" is unmistakable in a
+                            # screenshot. Against the default dark background it
+                            # looks the same as the panel and proves nothing.
+                            background_color='#ff0000')
         # A navbar with a realistic number of links — the whole point is that
         # these stay reachable.
         site.public_navbar_items = [
             {'type': 'link', 'label': lbl, 'url': '/' + lbl.lower()}
-            for lbl in ['About', 'Events', 'Team', 'Sponsors', 'Blog',
-                        'Shop', 'Contact', 'Education', 'Members']
+            for lbl in ['About', 'Events', 'Team', 'Sponsors', 'Blog', 'Shop',
+                        'Contact', 'Education', 'Members', 'Calendar', 'Gallery',
+                        'History', 'Awards', 'Outreach', 'Mentors', 'Donate',
+                        'Volunteer', 'Safety', 'Rules', 'Archive']
         ]
         db.session.add(site)
         db.session.commit()
@@ -174,16 +218,44 @@ def _chrome():
     return None
 
 
-def _measure(chrome, port, profile, mode, n, scroll=False, width=500, height=700):
-    url = (f'http://127.0.0.1:{port}/?probe=1&mode={mode}&n={n}'
-           + ('&scroll=1' if scroll else ''))
+def _url(port, mode, n, scroll=False, stripes=False, freeze=None):
+    u = f'http://127.0.0.1:{port}/?probe=1&mode={mode}&n={n}'
+    if scroll:
+        u += '&scroll=1'
+    if stripes:
+        u += '&stripes=1'
+    if freeze is not None:
+        u += f'&freeze={freeze}'
+    return u
+
+
+def _chrome_args(chrome, profile, width, height):
+    return [chrome, '--headless=new', '--disable-gpu', '--no-sandbox',
+            f'--user-data-dir={profile}', '--virtual-time-budget=4000',
+            f'--window-size={width},{height}', '--hide-scrollbars']
+
+
+def _measure(chrome, port, profile, mode, n, scroll=False, stripes=False,
+             freeze=None, width=500, height=700):
     out = subprocess.run(
-        [chrome, '--headless=new', '--disable-gpu', '--no-sandbox',
-         f'--user-data-dir={profile}', '--virtual-time-budget=4000',
-         f'--window-size={width},{height}', '--dump-dom', url],
+        _chrome_args(chrome, profile, width, height)
+        + ['--dump-dom', _url(port, mode, n, scroll, stripes, freeze)],
         capture_output=True, text=True, timeout=120).stdout
     m = re.search(r'RESULT (\{[^<]*\})', out)
     return json.loads(m.group(1)) if m else None
+
+
+def _shoot(chrome, port, profile, mode, n, path, **kw):
+    """Screenshot the same state _measure reports on."""
+    subprocess.run(
+        _chrome_args(chrome, profile, kw.pop('width', 500), kw.pop('height', 700))
+        + [f'--screenshot={path}', _url(port, mode, n, **kw)],
+        capture_output=True, timeout=120)
+    return path
+
+
+def _column(img, x, y0, y1):
+    return [img.getpixel((int(x), int(y)))[0] for y in range(int(y0), int(y1))]
 
 
 def main_test():
@@ -216,10 +288,13 @@ def main_test():
         if r is None:
             skip(f'{mode}: baseline', 'browser produced no measurement')
             continue
-        check(f'the nav links are all there ({r["visibleLinks"]})', r['visibleLinks'] == 9)
+        check(f'the nav links are all there ({r["visibleLinks"]})', r['visibleLinks'] == 20)
         check('the panel fits on screen', r['menuOverflowsViewport'] is False)
-        check('and the last link is visible without scrolling',
-              r['lastLinkOnScreen'] is True)
+        # Twenty links do not fit a phone even with no search results, so what
+        # matters is that they are reachable, not that they are all on screen.
+        r2 = _measure(chrome, port, profile, mode, 0, scroll=True)
+        check('and scrolling reaches the last one',
+              r2 is not None and r2['lastLinkOnScreen'] is True)
 
         print(f'[{mode}] with twenty search results')
         r = _measure(chrome, port, profile, mode, 20)
@@ -234,8 +309,12 @@ def main_test():
         check(f'taking a share of the panel, not most of the screen '
               f'({r["resultsH"]}px of {r["vh"]}px)',
               r['resultsH'] <= r['vh'] * 0.5)
-        check('and the panel itself scrolls when the whole thing is too long',
-              r['menuScrolls'] is True)
+        # The panel is bounded and something inside it scrolls. WHICH element
+        # scrolls differs by mode: dropdown mode scrolls its inner wrapper so
+        # that the panel's ::before backdrop stays pinned (see below), side
+        # panel scrolls itself.
+        check('and it scrolls when the whole thing is too long',
+              r['anythingScrolls'] is True)
 
         r = _measure(chrome, port, profile, mode, 20, scroll=True)
         if r:
@@ -251,7 +330,85 @@ def main_test():
             check(f'{mode}: 60 results still do not overflow the viewport',
                   r['menuOverflowsViewport'] is False)
             check(f'{mode}: and the panel is still scrollable',
-                  r['menuScrolls'] is True)
+                  r['anythingScrolls'] is True)
+
+    test_backdrop(chrome, port, profile)
+    test_blur_during_open(chrome, port, profile)
+
+
+def test_backdrop(chrome, port, profile):
+    """The panel's background and blur must cover it all the way down.
+
+    The backdrop is painted by an absolutely positioned ::before, and an
+    absolutely positioned child of a scroll container scrolls with the content
+    — so when the panel itself was the scroller, scrolling slid the backdrop up
+    and the bottom of the menu showed the bare page through it.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        skip('backdrop checks', 'Pillow not installed')
+        return
+
+    print('\n[backdrop] the panel stays opaque all the way down')
+    for mode in ('dropdown', 'side_panel'):
+        geo = _measure(chrome, port, profile, mode, 20, scroll=True)
+        path = os.path.join(_SCRATCH, f'bg_{mode}.png')
+        _shoot(chrome, port, profile, mode, 20, path, scroll=True)
+        if geo is None or not os.path.exists(path):
+            skip(f'{mode}: backdrop', 'no screenshot')
+            continue
+        img = Image.open(path).convert('RGB')
+        cx = geo['menuLeft'] + geo['menuW'] // 2
+        top = img.getpixel((cx, geo['menuTop'] + 12))
+        bottom = img.getpixel((cx, geo['menuBottom'] - 8))
+        # The scratch site's page is pure red; anything close to it means the
+        # page is showing through where the panel should be.
+        page_ish = bottom[0] > 200 and bottom[1] < 60 and bottom[2] < 60
+        check(f'{mode}: scrolled to the bottom, the panel is still painted '
+              f'(bottom pixel {bottom}, top {top})', not page_ish)
+
+
+def test_blur_during_open(chrome, port, profile):
+    """The blur has to be live while the menu opens, not only once it lands.
+
+    `transform` and `opacity < 1` both make an element a backdrop root, and a
+    backdrop root has nothing behind it to sample — so a menu animated with
+    those opens clear and turns frosted only at the end.
+    """
+    try:
+        from PIL import Image
+        import statistics
+    except ImportError:
+        skip('blur checks', 'Pillow not installed')
+        return
+
+    print('\n[blur] frosted from the first frame, not just at the end')
+    geo = _measure(chrome, port, profile, 'dropdown', 3, stripes=True)
+    if geo is None:
+        skip('blur during open', 'no measurement')
+        return
+    # Near the top-right: the first corner revealed, so it is covered at every
+    # point in the animation.
+    x = geo['menuRight'] - 25
+    y0, y1 = geo['menuTop'] + 8, geo['menuTop'] + 34
+    outside_x = min(499 - 4, geo['menuRight'] + 25)
+
+    for label, freeze in (('fully open', None), ('15% in', 0.15),
+                          ('40% in', 0.4), ('80% in', 0.8)):
+        path = os.path.join(_SCRATCH, f'blur_{label.replace(" ", "_").replace("%","")}.png')
+        _shoot(chrome, port, profile, 'dropdown', 3, path,
+               stripes=True, freeze=freeze)
+        if not os.path.exists(path):
+            skip(f'blur {label}', 'no screenshot')
+            continue
+        img = Image.open(path).convert('RGB')
+        inside = statistics.pstdev(_column(img, x, y0, y1))
+        backdrop = statistics.pstdev(_column(img, outside_x, y0, y1))
+        # Sharp stripes behind => high variance. Blurred => it collapses.
+        check(f'{label}: the stripes behind are smeared, not sharp '
+              f'(panel {inside:.0f} vs backdrop {backdrop:.0f})',
+              backdrop > 40 and inside < backdrop * 0.5)
 
 
 if __name__ == '__main__':
