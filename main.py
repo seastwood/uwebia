@@ -25266,11 +25266,12 @@ def public_search_prefixed(prefix):
     return _public_search_handler(request.args.get('q', ''), prefix=prefix)
 
 
-# One or two letters match nearly every page on a site — the search box filled
+# A single letter matches nearly every page on a site — the search box filled
 # with everything and told the reader nothing. Short queries are refused rather
 # than answered badly. Enforced here as well as in the field so a hand-made
-# request can't spend a full scan on 'a'.
-PUBLIC_SEARCH_MIN_CHARS = 3
+# request can't spend a full scan on 'a'. Two is the floor rather than three so
+# genuinely short terms — AI, 3D, a team number — stay searchable.
+PUBLIC_SEARCH_MIN_CHARS = 2
 
 
 def _public_search_handler(query, prefix):

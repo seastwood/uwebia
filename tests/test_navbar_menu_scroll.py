@@ -386,25 +386,30 @@ def test_grow_origin(chrome, port, profile):
 
 
 def test_min_query(chrome, port, profile):
-    """One or two letters matched nearly everything, so the box filled with
-    noise. Short queries now explain themselves instead of searching."""
-    print('\n[search] a query has to be long enough to mean something')
-    for typed, expect in (('a', 'Keep typing'), ('ab', 'Keep typing')):
+    """A single letter matched nearly everything, so the box filled with noise.
+    Short queries now explain themselves instead of searching. Driven off the
+    server's constant so moving the floor does not mean rewriting the test."""
+    minimum = main.PUBLIC_SEARCH_MIN_CHARS
+    print(f'\n[search] a query has to be at least {minimum} characters')
+
+    for n in range(1, minimum):
+        typed = 'about'[:n]
         r = _measure(chrome, port, profile, 'dropdown', 0, type=typed)
         if r is None:
             skip(f'typing {typed!r}', 'no measurement')
             continue
-        check(f'{typed!r}: nothing is searched ({r["resultCount"]} results)',
+        check(f'{typed!r} ({n} chars): nothing is searched ({r["resultCount"]} results)',
               r['resultCount'] == 0)
         check(f'{typed!r}: and it says why — {r["resultsText"]!r}',
-              expect in (r['resultsText'] or ''))
-    r = _measure(chrome, port, profile, 'dropdown', 0, type='ab')
+              'Keep typing' in (r['resultsText'] or ''))
+        if minimum - n == 1:
+            check('the countdown reads as singular with one to go',
+                  ' 1 more character.' in (r['resultsText'] or ''))
+
+    typed = 'about'[:minimum]
+    r = _measure(chrome, port, profile, 'dropdown', 0, type=typed)
     if r:
-        check('the countdown is singular with one to go',
-              ' 1 more character.' in (r['resultsText'] or ''))
-    r = _measure(chrome, port, profile, 'dropdown', 0, type='abo')
-    if r:
-        check(f'three letters searches ({r["resultCount"]} results)',
+        check(f'{typed!r} ({minimum} chars) searches ({r["resultCount"]} results)',
               r['resultCount'] > 0)
 
 

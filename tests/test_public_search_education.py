@@ -221,20 +221,27 @@ def main_test():
           all(k in by_type(search()) for k in ('guide', 'lesson', 'quiz', 'resource')))
 
     print('\n[7] very short queries are refused rather than answered badly')
-    # One or two letters matched nearly every page — the box filled with
-    # everything and told the reader nothing.
+    # A single letter matched nearly every page — the box filled with everything
+    # and told the reader nothing. Driven off the constant so changing the floor
+    # does not mean rewriting the test.
     c = app.test_client()
-    for q in ('s', 'so'):
-        d = c.get(f'/search?q={q}').get_json() or {}
-        check(f'"{q}" returns nothing', d.get('results') == [])
-        check(f'and says why ({d.get("min_chars")})',
-              d.get('min_chars') == main.PUBLIC_SEARCH_MIN_CHARS)
-    d = c.get('/search?q=sol').get_json() or {}
-    check(f'"sol" is long enough and searches ({len(d.get("results") or [])} hits)',
+    minimum = main.PUBLIC_SEARCH_MIN_CHARS
+    too_short = 'soldering'[:minimum - 1]
+    just_long_enough = 'soldering'[:minimum]
+
+    d = c.get(f'/search?q={too_short}').get_json() or {}
+    check(f'"{too_short}" ({len(too_short)} chars) returns nothing',
+          d.get('results') == [])
+    check(f'and says how many are needed ({d.get("min_chars")})',
+          d.get('min_chars') == minimum)
+
+    d = c.get(f'/search?q={just_long_enough}').get_json() or {}
+    check(f'"{just_long_enough}" ({minimum} chars) is enough and searches '
+          f'({len(d.get("results") or [])} hits)',
           'min_chars' not in d and len(d.get('results') or []) > 0)
     check('whitespace does not buy you a shorter query',
-          (c.get('/search?q=%20s%20').get_json() or {}).get('min_chars')
-          == main.PUBLIC_SEARCH_MIN_CHARS)
+          (c.get(f'/search?q=%20{too_short}%20').get_json() or {}).get('min_chars')
+          == minimum)
 
     print('\n[8] every type the server sends has a label in the UI')
     # Anything missing here silently renders as "Page".
