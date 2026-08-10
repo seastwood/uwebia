@@ -4184,6 +4184,62 @@ class QuizDraft(db.Model):
 # on the public guides page's "Resources" tab (grouped by category, like guides
 # and quizzes). Four kinds: an external link, a downloadable library file, an
 # embedded video, or a self-contained rich-text page.
+class PublicUserFavorite(db.Model):
+    """A member starring something in the Education section to find it again.
+
+    Deliberately polymorphic — a member's favourites are one list spanning
+    guides, quizzes and resources, and that is how they read it. The cost is no
+    foreign key to the item, so a favourite can outlive what it points at;
+    listing filters those out rather than leaving a dead entry on the page, and
+    they are cleaned up when the item itself is deleted.
+    """
+    __tablename__ = 'public_user_favorite'
+    id             = db.Column(db.Integer, primary_key=True)
+    public_user_id = db.Column(db.Integer,
+                               db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    # 'guide' | 'quiz' | 'resource'
+    item_type      = db.Column(db.String(16), nullable=False)
+    item_id        = db.Column(db.Integer, nullable=False)
+    created_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (
+        db.UniqueConstraint('public_user_id', 'item_type', 'item_id',
+                            name='uq_public_favorite'),
+    )
+
+
+FAVORITABLE_TYPES = ('guide', 'quiz', 'resource')
+
+
+def favorite_ids_for(public_user):
+    """{'guide': {1, 2}, 'quiz': set(), 'resource': {7}} for this member.
+
+    Empty sets for a signed-out visitor, so templates can ask without checking
+    whether anybody is logged in.
+    """
+    out = {t: set() for t in FAVORITABLE_TYPES}
+    if not public_user:
+        return out
+    try:
+        rows = PublicUserFavorite.query.filter_by(public_user_id=public_user.id).all()
+    except Exception:
+        return out
+    for row in rows:
+        if row.item_type in out:
+            out[row.item_type].add(row.item_id)
+    return out
+
+
+def drop_favorites_for(item_type, item_id):
+    """Forget an item that no longer exists, so nobody's list points at a ghost."""
+    try:
+        PublicUserFavorite.query.filter_by(item_type=item_type, item_id=item_id).delete(
+            synchronize_session=False)
+    except Exception:
+        pass
+
+
 class ResourceCategory(db.Model):
     """Grouping for resources, mirroring GuideCategory / QuizCategory."""
     __tablename__ = 'resource_category'
@@ -41001,6 +41057,8 @@ def admin_guides_delete(gid):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     if not can_access_guide(guide):
         return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('guide', guide.id)
     db.session.delete(guide)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -41382,6 +41440,10 @@ def public_guides_index(prefix=None):
     # Standalone public quizzes (admin flipped "list on public Quizzes page"),
     # grouped by QuizCategory the same way as guides — powering the "Quizzes"
     # tab on this page. question_count feeds each card.
+    # Favourites are per account, so they are only offered to a signed-in
+    # member — a star that always bounced to the login page would be clutter.
+    favorites = favorite_ids_for(public_user)
+    favorites_enabled = bool(public_user)
     public_quizzes = Quiz.query.filter_by(website_id=website.id, is_public=True).all()
     if not viewer_is_member:
         public_quizzes = [q for q in public_quizzes if not q.members_only]
@@ -41479,6 +41541,7 @@ def public_guides_index(prefix=None):
         grouped_quizzes=grouped_quizzes, quiz_question_counts=quiz_question_counts,
         quiz_status=quiz_status,
         grouped_resources=grouped_resources,
+        favorites=favorites, favorites_enabled=favorites_enabled,
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -42493,6 +42556,8 @@ def admin_resources_delete(rid):
     website, r = _admin_resource_or_403(rid)
     if r is None:
         return website
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('resource', r.id)
     db.session.delete(r)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -44722,6 +44787,8 @@ def admin_quizzes_delete(qid):
         return website
     if not can_access_quiz(quiz):
         return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('quiz', quiz.id)
     db.session.delete(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -45701,6 +45768,78 @@ def public_resource_page(rid):
     return render_template('public_resource_page.html', website=website,
                            resource=resource, items=items, videos=videos,
                            public_user=public_user)
+
+
+def _favoritable_item(website, item_type, item_id, public_user):
+    """The guide/quiz/resource a member may star, or None.
+
+    Starring is only offered for things they can already see, so this repeats
+    the index's visibility rules rather than trusting the id in the request —
+    otherwise the favourites list would be a way to confirm that hidden
+    material exists.
+    """
+    viewer_is_member = _viewer_is_org_member(website, public_user)
+
+    def visible(obj):
+        if obj is None or obj.website_id != website.id:
+            return None
+        if getattr(obj, 'members_only', False) and not viewer_is_member:
+            return None
+        return obj
+
+    if item_type == 'guide':
+        g = db.session.get(Guide, item_id)
+        return visible(g) if (g and g.status == 'published') else None
+    if item_type == 'quiz':
+        q = db.session.get(Quiz, item_id)
+        return visible(q) if (q and q.is_public) else None
+    if item_type == 'resource':
+        r = db.session.get(Resource, item_id)
+        return visible(r) if (r and r.is_public) else None
+    return None
+
+
+@app.route('/<string:prefix>/api/favorites/toggle', methods=['POST'])
+@app.route('/api/favorites/toggle', methods=['POST'], defaults={'prefix': None})
+def public_favorite_toggle(prefix=None):
+    """Star or unstar one item. Returns where it ended up, not what changed,
+    so a double-tap on a flaky connection settles rather than flip-flops."""
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Sign in to save favourites.',
+                           'needs_login': True}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+
+    data = request.get_json(silent=True) or {}
+    item_type = (data.get('type') or '').strip()
+    try:
+        item_id = int(data.get('id'))
+    except (TypeError, ValueError):
+        item_id = 0
+    if item_type not in FAVORITABLE_TYPES or not item_id:
+        return _utf8_json({'error': 'Unknown item.'}, 400)
+
+    if _favoritable_item(website, item_type, item_id, public_user) is None:
+        return _utf8_json({'error': 'Not found'}, 404)
+
+    existing = PublicUserFavorite.query.filter_by(
+        public_user_id=public_user.id, item_type=item_type, item_id=item_id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        return _utf8_json({'success': True, 'favorited': False})
+
+    db.session.add(PublicUserFavorite(public_user_id=public_user.id,
+                                      item_type=item_type, item_id=item_id))
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Two taps landed at once; the unique index settled it. Either way it
+        # is starred now, which is what the caller asked for.
+        db.session.rollback()
+    return _utf8_json({'success': True, 'favorited': True})
 
 
 @app.route('/api/resources/<int:rid>')

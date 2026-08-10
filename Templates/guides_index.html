@@ -66,6 +66,45 @@
 /* Completion display on each card */
 .gi-badge { position: absolute; top: 10px; right: 10px; display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 99px; font-size: 0.7rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; background: rgba(94,238,200,0.95); color: #0c1611; box-shadow: 0 2px 10px rgba(0,0,0,0.3); }
 .gi-badge-lock { background: rgba(0,0,0,0.62); color: #fff; }
+/* Favourites. The star sits BESIDE the card, not inside it — every card is an
+   <a>, and a button inside an anchor is invalid and swallows the click. */
+.gi-fav-wrap { position: relative; display: flex; }
+.gi-fav-wrap > .gi-card { flex: 1; }
+.gi-fav-wrap > .gi-rsc-row { flex: 1; padding-right: 52px; }
+.gi-fav {
+    position: absolute; z-index: 3;
+    top: 10px; right: 10px;
+    width: 32px; height: 32px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.55);
+    transition: color 0.15s, border-color 0.15s, transform 0.12s, background 0.15s;
+}
+.gi-fav:hover { color: #ffd166; border-color: rgba(255,209,102,0.55); transform: scale(1.08); }
+.gi-fav.is-on { color: #ffd166; border-color: rgba(255,209,102,0.6); background: rgba(255,209,102,0.14); }
+.gi-fav.is-busy { opacity: 0.5; pointer-events: none; }
+/* A completed guide already wears a badge at the top right, so the star moves
+   to the left on cards to avoid sitting on top of it. */
+.gi-fav-wrap > .gi-card ~ .gi-fav,
+.gi-fav-wrap:has(> .gi-card) > .gi-fav { left: 10px; right: auto; }
+/* Rows are a single line; centre the star on it rather than pinning it high. */
+.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav { top: 50%; right: 10px; left: auto; transform: translateY(-50%); }
+.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav:hover { transform: translateY(-50%) scale(1.08); }
+.gi-sr {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* "Favourites only" hides everything unstarred, and any section left empty. */
+.gi-tab-panel.favs-only .gi-fav-wrap[data-fav="0"] { display: none; }
+.gi-chip.gi-chip-fav.is-active { border-color: #ffd166; background: rgba(255,209,102,0.16); }
+.gi-chip.gi-chip-fav i { color: #ffd166; }
+.gi-fav-empty {
+    display: none; padding: 26px 4px; text-align: center;
+    font-size: 0.9rem; opacity: 0.55;
+}
+.gi-tab-panel.favs-only.is-empty .gi-fav-empty { display: block; }
+
 /* Guides | Quizzes tabs (theme-agnostic: uses currentColor + opacity) */
 .gi-tabs { display: flex; gap: 4px; margin: 0 0 28px; border-bottom: 1px solid rgba(127,127,127,0.28); flex-wrap: wrap; }
 .gi-tab { appearance: none; -webkit-appearance: none; background: none; border: none; color: inherit; opacity: 0.55; font: inherit; font-size: 1rem; font-weight: 800; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px; }
@@ -206,6 +245,20 @@
 {% endblock %}
 
 {% block content %}
+{% macro fav_button(kind, item_id) -%}
+    {%- if favorites_enabled -%}
+    {%- set _on = item_id in (favorites[kind] if favorites else []) -%}
+    <button type="button" class="gi-fav{{ ' is-on' if _on }}"
+            data-fav-type="{{ kind }}" data-fav-id="{{ item_id }}"
+            aria-pressed="{{ 'true' if _on else 'false' }}"
+            title="{{ 'Remove from favourites' if _on else 'Save to favourites' }}"
+            onclick="giToggleFavorite(event, this)">
+        <i class="{{ 'fas' if _on else 'far' }} fa-star" aria-hidden="true"></i>
+        <span class="gi-sr">{{ 'Remove from favourites' if _on else 'Save to favourites' }}</span>
+    </button>
+    {%- endif -%}
+{%- endmacro %}
+
 {% macro guide_card(g, cat_name='') -%}
     {% set _gsearch = (g.title ~ ' ' ~ (g.description or '') ~ ' ' ~ cat_name) | lower %}
     {% set _gurl = ('/' + website.url_prefix + '/guides/' + g.slug) if website.url_prefix else ('/guides/' + g.slug) %}
@@ -238,6 +291,9 @@
     </div>
     {% else %}
     {# In-progress guides resume at the first incomplete lesson instead of the cover. #}
+    <div class="gi-fav-wrap" data-fav-item="guide-{{ g.id }}"
+         data-fav="{{ '1' if (favorites and g.id in favorites['guide']) else '0' }}">
+    {{ fav_button('guide', g.id) }}
     <a class="gi-card" data-search="{{ _gsearch }}" href="{{ (_gurl + '/' + comp.next_slug) if (in_progress and comp.next_slug) else ((_gurl + '/' + _entry) if _entry else _gurl) }}">
         <div class="gi-cover-wrap">
             {% if g.cover_image_url %}
@@ -272,6 +328,7 @@
             {% endif %}
         </div>
     </a>
+    </div>
     {% endif %}
 {%- endmacro %}
 
@@ -286,6 +343,9 @@
     {% set _qcount = quiz_question_counts.get(q.id, 0) %}
     {% set _qs = quiz_status.get(q.id) if quiz_status else None %}
     {% set _status = _qs.status if _qs else 'none' %}
+    <div class="gi-fav-wrap" data-fav-item="quiz-{{ q.id }}"
+         data-fav="{{ '1' if (favorites and q.id in favorites['quiz']) else '0' }}">
+    {{ fav_button('quiz', q.id) }}
     <a class="gi-rsc-row gi-quiz-row{% if _status == 'passed' %} is-passed{% endif %}" data-search="{{ (q.title ~ ' ' ~ (q.description or '') ~ ' ' ~ cat_name) | lower }}" href="{{ url_for('public_quiz_page', qid=q.id) }}">
         <span class="gi-rsc-ic gi-quiz-ic">{% if _status == 'passed' %}<i class="fas fa-circle-check"></i>{% else %}<i class="fas fa-clipboard-check"></i>{% endif %}</span>
         <span class="gi-rsc-main">
@@ -303,6 +363,7 @@
         {% if q.require_login_to_view %}<span class="gi-rsc-lock" title="Login required"><i class="fas fa-lock"></i></span>{% endif %}
         <i class="fas fa-chevron-right gi-rsc-go"></i>
     </a>
+    </div>
 {%- endmacro %}
 
 {% macro resource_card(r, cat_name='', bundle_name='') -%}
@@ -311,6 +372,9 @@
     {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
     {# Compact list row. All types route through /resource/<id> so the login gate
        applies; links & files redirect (new tab), videos & pages render on-site. #}
+    <div class="gi-fav-wrap" data-fav-item="resource-{{ r.id }}"
+         data-fav="{{ '1' if (favorites and r.id in favorites['resource']) else '0' }}">
+    {{ fav_button('resource', r.id) }}
     <a class="gi-rsc-row" data-search="{{ (r.title ~ ' ' ~ (r.description or '') ~ ' ' ~ cat_name ~ ' ' ~ bundle_name ~ ' ' ~ _tlabel) | lower }}" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
         <span class="gi-rsc-ic"><i class="fas {{ _icon }}"></i></span>
         <span class="gi-rsc-main">
@@ -321,6 +385,7 @@
         <span class="gi-rsc-tag">{{ _tlabel }}</span>
         <i class="fas fa-chevron-right gi-rsc-go"></i>
     </a>
+    </div>
 {%- endmacro %}
 
 <div class="gi-wrap">
@@ -357,6 +422,9 @@
 // there are quizzes or resources to switch between, but the chips appear
 // whenever a single tab has more than one category. A guides-only site drew
 // the chips and had nothing to handle the clicks.
+const GI_FAV_URL = {{ (url_for('public_favorite_toggle', prefix=website.url_prefix) if website.url_prefix else url_for('public_favorite_toggle')) | tojson }};
+const GI_LOGIN_URL = {{ url_for('public_login', website_prefix=website.url_prefix, next=request.path) | tojson }};
+
 function giFilterCategory(tab, cat, btn) {
     var panel = document.querySelector('.gi-tab-panel[data-tab="' + tab + '"]');
     if (!panel) return;
@@ -372,11 +440,111 @@ function giFilterCategory(tab, cat, btn) {
 }
 // Switching tabs leaves each tab's own filter as it was, which is what you
 // want when flicking between them; a tab never opened starts on "All".
+
+/* ── Favourites ─────────────────────────────────────────────────────────────
+   The star reports where the item ENDED UP rather than what changed, so a
+   double-tap on a slow connection settles instead of flip-flopping. The button
+   is disabled while the request is in flight for the same reason. */
+function giSetFavState(btn, on) {
+    btn.classList.toggle('is-on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    var label = on ? 'Remove from favourites' : 'Save to favourites';
+    btn.title = label;
+    var sr = btn.querySelector('.gi-sr');
+    if (sr) sr.textContent = label;
+    var icon = btn.querySelector('i');
+    if (icon) { icon.classList.toggle('fas', on); icon.classList.toggle('far', !on); }
+    var wrap = btn.closest('.gi-fav-wrap');
+    if (wrap) wrap.setAttribute('data-fav', on ? '1' : '0');
+}
+
+async function giToggleFavorite(event, btn) {
+    // The star sits on top of a card that is itself a link.
+    event.preventDefault();
+    event.stopPropagation();
+    if (btn.classList.contains('is-busy')) return;
+    btn.classList.add('is-busy');
+    try {
+        var r = await fetch(GI_FAV_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: btn.dataset.favType,
+                                   id: parseInt(btn.dataset.favId, 10) })
+        });
+        var d = await r.json();
+        if (r.status === 401 && d.needs_login) { window.location.href = GI_LOGIN_URL; return; }
+        if (!d.success) { return; }
+        giSetFavState(btn, !!d.favorited);
+        giRefreshFavCounts();
+    } catch (e) {
+        /* Leave the star as it was — better than showing a state we failed to save. */
+    } finally {
+        btn.classList.remove('is-busy');
+    }
+}
+
+function giToggleFavsOnly(tab, btn) {
+    var panel = document.querySelector('.gi-tab-panel[data-tab="' + tab + '"]');
+    if (!panel) return;
+    var on = !panel.classList.contains('favs-only');
+    panel.classList.toggle('favs-only', on);
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    giRefreshFavCounts();
+}
+
+// Hide a category heading whose items have all been filtered out, and show the
+// "nothing saved yet" line when a tab has no favourites at all.
+function giRefreshFavCounts() {
+    document.querySelectorAll('.gi-tab-panel').forEach(function (panel) {
+        var only = panel.classList.contains('favs-only');
+        var anyVisible = false;
+        panel.querySelectorAll('.gi-section').forEach(function (sec) {
+            var items = sec.querySelectorAll('.gi-fav-wrap');
+            var shown = 0;
+            items.forEach(function (it) {
+                if (!only || it.getAttribute('data-fav') === '1') shown++;
+            });
+            if (items.length) sec.hidden = (shown === 0) || sec.dataset.hiddenByCat === '1';
+            if (shown) anyVisible = true;
+        });
+        panel.classList.toggle('is-empty', only && !anyVisible);
+    });
+}
+
+// Category filtering has to remember its own decision, so the two filters can
+// be on at once without one undoing the other.
+(function () {
+    var _origFilter = window.giFilterCategory;
+    window.giFilterCategory = function (tab, cat, btn) {
+        var panel = document.querySelector('.gi-tab-panel[data-tab="' + tab + '"]');
+        if (panel) {
+            panel.querySelectorAll('.gi-section').forEach(function (sec) {
+                sec.dataset.hiddenByCat =
+                    (cat !== 'all' && sec.dataset.cat !== cat) ? '1' : '0';
+            });
+        }
+        _origFilter(tab, cat, btn);
+        giRefreshFavCounts();
+    };
+})();
 </script>
 
+{% macro favorites_chip(tab) %}
+{% if favorites_enabled %}
+<button type="button" class="gi-chip gi-chip-fav" aria-pressed="false"
+        onclick="giToggleFavsOnly('{{ tab }}', this)">
+    <i class="fas fa-star"></i> Favourites
+</button>
+{% endif %}
+{% endmacro %}
+
 {% macro category_chips(groups, tab) %}
-{% if groups|length > 1 %}
+{# The bar appears for more than one category, and also for a signed-in member
+   who has the Favourites filter to use even when there is nothing to group. #}
+{% if groups|length > 1 or favorites_enabled %}
 <div class="gi-catbar" data-catbar="{{ tab }}">
+    {% if groups|length > 1 %}
     <button type="button" class="gi-chip is-active" data-cat="all"
             onclick="giFilterCategory('{{ tab }}', 'all', this)">All</button>
     {% for grp in groups %}
@@ -390,6 +558,8 @@ function giFilterCategory(tab, cat, btn) {
         {% else %}Uncategorized{% endif %}
     </button>
     {% endfor %}
+    {% endif %}
+    {{ favorites_chip(tab) }}
 </div>
 {% endif %}
 {% endmacro %}
@@ -403,6 +573,7 @@ function giFilterCategory(tab, cat, btn) {
     {% endif %}
 
     <div class="gi-tab-panel" data-tab="guides">
+        <p class="gi-fav-empty">Nothing saved here yet — tap the <i class="far fa-star" aria-hidden="true"></i> on anything you want to find again.</p>
     {{ category_chips(grouped_guides, 'guides') }}
 
     {% if guides %}
@@ -532,6 +703,7 @@ function giFilterCategory(tab, cat, btn) {
 
     {% if grouped_quizzes %}
     <div class="gi-tab-panel" data-tab="quizzes" hidden>
+        <p class="gi-fav-empty">Nothing saved here yet — tap the <i class="far fa-star" aria-hidden="true"></i> on anything you want to find again.</p>
     {{ category_chips(grouped_quizzes, 'quizzes') }}
         <div class="gi-search">
             <i class="fas fa-magnifying-glass"></i>
@@ -588,6 +760,7 @@ function giFilterCategory(tab, cat, btn) {
 
     {% if grouped_resources %}
     <div class="gi-tab-panel" data-tab="resources" hidden>
+        <p class="gi-fav-empty">Nothing saved here yet — tap the <i class="far fa-star" aria-hidden="true"></i> on anything you want to find again.</p>
     {{ category_chips(grouped_resources, 'resources') }}
         <div class="gi-search">
             <i class="fas fa-magnifying-glass"></i>
