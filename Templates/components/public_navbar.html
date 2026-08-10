@@ -766,6 +766,17 @@
         top: 64px;
         left: 12px;
         width: 260px;
+        /* Bounded to what is actually on screen. Without this the panel grew
+           to whatever its contents needed — a search with twenty hits made it
+           657px tall inside a 557px viewport — and since the panel is what
+           holds the nav links, the links below the results simply fell off the
+           bottom with no way to reach them. 64px clears the navbar, 12px is
+           breathing room at the foot. */
+        max-height: calc(100vh - 76px);
+        max-height: calc(100dvh - 76px);   /* excludes mobile browser chrome */
+        overflow-y: auto;
+        /* Don't hand the scroll to the page behind once the panel bottoms out. */
+        overscroll-behavior: contain;
         background: rgba(20, 20, 20, 0.98);
         padding: 10px;
         border-radius: 12px 4px 12px 12px;   /* pinched near the hamburger (top-right) */
@@ -1877,8 +1888,12 @@ html.gv-guide .public-cart-btn { display: none !important; }
 .public-navbar-search-results {
     margin-top: 10px;
     display: flex; flex-direction: column; gap: 6px;
-    max-height: 60vh;
+    /* The results share the panel with the nav links, so they cannot have most
+       of the screen. At 60vh a phone-sized panel was almost entirely results
+       and the links were pushed out of it. */
+    max-height: 40vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
 }
 .public-navbar-search-result {
     display: block;
