@@ -1,4 +1,7 @@
 {% extends 'public_base.html' %}
+{% import 'components/content_dates.html' as dates with context %}
+
+{% block head %}{{ dates.freshness_styles() }}{% endblock %}
 
 {% block title %}{{ quiz.title }} — {{ website.name if website else 'Quiz' }}{% endblock %}
 
@@ -6,6 +9,7 @@
 <div style="max-width: 760px; margin: 0 auto; padding: 40px 20px 80px;">
     <h1 style="font-size: 1.8rem; font-weight: 800; margin: 0 0 8px;">{{ quiz.title }}</h1>
     {% if quiz.description %}<p style="opacity: 0.6; font-size: 0.95rem; line-height: 1.6; margin: 0 0 20px;">{{ quiz.description }}</p>{% endif %}
+    {{ dates.freshness(quiz.published_at or quiz.created_at, quiz.updated_at) }}
     <a href="{{ url_for('public_quiz_print', qid=quiz.id) }}" target="_blank" rel="noopener"
        style="display:inline-flex;align-items:center;gap:6px;font-size:0.85rem;text-decoration:none;color:inherit;opacity:0.75;margin:0 0 18px;padding:6px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:8px;">
         <i class="fas fa-file-pdf"></i> Save as PDF

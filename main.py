@@ -50,7 +50,8 @@ from sqlalchemy.orm import validates
 from trio._tools.mypy_annotate import export
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
+from decimal import Decimal
 from itsdangerous import URLSafeTimedSerializer, SignatureExpired, BadSignature
 from flask import send_file, after_this_request
 
@@ -1018,6 +1019,10 @@ class User(UserMixin, db.Model):
     # owner having to hand every new admin a code.
     org_require_enroll_ticket = db.Column(db.Boolean, nullable=False, default=False,
                                           server_default=_sa_false())
+    # How long deleted things stay recoverable, in days. 0 or NULL means until
+    # somebody empties the bin. Accounts ignore this and always go within
+    # TRASH_MAX_DAYS_PEOPLE.
+    trash_retention_days = db.Column(db.Integer, nullable=True)
     # Email-settings fingerprint captured when the org policy was verified; if it
     # no longer matches, the policy auto-disables (mirrors per-user 2FA). The
     # needs-attention flag lets the UI explain why it switched off.
@@ -1188,7 +1193,7 @@ def _perm_label(key):
         'payments': 'Payments',
         'ai_agents': 'AI Agents', 'forum': 'Forum', 'comments': 'Comments',
         'messages': 'Messages', 'settings': 'Settings', 'templates': 'Templates',
-        'admin_users': 'Admin Users',
+        'admin_users': 'Admin Users', 'trash': 'Trash',
     }
     action_labels = {
         'view': 'view', 'edit': 'edit', 'create': 'create', 'delete': 'delete',
@@ -3980,6 +3985,10 @@ class Quiz(db.Model):
                                   server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
+    # First time this quiz was listed publicly. Kept when it is unlisted again,
+    # the way Guide.published_at is — it records when readers could first see
+    # it, not the current state of the switch.
+    published_at      = db.Column(db.DateTime, nullable=True)
     # Admin who last saved this quiz (settings or any question). SET NULL on
     # admin removal so attribution clears without touching the quiz.
     updated_by_id     = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
@@ -4180,6 +4189,100 @@ class QuizDraft(db.Model):
 # on the public guides page's "Resources" tab (grouped by category, like guides
 # and quizzes). Four kinds: an external link, a downloadable library file, an
 # embedded video, or a self-contained rich-text page.
+class TrashItem(db.Model):
+    """A deleted thing, kept so it can be put back.
+
+    A snapshot rather than a soft-delete flag: nothing else in the app has to
+    learn to filter out deleted rows, so a listing can never accidentally show
+    something that is in the bin. The cost is that restoring has to rebuild the
+    row and its children from the payload, which is what the registry below
+    describes.
+    """
+    __tablename__ = 'trash_item'
+    id            = db.Column(db.Integer, primary_key=True)
+    # Scoped to the organisation, so one org can never see another's bin.
+    root_user_id  = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='CASCADE'),
+                              nullable=False, index=True)
+    website_id    = db.Column(db.Integer, nullable=True, index=True)
+    item_type     = db.Column(db.String(40), nullable=False, index=True)
+    # What it was called, captured at deletion — the row is gone, so the list
+    # has nothing else to show.
+    label         = db.Column(db.String(300), nullable=False, default='')
+    detail        = db.Column(db.String(300), nullable=True)
+    payload       = db.Column(db.JSON, nullable=False)
+    deleted_at    = db.Column(db.DateTime, nullable=False, index=True,
+                              default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    deleted_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
+    # When this must be gone by. NULL means it is kept until somebody empties
+    # the bin — except for accounts, which always carry a date (see
+    # TRASH_MAX_DAYS_PEOPLE).
+    expires_at    = db.Column(db.DateTime, nullable=True, index=True)
+
+    deleted_by = db.relationship('User', foreign_keys=[deleted_by_id])
+
+
+# Accounts are people, not content. However long an org chooses to keep its
+# deleted pages, a deleted person's record goes within this many days.
+TRASH_MAX_DAYS_PEOPLE = 60
+
+
+class PublicUserFavorite(db.Model):
+    """A member starring something in the Education section to find it again.
+
+    Deliberately polymorphic — a member's favourites are one list spanning
+    guides, quizzes and resources, and that is how they read it. The cost is no
+    foreign key to the item, so a favourite can outlive what it points at;
+    listing filters those out rather than leaving a dead entry on the page, and
+    they are cleaned up when the item itself is deleted.
+    """
+    __tablename__ = 'public_user_favorite'
+    id             = db.Column(db.Integer, primary_key=True)
+    public_user_id = db.Column(db.Integer,
+                               db.ForeignKey('public_user.id', ondelete='CASCADE'),
+                               nullable=False, index=True)
+    # 'guide' | 'quiz' | 'resource'
+    item_type      = db.Column(db.String(16), nullable=False)
+    item_id        = db.Column(db.Integer, nullable=False)
+    created_at     = db.Column(db.DateTime,
+                               default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    __table_args__ = (
+        db.UniqueConstraint('public_user_id', 'item_type', 'item_id',
+                            name='uq_public_favorite'),
+    )
+
+
+FAVORITABLE_TYPES = ('guide', 'quiz', 'resource')
+
+
+def favorite_ids_for(public_user):
+    """{'guide': {1, 2}, 'quiz': set(), 'resource': {7}} for this member.
+
+    Empty sets for a signed-out visitor, so templates can ask without checking
+    whether anybody is logged in.
+    """
+    out = {t: set() for t in FAVORITABLE_TYPES}
+    if not public_user:
+        return out
+    try:
+        rows = PublicUserFavorite.query.filter_by(public_user_id=public_user.id).all()
+    except Exception:
+        return out
+    for row in rows:
+        if row.item_type in out:
+            out[row.item_type].add(row.item_id)
+    return out
+
+
+def drop_favorites_for(item_type, item_id):
+    """Forget an item that no longer exists, so nobody's list points at a ghost."""
+    try:
+        PublicUserFavorite.query.filter_by(item_type=item_type, item_id=item_id).delete(
+            synchronize_session=False)
+    except Exception:
+        pass
+
+
 class ResourceCategory(db.Model):
     """Grouping for resources, mirroring GuideCategory / QuizCategory."""
     __tablename__ = 'resource_category'
@@ -7218,6 +7321,7 @@ def delete_asset(asset_id):
         pool_user_id = asset.user_id
 
         # Delete DB record first.
+        move_to_trash(asset, 'asset')
         db.session.delete(asset)
         db.session.commit()
 
@@ -11180,136 +11284,6 @@ def disable_two_factor_authentication():
     })
 
 
-@app.route('/admin/dashboard/settings/2fa/org-policy/start', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_start():
-    """Begin enabling the org-wide 2FA requirement.
-
-    The point of this step is to prove the acting admin can actually complete a
-    second factor before it is imposed on everyone. Which factor doesn't matter:
-    an authenticator app is confirmed directly in /confirm with no email at all,
-    which is what makes the policy usable by admins who hold no mailbox.
-    """
-    if totp_secret_is_readable(current_user):
-        return _utf8_json({'success': True, 'method': 'totp',
-                           'message': 'Enter the current code from your authenticator app '
-                                      'to turn on org-wide 2FA.'})
-
-    es = get_email_settings()
-    if not (es and es.is_active):
-        return _utf8_json({'success': False,
-            'error': 'Set up an authenticator app, or configure an active email server, '
-                     'so a second factor can be verified before requiring it of everyone.'}, 400)
-    to_email = current_user.email
-    if not to_email:
-        return _utf8_json({'success': False,
-            'error': 'This account has no email address. Set up an authenticator app first.'}, 400)
-    code = generate_two_factor_code()
-    set_pending_two_factor_code(current_user.id, code, 'org_activation')
-    try:
-        send_two_factor_email(to_email, code, purpose='activation')
-    except Exception as e:
-        clear_pending_two_factor_code()
-        return _utf8_json({'success': False, 'error': f'Could not send code: {e}'}, 400)
-    session['pending_2fa_email'] = to_email
-    return _utf8_json({'success': True,
-                       'message': f'Verification code sent to {to_email}. Enter it to turn on org-wide 2FA.'})
-
-
-@app.route('/admin/dashboard/settings/2fa/org-policy/confirm', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_confirm():
-    """Verify the acting admin's second factor, then turn the policy on.
-
-    Accepts whichever factor they actually hold: an authenticator code is
-    checked directly, otherwise the emailed code issued by /start.
-    """
-    code = ((request.get_json() or {}).get('code') or '').strip()
-    if not code:
-        return _utf8_json({'success': False, 'error': 'Please enter the verification code.'}, 400)
-
-    if totp_secret_is_readable(current_user):
-        ok, counter = verify_totp(user_totp_secret(current_user), code,
-                                  last_used_counter=current_user.totp_last_counter)
-        if not ok:
-            if register_failed_two_factor_attempt(current_user):
-                return _utf8_json({'success': False,
-                                   'error': 'Too many incorrect codes. Try again shortly.'}, 400)
-            return _utf8_json({'success': False,
-                               'error': 'That code did not match your authenticator app.'}, 400)
-        # Spend the step so the same code can't be replayed at a login.
-        current_user.totp_last_counter = counter
-    else:
-        err = get_pending_two_factor_error(current_user.id, 'org_activation')
-        if err:
-            clear_pending_two_factor_code()
-            return _utf8_json({'success': False, 'error': err}, 400)
-        expected_hash = session.get('pending_2fa_code_hash')
-        if not expected_hash or not check_password_hash(expected_hash, code):
-            if register_failed_two_factor_attempt(current_user):
-                return _utf8_json({'success': False,
-                                   'error': 'Too many incorrect codes. Request a new one.'}, 400)
-            return _utf8_json({'success': False, 'error': 'Invalid verification code.'}, 400)
-
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    anchor.org_require_2fa = True
-    anchor.org_2fa_email_settings_version = get_email_settings_fingerprint(get_email_settings())
-    anchor.org_2fa_needs_attention = False
-    db.session.commit()
-    clear_pending_two_factor_code()
-    session.pop('pending_2fa_email', None)
-    return _utf8_json({'success': True, 'org_require_2fa': True})
-
-
-@app.route('/admin/dashboard/settings/2fa/org-policy/disable', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_2fa_policy_disable():
-    """Turn off the org-wide 2FA requirement (no code needed to relax it)."""
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    anchor.org_require_2fa = False
-    anchor.org_2fa_email_settings_version = None
-    anchor.org_2fa_needs_attention = False
-    db.session.commit()
-    return _utf8_json({'success': True, 'org_require_2fa': False})
-
-
-@app.route('/admin/dashboard/settings/2fa/enroll-ticket-policy', methods=['POST'])
-@login_required
-@require_perm('settings.2fa')
-def org_enroll_ticket_policy():
-    """Turn the owner-issued-ticket requirement for mid-login enrolment on/off.
-
-    Off (the default) lets an admin set up their own authenticator the first
-    time they sign in. On means an owner must issue them a ticket first — no
-    code, no enrolment.
-    """
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
-    want = bool((request.get_json(silent=True) or {}).get('enabled'))
-
-    # Turning it on while admins are mid-enrolment would lock them out with no
-    # warning, so say who is affected rather than just flipping the switch.
-    stranded = []
-    if want:
-        stranded = [u.username for u in admins_without_second_factor(anchor.id)
-                    if not totp_enrollment_ticket_pending(u)]
-
-    anchor.org_require_enroll_ticket = want
-    db.session.commit()
-    app.logger.info('org enrolment-ticket policy set to %s by admin id=%s',
-                    want, current_user.id)
-    return _utf8_json({'success': True, 'org_require_enroll_ticket': want,
-                       'stranded': stranded})
-
-
 @app.route('/admin/dashboard/settings/github', methods=['POST'])
 @login_required
 @require_perm('settings.edit')
@@ -11334,83 +11308,139 @@ def save_github_login_settings():
     return _utf8_json({'success': True, 'configured': github_login_is_configured()})
 
 
-@app.route('/admin/dashboard/settings/admin-privacy', methods=['POST'])
-@login_required
-@require_perm('settings.edit')
-def save_admin_privacy_settings():
-    """Org-wide admin privacy: name collection and GitHub-only sign-in.
+# The org-wide switches that govern every admin account, with the wording the
+# confirmation dialog shows. Lives next to the guards below so a new switch
+# cannot be added without deciding what turning it on actually costs.
+ADMIN_ACCESS_SETTINGS = {
+    'org_require_2fa': 'Require Two-Factor for All Admins',
+    'org_require_enroll_ticket': 'Require a Setup Code to Enrol an Authenticator',
+    'org_admin_collect_names': 'Collect Admin Real Names',
+    'org_admin_github_only': 'GitHub Sign-In Only',
+    'org_admin_email_restricted': 'Restrict Admin Email Addresses',
+}
 
-    Turning names off purges the ones already stored — leaving them would make
-    the setting cosmetic, which is not what it promises.
+
+def admin_access_blockers(anchor, wanted):
+    """Why a set of org-wide admin switches would be unsafe to apply, or None.
+
+    Every one of these can lock the organisation out of its own admin area, so
+    the checks matter more than the switches. Extracted from the routes that
+    used to own them so one confirmation can apply them together and still get
+    the same answers.
     """
-    if not current_user.is_full_admin:
-        return _utf8_json({'success': False, 'error': 'Permission denied'}, 403)
-    anchor = get_main_admin()
-    if not anchor:
-        return _utf8_json({'success': False, 'error': 'No primary owner found.'}, 400)
+    def turning_on(key):
+        return bool(wanted.get(key)) and not bool(getattr(anchor, key, False))
 
-    data = request.get_json() or {}
-    collect_names = bool(data.get('collect_names'))
-    github_only = bool(data.get('github_only'))
-    email_restricted = bool(data.get('email_restricted',
-                                     getattr(anchor, 'org_admin_email_restricted', False)))
-
-    if email_restricted and not getattr(anchor, 'org_admin_email_restricted', False):
-        # Turning this ON removes email 2FA from every admin without a grant, so
-        # refuse unless each of them already has a working authenticator. Same
-        # reasoning as the GitHub-only guard: a privacy setting must not become
-        # a lockout.
+    if turning_on('org_admin_email_restricted'):
+        # Removes email 2FA from every admin without a grant, so refuse unless
+        # each of them already holds a working authenticator.
         stranded = [u.username for u in User.query.all()
                     if u.id != anchor.id
                     and not getattr(u, 'email_allowed', False)
                     and u.email
                     and not totp_secret_is_readable(u)]
         if stranded:
-            return _utf8_json(
-                {'success': False,
-                 'error': 'These admins would lose their only second factor. Grant them '
-                          'email access, or have them set up an authenticator app first: '
-                          + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else '')}, 400)
+            return ('These admins would lose their only second factor. Grant them '
+                    'email access, or have them set up an authenticator app first: '
+                    + ', '.join(stranded[:8]) + ('…' if len(stranded) > 8 else ''))
 
-    if github_only and not github_login_is_configured():
-        return _utf8_json({'success': False,
-                           'error': 'Add your GitHub OAuth app credentials before turning this on.'}, 400)
-
-    if github_only:
-        # Refusing this is the whole safety property: without a linked GitHub
-        # account AND a working second factor, flipping this switch would lock
-        # the org out of its own admin area.
-        blockers = []
-        for u in User.query.all():
-            if not u.github_user_id:
-                blockers.append(u.username)
+    if wanted.get('org_admin_github_only'):
+        if not github_login_is_configured():
+            return 'Add your GitHub OAuth app credentials before turning this on.'
+        blockers = [u.username for u in User.query.all() if not u.github_user_id]
         if blockers:
-            return _utf8_json(
-                {'success': False,
-                 'error': 'These admins have not linked a GitHub account yet, so they would '
-                          'be locked out: ' + ', '.join(blockers[:8])
-                          + ('…' if len(blockers) > 8 else '')}, 400)
+            return ('These admins have not linked a GitHub account yet, so they would '
+                    'be locked out: ' + ', '.join(blockers[:8])
+                    + ('…' if len(blockers) > 8 else ''))
         if not any(u.totp_enabled for u in User.query.all()):
-            return _utf8_json(
-                {'success': False,
-                 'error': 'Set up an authenticator app for at least one admin first — in '
-                          'GitHub-only mode the emailed code is unavailable.'}, 400)
+            return ('Set up an authenticator app for at least one admin first — in '
+                    'GitHub-only mode the emailed code is unavailable.')
 
-    anchor.org_admin_github_only = github_only
-    anchor.org_admin_collect_names = collect_names
-    anchor.org_admin_email_restricted = email_restricted
+    if turning_on('org_require_2fa'):
+        # Requiring a second factor of everyone while unable to pass one
+        # yourself is how an org locks itself out. The old flow proved this by
+        # mailing a code; the confirmation now proves it directly, so all that
+        # is left is to check a factor exists at all.
+        state = admin_second_factor_state(current_user)
+        if state['method'] is None:
+            return ('Set up your own second factor first — an authenticator app, or '
+                    'an email address that can receive a code. Requiring it of '
+                    'everyone while you cannot pass it would lock you out.')
+    return None
+
+
+def apply_admin_access_settings(anchor, wanted):
+    """Apply the org-wide admin switches. Returns how many names were purged."""
+    if 'org_require_2fa' in wanted:
+        on = bool(wanted['org_require_2fa'])
+        anchor.org_require_2fa = on
+        # The fingerprint is what auto-disables the policy if the mail settings
+        # change under it; it only means anything while the policy is on.
+        anchor.org_2fa_email_settings_version = (
+            get_email_settings_fingerprint(get_email_settings()) if on else None)
+        anchor.org_2fa_needs_attention = False
+    if 'org_require_enroll_ticket' in wanted:
+        anchor.org_require_enroll_ticket = bool(wanted['org_require_enroll_ticket'])
+    if 'org_admin_github_only' in wanted:
+        anchor.org_admin_github_only = bool(wanted['org_admin_github_only'])
+    if 'org_admin_email_restricted' in wanted:
+        anchor.org_admin_email_restricted = bool(wanted['org_admin_email_restricted'])
 
     purged = 0
-    if not collect_names:
-        for u in User.query.filter(db.or_(User.first_name.isnot(None),
-                                          User.last_name.isnot(None))).all():
-            if u.first_name or u.last_name:
-                u.first_name = None
-                u.last_name = None
-                purged += 1
+    if 'org_admin_collect_names' in wanted:
+        collect = bool(wanted['org_admin_collect_names'])
+        anchor.org_admin_collect_names = collect
+        if not collect:
+            # Leaving the names in place would make the setting cosmetic, which
+            # is not what it promises.
+            for u in User.query.filter(db.or_(User.first_name.isnot(None),
+                                              User.last_name.isnot(None))).all():
+                if u.first_name or u.last_name:
+                    u.first_name = None
+                    u.last_name = None
+                    purged += 1
+    return purged
+
+
+@app.route('/admin/users/admins/settings', methods=['POST'])
+@login_required
+def admin_users_access_settings():
+    """The org-wide admin switches, confirmed the same way the public ones are.
+
+    One request applies them together, so an admin confirms once rather than
+    per switch, and the guards all see the same intended end state.
+    """
+    if not current_user.is_full_admin:
+        return _utf8_json({'error': 'Permission denied'}, 403)
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'error': 'No primary owner found.'}, 400)
+
+    data = request.get_json() or {}
+    wanted = {k: bool(data[k]) for k in ADMIN_ACCESS_SETTINGS if k in data}
+
+    changes = [{'key': k, 'label': ADMIN_ACCESS_SETTINGS[k], 'to': v}
+               for k, v in wanted.items()
+               if bool(getattr(anchor, k, False)) != v]
+
+    if changes:
+        blocked = admin_access_blockers(anchor, wanted)
+        if blocked:
+            return _utf8_json({'error': blocked}, 400)
+        ok, err, method = verify_admin_reauth(current_user, data)
+        if not ok:
+            return _utf8_json({'error': err, 'needs_reauth': method,
+                               'changes': changes}, 401)
+
+    purged = apply_admin_access_settings(anchor, wanted)
     db.session.commit()
+    if changes:
+        app.logger.info('admin access settings changed by admin id=%s: %s',
+                        current_user.id,
+                        ', '.join(f"{c['label']}={'on' if c['to'] else 'off'}"
+                                  for c in changes))
     return _utf8_json({'success': True, 'purged': purged,
-                       'github_only': github_only, 'collect_names': collect_names})
+                       'changed': [c['key'] for c in changes]})
 
 
 @app.route('/admin/dashboard/settings/logging', methods=['POST'])
@@ -14571,6 +14601,7 @@ def delete_page(website_id, page_id):
     if not website:
         return jsonify({'error': 'You are not authorized to delete this page'}), 403
     try:
+        move_to_trash(page, 'page')
         _delete_single_page(page)
         db.session.commit()
         return jsonify({'message': 'Page deleted successfully'}), 200
@@ -14593,6 +14624,9 @@ def delete_website(website_id):
     if not root_user or not root_user.check_password(password):
         return jsonify({'error': 'Incorrect password.'}), 403
     try:
+        # Photographed before the wipe: _delete_website_all clears around thirty
+        # tables, and afterwards there is nothing left to describe.
+        move_to_trash(website, 'website')
         _delete_website_all(website)
         db.session.commit()
         return jsonify({'success': True}), 200
@@ -18973,6 +19007,12 @@ def _start_ip_retention_scheduler():
             try:
                 with app.app_context():
                     prune_expired_ips()
+                    # Same daily cadence, same day-granularity rule: anything in
+                    # the bin past its date goes, whether or not an admin has
+                    # opened the page that would otherwise trigger the sweep.
+                    gone = purge_expired_trash()
+                    if gone:
+                        print(f"[trash] purged {gone} expired item(s)")
             except Exception as loop_err:
                 print(f"[ip-retention] scheduler error: {loop_err}")
             time.sleep(86400)  # once a day is plenty for a day-granularity rule
@@ -25688,6 +25728,12 @@ ADMIN_PERMISSIONS = {
         'create': 'Save new templates',
         'delete': 'Delete templates',
     }},
+    'trash': {'label': 'Trash', 'actions': {
+        'view': 'Open the trash and see what was deleted',
+        'restore': 'Restore deleted items',
+        'purge': 'Permanently delete items and empty the trash',
+        'settings': 'Set how long deleted items are kept',
+    }},
     'admin_users': {'label': 'Admin Users', 'actions': {
         'view': 'View admin users',
         'create': 'Create admin users',
@@ -25833,7 +25879,13 @@ def admin_users_page():
     # because someone opened this page.
     org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
 
+    _anchor_for_access = get_main_admin()
     return render_template('admin_users.html',
+                           # The org-wide admin switches, and how this admin
+                           # will be asked to confirm a change to them.
+                           admin_access={k: bool(getattr(_anchor_for_access, k, False))
+                                         for k in ADMIN_ACCESS_SETTINGS},
+                           access_reauth_method=admin_reauth_method(current_user),
                            sub_admins=sub_admins,
                            org_requires_2fa=org_requires_2fa,
                            unprotected_admin_ids=unprotected_ids,
@@ -25922,6 +25974,10 @@ def admin_public_users_page():
     can_promote_staff = (not current_user.is_sub_admin) or current_user.has_permission('admin_users.promote')
     _sub = current_user.is_sub_admin
     return render_template('admin_public_users.html',
+                           # How this admin will be asked to confirm an access
+                           # change: 'totp', 'password', or None when they hold
+                           # neither and the confirmation stands on its own.
+                           access_reauth_method=admin_reauth_method(current_user),
                            live_websites=live_websites,
                            user_counts_by_website=user_counts_by_website,
                            roles_by_website=roles_by_website,
@@ -26139,6 +26195,78 @@ def admin_public_users_list():
     })
 
 
+def admin_reauth_method(user):
+    """How this admin can prove it is still them: 'totp', 'password' or None.
+
+    The authenticator is preferred where they have a working one — it is the
+    stronger proof and the one an emailless GitHub admin actually holds. None
+    means the account has neither, in which case there is nothing to check
+    against and the deliberate confirmation is the whole protection.
+    """
+    if totp_secret_is_readable(user):
+        return 'totp'
+    if getattr(user, 'password_hash', None):
+        return 'password'
+    return None
+
+
+def verify_admin_reauth(user, data):
+    """(ok, error, method). Confirms an admin is present before a risky change."""
+    method = admin_reauth_method(user)
+    if method is None:
+        return True, None, None
+    if method == 'totp':
+        code = (data.get('totp_code') or '').strip()
+        if not code:
+            return False, 'Enter the code from your authenticator app to confirm.', method
+        ok, counter = verify_totp(user_totp_secret(user), code,
+                                  last_used_counter=user.totp_last_counter)
+        if not ok:
+            return False, 'That code is not right.', method
+        # Burn the step, so the same code cannot be replayed while still valid.
+        user.totp_last_counter = counter
+        db.session.commit()
+        return True, None, method
+    password = data.get('password') or ''
+    if not password or not user.check_password(password):
+        return False, 'That password is not right.', method
+    return True, None, method
+
+
+# Every switch on the Access Settings card, with the wording the confirmation
+# shows. Kept next to the route that applies them so a new switch cannot be
+# added without deciding what turning it on or off actually means.
+PUBLIC_ACCESS_SETTINGS = {
+    'public_users_enabled': 'Enable Public Users',
+    'public_2fa_enabled': 'Two-Factor Authentication',
+    'public_totp_enabled': 'Authenticator App (TOTP)',
+    'require_login_to_view': 'Require Login to View',
+    'public_approval_required': 'Require Admin Approval',
+    'public_email_verification_enabled': 'Email Verification',
+    'public_email_verification_required': 'Verification Required to Login',
+    'visitors_can_see_members': 'Visitors Can See Members',
+    'visitors_can_see_visitors': 'Visitors Can See Other Visitors',
+    'collect_real_names': 'Collect Real Names',
+    'require_public_email': 'Require Email',
+    'allow_public_signup': 'Allow Public Sign-ups',
+    'github_login_enabled': 'GitHub Sign-In',
+    'github_login_only': 'GitHub Sign-In Only',
+}
+
+
+def _public_access_changes(website, data):
+    """Which access settings this request would actually change."""
+    changes = []
+    for key, label in PUBLIC_ACCESS_SETTINGS.items():
+        if key not in data:
+            continue
+        before = bool(getattr(website, key, False))
+        after = bool(data.get(key))
+        if before != after:
+            changes.append({'key': key, 'label': label, 'to': after})
+    return changes
+
+
 @app.route('/admin/users/public/settings', methods=['POST'])
 @login_required
 def admin_public_users_settings():
@@ -26153,6 +26281,23 @@ def admin_public_users_settings():
         website = get_admin_website()
     if not website:
         return _utf8_json({'error': 'No website'}, 400)
+
+    # These decide who can reach the site at all, and one of them — turning off
+    # Collect Real Names — permanently deletes names already on file. A stray
+    # tap should not be able to do any of that, so a change has to be confirmed
+    # by someone who can still prove they are the admin. Saving with nothing
+    # changed asks for nothing.
+    changes = _public_access_changes(website, data)
+    if changes:
+        ok, err, method = verify_admin_reauth(current_user, data)
+        if not ok:
+            return _utf8_json({'error': err, 'needs_reauth': method,
+                               'changes': changes}, 401)
+        app.logger.info('access settings changed on website id=%s by admin id=%s: %s',
+                        website.id, current_user.id,
+                        ', '.join(f"{c['label']}={'on' if c['to'] else 'off'}"
+                                  for c in changes))
+
     website.public_users_enabled               = bool(data.get('public_users_enabled', True))
     website.public_2fa_enabled                 = bool(data.get('public_2fa_enabled', False))
     website.public_totp_enabled                = bool(data.get('public_totp_enabled', False))
@@ -26193,7 +26338,7 @@ def admin_public_users_settings():
             return _utf8_json({'error': 'Enable GitHub sign-in first.'}, 400)
         website.github_login_only = only
     db.session.commit()
-    return _utf8_json({'success': True})
+    return _utf8_json({'success': True, 'changed': [c['key'] for c in changes]})
 
 
 @app.route('/admin/users/public/create', methods=['POST'])
@@ -26735,6 +26880,8 @@ def _delete_public_user_row(public_user):
     added later is handled the day it appears instead of resurrecting this
     same bug.
     """
+    move_to_trash(public_user, 'public_user')
+
     pu_id = public_user.id
     for table in db.metadata.tables.values():
         if table.name == 'public_user':
@@ -26752,6 +26899,8 @@ def _delete_public_user_row(public_user):
     # loaded is now stale — including collections the ORM delete below would
     # otherwise try to cascade over.
     db.session.expire_all()
+    # Photographed before the references above are cleared, so the bin holds
+    # the account as it was rather than a stripped shell.
     db.session.delete(public_user)
 
 
@@ -27565,6 +27714,10 @@ def _delete_admin_account(admin):
     Callers are responsible for the checks that differ between them (who may
     delete whom) and for ending the session afterwards.
     """
+    # Snapshot first: the helpers below re-home everything the account owns,
+    # so by the time it is deleted the row no longer describes what was lost.
+    move_to_trash(admin, 'admin_user', root_user_id=(admin.parent_user_id or admin.id))
+
     root_id = admin.parent_user_id or admin.id
     try:
         _delete_admin_mirrors(admin.id)
@@ -29145,6 +29298,8 @@ def delete_calendar_route(calendar_id):
     # Bulk-delete children first so a large (e.g. externally-synced) calendar
     # deletes quickly instead of ORM-cascading row-by-row and timing out.
     # Events must go before subscriptions (events FK subscription_id).
+    # Snapshot before the bulk deletes below take the events with it.
+    move_to_trash(calendar, 'calendar')
     CalendarEvent.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
     CalendarFeedSubscriber.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
     CalendarSubscription.query.filter_by(calendar_id=calendar_id).delete(synchronize_session=False)
@@ -34600,6 +34755,638 @@ def _wrap_tables_for_scrolling(html):
     return ''.join(out)
 
 
+# ── Trash ───────────────────────────────────────────────────────────────────
+# What each kind of deleted thing is called, how to find its children, and what
+# would collide if it came back. Adding a type here is all it takes for the bin
+# to handle it; the delete route just calls move_to_trash first.
+#
+#   children  (attribute on the parent, model) pairs, dumped with the parent and
+#             re-linked on restore. Grandchildren list their own parent column.
+#   unique    fields that must not clash on the way back, each with the columns
+#             that scope it. A clash stops the restore and asks the admin what
+#             to call it instead.
+# Tables that hang off the page tree rather than off the website, so a sweep on
+# website_id alone would miss them. Followed repeatedly until nothing new turns
+# up, which also picks up grandchildren without listing every path by hand.
+_TRASH_TREE_LINKS = [
+    ('page_section',  'page_content_id', 'public_page_content'),
+    ('row',           'page_content_id', 'public_page_content'),
+    ('section_group', 'page_content_id', 'public_page_content'),
+    ('column',        'row_id',          'row'),
+    ('section_asset', 'section_id',      'page_section'),
+    ('section_image', 'section_id',      'page_section'),
+]
+
+
+def _table(name):
+    return db.metadata.tables.get(name)
+
+
+def _rows_where(table, column, values):
+    if table is None or column not in table.c or not values:
+        return []
+    res = db.session.execute(table.select().where(table.c[column].in_(list(values))))
+    return [{k: _json_safe(v) for k, v in dict(r).items()} for r in res.mappings().all()]
+
+
+def _expand_tree(captured):
+    """Follow the page-tree links until the captured set stops growing."""
+    for _ in range(6):   # deep enough for page -> row -> column -> ...
+        grew = False
+        for child_name, fk, parent_name in _TRASH_TREE_LINKS:
+            parent_rows = captured.get(parent_name) or []
+            if not parent_rows:
+                continue
+            parent_ids = {r.get('id') for r in parent_rows if r.get('id') is not None}
+            have = {r.get('id') for r in captured.get(child_name, [])}
+            rows = _rows_where(_table(child_name), fk, parent_ids)
+            fresh = [r for r in rows if r.get('id') not in have]
+            if fresh:
+                captured.setdefault(child_name, []).extend(fresh)
+                grew = True
+        if not grew:
+            break
+    return captured
+
+
+def collect_page_tables(page):
+    """One page and everything hanging beneath it."""
+    captured = {'public_page_content': [_dump_row(page)]}
+    return _expand_tree(captured)
+
+
+def collect_website_tables(website):
+    """A whole website: every row keyed to it, plus the page tree beneath it.
+
+    Swept off the schema rather than a hand-written list — deleting a website
+    touches around thirty tables, and a list would be one migration away from
+    quietly dropping something out of the snapshot.
+    """
+    wid = website.id
+    captured = {'website': [_dump_row(website)]}
+    for table in db.metadata.tables.values():
+        if table.name in ('website', 'trash_item'):
+            continue
+        if 'website_id' not in table.c:
+            continue
+        rows = _rows_where(table, 'website_id', [wid])
+        if rows:
+            captured[table.name] = rows
+    return _expand_tree(captured)
+
+
+def restore_tables(captured):
+    """Put raw rows back, parents first. Returns how many rows were written.
+
+    Rows whose primary key has been taken since are skipped rather than
+    renumbered: their children point at the old key, and silently rehoming half
+    a page tree would be worse than leaving the piece out and saying so.
+    """
+    written, skipped = 0, 0
+    for table in db.metadata.sorted_tables:
+        rows = captured.get(table.name)
+        if not rows:
+            continue
+        for row in rows:
+            values = {k: _json_load(v) for k, v in row.items() if k in table.c}
+            pk = list(table.primary_key.columns)
+            if pk and values.get(pk[0].name) is not None:
+                exists = db.session.execute(
+                    table.select().where(pk[0] == values[pk[0].name])).first()
+                if exists:
+                    skipped += 1
+                    continue
+            db.session.execute(table.insert().values(**values))
+            written += 1
+    return written, skipped
+
+
+def _trash_registry():
+    return {
+        'page': {
+            'label': 'Page', 'model': PublicPageContent, 'icon': 'fa-file-lines',
+            'name': lambda o: o.name or o.slug,
+            'children': [], 'unique': [('slug', ['website_id'])],
+            'collect': collect_page_tables,
+        },
+        'website': {
+            'label': 'Website', 'model': Website, 'icon': 'fa-globe',
+            'name': lambda o: o.name,
+            'children': [], 'unique': [('url_prefix', [])],
+            'collect': collect_website_tables,
+        },
+        'asset': {
+            'label': 'File', 'model': Asset, 'icon': 'fa-file',
+            'name': lambda o: o.original_filename or o.stored_filename or 'File',
+            'children': [], 'unique': [],
+        },
+        'guide': {
+            'label': 'Guide', 'model': Guide, 'icon': 'fa-book-open',
+            'name': lambda o: o.title,
+            'children': [('nodes', GuideNode, 'guide_id')],
+            'unique': [('slug', ['website_id'])],
+        },
+        'quiz': {
+            'label': 'Quiz', 'model': Quiz, 'icon': 'fa-clipboard-check',
+            'name': lambda o: o.title,
+            'children': [('questions', QuizQuestion, 'quiz_id')],
+            'unique': [],
+        },
+        'resource': {
+            'label': 'Resource', 'model': Resource, 'icon': 'fa-folder-open',
+            'name': lambda o: o.title,
+            'children': [], 'unique': [],
+        },
+        'post': {
+            'label': 'Post', 'model': Post, 'icon': 'fa-newspaper',
+            'name': lambda o: o.title,
+            'children': [], 'unique': [('slug', ['collection_id'])],
+        },
+        'calendar': {
+            'label': 'Calendar', 'model': Calendar, 'icon': 'fa-calendar-days',
+            'name': lambda o: o.name,
+            'children': [('events', CalendarEvent, 'calendar_id')],
+            'unique': [],
+        },
+        'newsletter': {
+            'label': 'Newsletter', 'model': Newsletter, 'icon': 'fa-envelope-open-text',
+            'name': lambda o: o.name,
+            'children': [('campaigns', NewsletterCampaign, 'newsletter_id')],
+            'unique': [('slug', ['website_id'])],
+        },
+        'newsletter_campaign': {
+            'label': 'Newsletter issue', 'model': NewsletterCampaign,
+            'icon': 'fa-envelope', 'name': lambda o: o.subject,
+            'children': [], 'unique': [],
+        },
+        'public_user': {
+            'label': 'Member', 'model': PublicUser, 'icon': 'fa-user',
+            'name': lambda o: o.effective_display_name or o.username,
+            'children': [], 'unique': [('username', []), ('email', [])],
+            'is_person': True,
+        },
+        'admin_user': {
+            'label': 'Admin', 'model': User, 'icon': 'fa-user-shield',
+            'name': lambda o: o.username,
+            'children': [], 'unique': [('username', []), ('email', [])],
+            'is_person': True,
+        },
+    }
+
+
+_TRASH_TYPES_CACHE = None
+
+
+def trash_types():
+    global _TRASH_TYPES_CACHE
+    if _TRASH_TYPES_CACHE is None:
+        _TRASH_TYPES_CACHE = _trash_registry()
+    return _TRASH_TYPES_CACHE
+
+
+def _json_safe(value):
+    if isinstance(value, datetime):
+        return {'__dt__': value.isoformat()}
+    if isinstance(value, date):
+        return {'__d__': value.isoformat()}
+    if isinstance(value, Decimal):
+        return {'__dec__': str(value)}
+    return value
+
+
+def _json_load(value):
+    if isinstance(value, dict):
+        if '__dt__' in value:
+            return datetime.fromisoformat(value['__dt__'])
+        if '__d__' in value:
+            return date.fromisoformat(value['__d__'])
+        if '__dec__' in value:
+            return Decimal(value['__dec__'])
+    return value
+
+
+def _dump_row(obj):
+    return {c.name: _json_safe(getattr(obj, c.name, None))
+            for c in obj.__table__.columns}
+
+
+def _load_row(model, data):
+    cols = {c.name for c in model.__table__.columns}
+    return {k: _json_load(v) for k, v in data.items() if k in cols}
+
+
+def trash_retention_days():
+    """How long the org keeps deleted things, or None for "until emptied"."""
+    anchor = get_main_admin()
+    days = getattr(anchor, 'trash_retention_days', None) if anchor else None
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return None
+    return days if days > 0 else None
+
+
+def move_to_trash(obj, item_type, actor=None, root_user_id=None):
+    """Photograph something before it is deleted. Returns the TrashItem.
+
+    Call this immediately before db.session.delete(obj); the caller still owns
+    the delete, so a route that refuses for other reasons never leaves a
+    phantom entry in the bin.
+    """
+    spec = trash_types().get(item_type)
+    if spec is None:
+        return None
+
+    if spec.get('collect'):
+        # Types whose delete takes a whole tree with it are photographed as raw
+        # tables instead of a row plus named children — there are far too many
+        # relationships to name, and a missed one is a hole in the snapshot.
+        payload = {'row': _dump_row(obj), 'tables': spec['collect'](obj)}
+    else:
+        payload = {'row': _dump_row(obj), 'children': {}}
+    for attr, child_model, fk in (spec['children'] if not spec.get('collect') else []):
+        try:
+            rows = getattr(obj, attr)
+            rows = rows.all() if hasattr(rows, 'all') else list(rows or [])
+        except Exception:
+            rows = []
+        payload['children'][attr] = {
+            'model': child_model.__name__, 'fk': fk,
+            'rows': [_dump_row(r) for r in rows],
+        }
+
+    if root_user_id is None:
+        try:
+            root_user_id = current_user.root_user_id
+        except Exception:
+            root_user_id = None
+    if root_user_id is None:
+        anchor = get_main_admin()
+        root_user_id = anchor.id if anchor else None
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    days = trash_retention_days()
+    if spec.get('is_person'):
+        # A person's record never outstays this, whatever the org setting says.
+        days = min(days or TRASH_MAX_DAYS_PEOPLE, TRASH_MAX_DAYS_PEOPLE)
+    expires = now + timedelta(days=days) if days else None
+
+    try:
+        name = spec['name'](obj) or ''
+    except Exception:
+        name = ''
+
+    item = TrashItem(
+        root_user_id=root_user_id,
+        website_id=getattr(obj, 'website_id', None),
+        item_type=item_type,
+        label=(str(name) or spec['label'])[:300],
+        detail=None,
+        payload=payload,
+        deleted_at=now,
+        deleted_by_id=(getattr(actor, 'id', None)
+                       or (current_user.id if _safe_authenticated() else None)),
+        expires_at=expires,
+    )
+    db.session.add(item)
+    return item
+
+
+def _safe_authenticated():
+    try:
+        return bool(current_user and current_user.is_authenticated)
+    except Exception:
+        return False
+
+
+def trash_conflicts(item):
+    """What would clash if this came back, as [{field, value, message}].
+
+    Checked before anything is written, so the admin is asked what to call it
+    instead rather than discovering a half-restored mess.
+    """
+    spec = trash_types().get(item.item_type)
+    if not spec:
+        return []
+    row = item.payload.get('row') or {}
+    model = spec['model']
+    out = []
+    for field, scope in spec['unique']:
+        value = _json_load(row.get(field))
+        if value in (None, ''):
+            continue
+        q = model.query.filter(getattr(model, field) == value)
+        for scope_field in scope:
+            q = q.filter(getattr(model, scope_field) == _json_load(row.get(scope_field)))
+        if q.first() is not None:
+            out.append({
+                'field': field,
+                'value': value,
+                'message': f'Another {spec["label"].lower()} already uses '
+                           f'the {field.replace("_", " ")} "{value}".',
+            })
+    return out
+
+
+def restore_trash_item(item, resolutions=None):
+    """Put it back. Returns (ok, error, conflicts)."""
+    spec = trash_types().get(item.item_type)
+    if not spec:
+        return False, 'This kind of item can no longer be restored.', []
+
+    row = dict(item.payload.get('row') or {})
+    for field, value in (resolutions or {}).items():
+        if field in row:
+            row[field] = value
+
+    conflicts = []
+    model = spec['model']
+    for field, scope in spec['unique']:
+        value = _json_load(row.get(field))
+        if value in (None, ''):
+            continue
+        q = model.query.filter(getattr(model, field) == value)
+        for scope_field in scope:
+            q = q.filter(getattr(model, scope_field) == _json_load(row.get(scope_field)))
+        if q.first() is not None:
+            conflicts.append({
+                'field': field, 'value': value,
+                'message': f'Another {spec["label"].lower()} already uses '
+                           f'the {field.replace("_", " ")} "{value}".',
+            })
+    if conflicts:
+        return False, 'Resolve the conflict before restoring.', conflicts
+
+    tables = item.payload.get('tables')
+    if tables:
+        # The root row is in there with everything else, so a resolution has to
+        # be applied to the captured copy rather than to a separate row dict.
+        root_table = model.__table__.name
+        for i, captured_row in enumerate(tables.get(root_table, [])):
+            if captured_row.get('id') == (item.payload.get('row') or {}).get('id'):
+                merged = dict(captured_row)
+                merged.update({k: v for k, v in (resolutions or {}).items()
+                               if k in merged})
+                tables[root_table][i] = merged
+        written, skipped = restore_tables(tables)
+        db.session.delete(item)
+        db.session.commit()
+        if skipped:
+            app.logger.warning('trash restore: %s row(s) skipped, their ids were taken',
+                               skipped)
+        return True, None, []
+
+    values = _load_row(model, row)
+    old_id = values.get('id')
+    # Keep the original id when it is still free, so anything that pointed at
+    # this row — a favourite, a link — lines up again.
+    if old_id is not None and db.session.get(model, old_id) is not None:
+        values.pop('id', None)
+
+    obj = model(**values)
+    db.session.add(obj)
+    db.session.flush()
+
+    for attr, child in (item.payload.get('children') or {}).items():
+        child_model = globals().get(child.get('model'))
+        if child_model is None:
+            continue
+        fk = child.get('fk')
+        for crow in child.get('rows') or []:
+            cvalues = _load_row(child_model, crow)
+            cid = cvalues.get('id')
+            if cid is not None and db.session.get(child_model, cid) is not None:
+                cvalues.pop('id', None)
+            cvalues[fk] = obj.id
+            db.session.add(child_model(**cvalues))
+
+    db.session.delete(item)
+    db.session.commit()
+    return True, None, []
+
+
+def purge_expired_trash():
+    """Drop everything past its date. Returns how many went."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = TrashItem.query.filter(TrashItem.expires_at.isnot(None),
+                                  TrashItem.expires_at <= now).all()
+    for row in rows:
+        db.session.delete(row)
+    if rows:
+        db.session.commit()
+    return len(rows)
+
+
+def _trash_scope():
+    """The bin belongs to the organisation, not the admin looking at it."""
+    return current_user.root_user_id if current_user.is_sub_admin else current_user.id
+
+
+def _trash_item_json(item):
+    spec = trash_types().get(item.item_type) or {}
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    days_left = None
+    if item.expires_at:
+        # Rounded UP: something deleted a moment ago under a 60-day rule has
+        # 59.99 days left, and reading "59 days" the instant you delete it is
+        # off by one in the direction that matters.
+        secs = (item.expires_at - now).total_seconds()
+        days_left = max(0, -int(-secs // 86400))
+    return {
+        'id': item.id,
+        'type': item.item_type,
+        'type_label': spec.get('label', item.item_type.replace('_', ' ').title()),
+        'icon': spec.get('icon', 'fa-trash'),
+        'label': item.label or '(untitled)',
+        'deleted_at': item.deleted_at.isoformat() if item.deleted_at else None,
+        'deleted_by': (item.deleted_by.username if item.deleted_by else None),
+        'expires_at': item.expires_at.isoformat() if item.expires_at else None,
+        'days_left': days_left,
+        'is_person': bool(spec.get('is_person')),
+        'restorable': item.item_type in trash_types(),
+    }
+
+
+@app.route('/admin/trash')
+@login_required
+@require_perm('trash.view')
+def admin_trash_page():
+    purge_expired_trash()
+    return render_template(
+        'admin_trash.html',
+        retention_days=trash_retention_days() or 0,
+        people_days=TRASH_MAX_DAYS_PEOPLE,
+        type_filters=sorted(
+            [{'key': k, 'label': v['label'], 'icon': v['icon']}
+             for k, v in trash_types().items()], key=lambda x: x['label']),
+        can_restore=current_user.has_permission('trash.restore'),
+        can_purge=current_user.has_permission('trash.purge'),
+        can_configure=current_user.has_permission('trash.settings'),
+    )
+
+
+@app.route('/admin/trash/list')
+@login_required
+@require_perm('trash.view')
+def admin_trash_list():
+    purge_expired_trash()
+    page = max(1, request.args.get('page', 1, type=int))
+    per_page = min(100, max(5, request.args.get('per_page', 25, type=int)))
+    kind = (request.args.get('type') or '').strip()
+    search = (request.args.get('q') or '').strip()
+
+    q = TrashItem.query.filter(TrashItem.root_user_id == _trash_scope())
+    if kind and kind in trash_types():
+        q = q.filter(TrashItem.item_type == kind)
+    if search:
+        q = q.filter(TrashItem.label.ilike(f'%{search}%'))
+    total = q.count()
+    rows = (q.order_by(TrashItem.deleted_at.desc(), TrashItem.id.desc())
+             .offset((page - 1) * per_page).limit(per_page).all())
+    return _utf8_json({
+        'success': True,
+        'items': [_trash_item_json(r) for r in rows],
+        'page': page, 'per_page': per_page, 'total': total,
+        'pages': max(1, (total + per_page - 1) // per_page),
+    })
+
+
+def _trash_owned(item_id):
+    return TrashItem.query.filter_by(id=item_id, root_user_id=_trash_scope()).first()
+
+
+@app.route('/admin/trash/<int:item_id>/conflicts')
+@login_required
+@require_perm('trash.restore')
+def admin_trash_conflicts(item_id):
+    item = _trash_owned(item_id)
+    if not item:
+        return _utf8_json({'error': 'Not found'}, 404)
+    return _utf8_json({'success': True, 'conflicts': trash_conflicts(item),
+                       'item': _trash_item_json(item)})
+
+
+@app.route('/admin/trash/<int:item_id>/restore', methods=['POST'])
+@login_required
+@require_perm('trash.restore')
+def admin_trash_restore(item_id):
+    item = _trash_owned(item_id)
+    if not item:
+        return _utf8_json({'error': 'Not found'}, 404)
+    resolutions = (request.get_json(silent=True) or {}).get('resolutions') or {}
+    label = item.label
+    ok, err, conflicts = restore_trash_item(item, resolutions)
+    if not ok:
+        db.session.rollback()
+        return _utf8_json({'success': False, 'error': err,
+                           'conflicts': conflicts}, 409 if conflicts else 400)
+    app.logger.info('trash restore: %s by admin id=%s', label, current_user.id)
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/trash/delete', methods=['POST'])
+@login_required
+@require_perm('trash.purge')
+def admin_trash_delete():
+    """Permanently remove specific items, or everything in the bin."""
+    data = request.get_json(silent=True) or {}
+    q = TrashItem.query.filter(TrashItem.root_user_id == _trash_scope())
+    if data.get('all'):
+        rows = q.all()
+    else:
+        ids = [int(i) for i in (data.get('ids') or []) if str(i).isdigit()]
+        if not ids:
+            return _utf8_json({'error': 'Nothing selected.'}, 400)
+        rows = q.filter(TrashItem.id.in_(ids)).all()
+    for row in rows:
+        db.session.delete(row)
+    db.session.commit()
+    app.logger.info('trash purge: %s item(s) by admin id=%s', len(rows), current_user.id)
+    return _utf8_json({'success': True, 'deleted': len(rows)})
+
+
+@app.route('/admin/trash/retention', methods=['POST'])
+@login_required
+@require_perm('trash.settings')
+def admin_trash_retention():
+    anchor = get_main_admin()
+    if not anchor:
+        return _utf8_json({'error': 'No primary owner found.'}, 400)
+    try:
+        days = int((request.get_json(silent=True) or {}).get('days') or 0)
+    except (TypeError, ValueError):
+        days = 0
+    days = max(0, min(3650, days))
+    anchor.trash_retention_days = days or None
+
+    # Re-date what is already in the bin, so the setting means the same thing
+    # for things deleted before it was changed.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    for item in TrashItem.query.filter_by(root_user_id=_trash_scope()).all():
+        spec = trash_types().get(item.item_type) or {}
+        item_days = days or None
+        if spec.get('is_person'):
+            item_days = min(item_days or TRASH_MAX_DAYS_PEOPLE, TRASH_MAX_DAYS_PEOPLE)
+        item.expires_at = (item.deleted_at + timedelta(days=item_days)) if item_days else None
+    db.session.commit()
+    purge_expired_trash()
+    return _utf8_json({'success': True, 'days': days,
+                       'people_days': TRASH_MAX_DAYS_PEOPLE})
+
+
+@app.template_filter('public_date')
+def public_date_filter(value):
+    """A plain absolute date for a public reader: "12 Mar 2026".
+
+    format_user_datetime is for admins — it reads a timezone and a format off
+    the signed-in account, neither of which a visitor has. Day-level precision
+    is all these dates are for: whether something is stale, not what hour it
+    was saved.
+    """
+    if not value:
+        return ''
+    try:
+        return value.strftime('%-d %b %Y')
+    except (ValueError, AttributeError):
+        try:
+            return value.strftime('%d %b %Y').lstrip('0')
+        except Exception:
+            return ''
+
+
+@app.template_filter('time_ago')
+def time_ago_filter(value):
+    """How long ago, in the roughest useful terms: "3 days ago", "2 years ago".
+
+    The absolute date says when; this says whether that is recent. Readers are
+    judging whether a guide has been kept up, and "8 months ago" answers that
+    faster than a date they have to subtract from today.
+    """
+    if not value:
+        return ''
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    seconds = (now - value).total_seconds()
+    if seconds < 0:
+        return 'just now'
+    day = 86400.0
+    if seconds < day:
+        return 'today'
+    if seconds < 2 * day:
+        return 'yesterday'
+    days = int(seconds // day)
+    if days < 31:
+        return f'{days} days ago'
+    months = int(days // 30.44)
+    if months < 12:
+        return '1 month ago' if months <= 1 else f'{months} months ago'
+    years = days / 365.25
+    if years < 2:
+        return '1 year ago'
+    return f'{int(years)} years ago'
+
+
 @app.template_filter('scroll_tables')
 def scroll_tables_filter(html):
     """Give admin-authored HTML's tables their own horizontal scroll container.
@@ -39815,6 +40602,7 @@ def admin_post_delete(cid, pid):
     if not website or not is_owner(website):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     post = Post.query.filter_by(id=pid, collection_id=cid).first_or_404()
+    move_to_trash(post, 'post')
     db.session.delete(post)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -40919,6 +41707,9 @@ def admin_guides_delete(gid):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     if not can_access_guide(guide):
         return _utf8_json({'success': False, 'error': "You don't have access to this guide."}, 403)
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('guide', guide.id)
+    move_to_trash(guide, 'guide')
     db.session.delete(guide)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -41300,6 +42091,10 @@ def public_guides_index(prefix=None):
     # Standalone public quizzes (admin flipped "list on public Quizzes page"),
     # grouped by QuizCategory the same way as guides — powering the "Quizzes"
     # tab on this page. question_count feeds each card.
+    # Favourites are per account, so they are only offered to a signed-in
+    # member — a star that always bounced to the login page would be clutter.
+    favorites = favorite_ids_for(public_user)
+    favorites_enabled = bool(public_user)
     public_quizzes = Quiz.query.filter_by(website_id=website.id, is_public=True).all()
     if not viewer_is_member:
         public_quizzes = [q for q in public_quizzes if not q.members_only]
@@ -41397,6 +42192,7 @@ def public_guides_index(prefix=None):
         grouped_quizzes=grouped_quizzes, quiz_question_counts=quiz_question_counts,
         quiz_status=quiz_status,
         grouped_resources=grouped_resources,
+        favorites=favorites, favorites_enabled=favorites_enabled,
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -42411,6 +43207,9 @@ def admin_resources_delete(rid):
     website, r = _admin_resource_or_403(rid)
     if r is None:
         return website
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('resource', r.id)
+    move_to_trash(r, 'resource')
     db.session.delete(r)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -44614,6 +45413,8 @@ def admin_quizzes_update(qid):
     # Public listing + access flags.
     if 'is_public' in data:
         quiz.is_public = bool(data['is_public'])
+        if quiz.is_public and not quiz.published_at:
+            quiz.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
     if 'require_login_to_view' in data:
         quiz.require_login_to_view = bool(data['require_login_to_view'])
     if 'members_only' in data:
@@ -44638,6 +45439,9 @@ def admin_quizzes_delete(qid):
         return website
     if not can_access_quiz(quiz):
         return _utf8_json({'success': False, 'error': "You don't have access to this quiz."}, 403)
+    # A deleted item must not linger in anyone's favourites.
+    drop_favorites_for('quiz', quiz.id)
+    move_to_trash(quiz, 'quiz')
     db.session.delete(quiz)
     db.session.commit()
     return _utf8_json({'success': True})
@@ -45617,6 +46421,78 @@ def public_resource_page(rid):
     return render_template('public_resource_page.html', website=website,
                            resource=resource, items=items, videos=videos,
                            public_user=public_user)
+
+
+def _favoritable_item(website, item_type, item_id, public_user):
+    """The guide/quiz/resource a member may star, or None.
+
+    Starring is only offered for things they can already see, so this repeats
+    the index's visibility rules rather than trusting the id in the request —
+    otherwise the favourites list would be a way to confirm that hidden
+    material exists.
+    """
+    viewer_is_member = _viewer_is_org_member(website, public_user)
+
+    def visible(obj):
+        if obj is None or obj.website_id != website.id:
+            return None
+        if getattr(obj, 'members_only', False) and not viewer_is_member:
+            return None
+        return obj
+
+    if item_type == 'guide':
+        g = db.session.get(Guide, item_id)
+        return visible(g) if (g and g.status == 'published') else None
+    if item_type == 'quiz':
+        q = db.session.get(Quiz, item_id)
+        return visible(q) if (q and q.is_public) else None
+    if item_type == 'resource':
+        r = db.session.get(Resource, item_id)
+        return visible(r) if (r and r.is_public) else None
+    return None
+
+
+@app.route('/<string:prefix>/api/favorites/toggle', methods=['POST'])
+@app.route('/api/favorites/toggle', methods=['POST'], defaults={'prefix': None})
+def public_favorite_toggle(prefix=None):
+    """Star or unstar one item. Returns where it ended up, not what changed,
+    so a double-tap on a flaky connection settles rather than flip-flops."""
+    public_user = get_public_user()
+    if not public_user:
+        return _utf8_json({'error': 'Sign in to save favourites.',
+                           'needs_login': True}, 401)
+    website = public_user.website
+    if not website or website.is_draft or not website_uses_public_accounts(website):
+        return _utf8_json({'error': 'Not found'}, 404)
+
+    data = request.get_json(silent=True) or {}
+    item_type = (data.get('type') or '').strip()
+    try:
+        item_id = int(data.get('id'))
+    except (TypeError, ValueError):
+        item_id = 0
+    if item_type not in FAVORITABLE_TYPES or not item_id:
+        return _utf8_json({'error': 'Unknown item.'}, 400)
+
+    if _favoritable_item(website, item_type, item_id, public_user) is None:
+        return _utf8_json({'error': 'Not found'}, 404)
+
+    existing = PublicUserFavorite.query.filter_by(
+        public_user_id=public_user.id, item_type=item_type, item_id=item_id).first()
+    if existing:
+        db.session.delete(existing)
+        db.session.commit()
+        return _utf8_json({'success': True, 'favorited': False})
+
+    db.session.add(PublicUserFavorite(public_user_id=public_user.id,
+                                      item_type=item_type, item_id=item_id))
+    try:
+        db.session.commit()
+    except IntegrityError:
+        # Two taps landed at once; the unique index settled it. Either way it
+        # is starred now, which is what the caller asked for.
+        db.session.rollback()
+    return _utf8_json({'success': True, 'favorited': True})
 
 
 @app.route('/api/resources/<int:rid>')
@@ -51706,6 +52582,7 @@ def admin_newsletter_delete(nid):
     nl = _get_newsletter_for_admin(nid)
     if not nl:
         return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    move_to_trash(nl, 'newsletter')
     db.session.delete(nl)
     db.session.commit()
     return _utf8_json({'success': True})

@@ -1,0 +1,49 @@
+{# When a guide or quiz was published, and whether it is still being kept up.
+
+   A reader deciding whether to trust a page wants two different things: how old
+   it is, and whether anyone still touches it. A date alone answers the first
+   only if you subtract it from today, and answers the second not at all — so
+   the published date is absolute ("12 Mar 2026") and the updated one relative
+   ("3 days ago"), which is the form each question is actually asked in.
+
+   `updated` is only worth showing when it says something the published date
+   does not, so it is dropped when the two land on the same day — otherwise
+   every freshly published guide would claim to have been updated.
+#}
+{% macro freshness(published, updated, compact=false) -%}
+    {%- set _pub = published -%}
+    {%- set _upd = updated if (updated and (not _pub or updated.date() != _pub.date())) else none -%}
+    {%- if _pub or _upd -%}
+    <span class="uw-dates{{ ' uw-dates-compact' if compact else '' }}">
+        {%- if _pub %}
+        <span class="uw-date-item" title="First published {{ _pub | public_date }}">
+            <i class="fas fa-calendar-day" aria-hidden="true"></i> Published {{ _pub | public_date }}
+        </span>
+        {%- endif %}
+        {%- if _upd %}
+        <span class="uw-date-item uw-date-updated" title="Last updated {{ _upd | public_date }}">
+            <i class="fas fa-rotate" aria-hidden="true"></i> Updated {{ _upd | time_ago }}
+        </span>
+        {%- endif %}
+    </span>
+    {%- endif -%}
+{%- endmacro %}
+
+{# Styles for the macro above. Included once per page that uses it. #}
+{% macro freshness_styles() -%}
+<style>
+    .uw-dates {
+        display: flex; flex-wrap: wrap; gap: 6px 14px;
+        margin-top: 8px;
+        font-size: 0.76rem;
+        color: rgba(255,255,255,0.45);
+        line-height: 1.4;
+    }
+    .uw-dates-compact { margin-top: 4px; font-size: 0.72rem; gap: 4px 10px; }
+    .uw-date-item { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .uw-date-item i { font-size: 0.85em; opacity: 0.7; }
+    /* The one that answers "is this still looked after?" — worth a little more
+       contrast than the publication date beside it. */
+    .uw-date-updated { color: rgba(94,238,200,0.75); }
+</style>
+{%- endmacro %}

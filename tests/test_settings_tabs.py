@@ -118,9 +118,10 @@ def main_test():
         'GitHub Account': 'user',
         'Date and Time': 'user',
         'Public Display Names': 'user',
-        'Organization 2FA Policy': 'site',
+        # The org-wide admin switches moved to the Admins page, where the
+        # equivalent public-member switches already live; a signpost stays here.
+        'Admin Access &amp; Policy': 'site',
         'GitHub Sign-In': 'site',
-        'Admin Privacy': 'site',
         'Logging': 'site',
         'Visitor IP retention': 'site',
         'Admin URL Key': 'site',

@@ -1,0 +1,427 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modal.css') }}">
+
+<style>
+.tr-page { max-width: 1080px; margin: 0 auto; padding: 28px 20px 80px; }
+.tr-head { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.tr-title { font-size: 1.6rem; font-weight: 800; margin: 0; }
+.tr-sub { font-size: 0.88rem; color: rgba(255,255,255,0.5); margin: 0 0 22px; line-height: 1.55; }
+
+.tr-bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px; margin-bottom: 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08); border-radius: 12px;
+}
+.tr-search, .tr-select {
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
+    color: inherit; font: inherit; font-size: 0.86rem;
+    padding: 8px 11px; border-radius: 9px;
+}
+.tr-search { flex: 1; min-width: 160px; }
+.tr-spacer { flex: 1; }
+
+.tr-btn {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 13px; border-radius: 9px; cursor: pointer;
+    font: inherit; font-size: 0.84rem; font-weight: 600;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14);
+    color: inherit;
+}
+.tr-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
+.tr-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.tr-btn-restore { background: rgba(94,238,200,0.14); border-color: rgba(94,238,200,0.34); color: #5eeec8; }
+.tr-btn-danger  { background: rgba(255,80,80,0.13); border-color: rgba(255,80,80,0.3); color: #ff8b8b; }
+
+.tr-list { display: flex; flex-direction: column; gap: 8px; }
+.tr-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 14px; border-radius: 11px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.08);
+}
+.tr-row.is-selected { border-color: rgba(94,238,248,0.45); background: rgba(94,238,248,0.06); }
+.tr-check { width: 17px; height: 17px; flex-shrink: 0; cursor: pointer; }
+.tr-ic {
+    width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.65);
+}
+.tr-main { flex: 1; min-width: 0; }
+.tr-name { font-weight: 700; font-size: 0.96rem; overflow-wrap: anywhere; }
+.tr-meta {
+    display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 3px;
+    font-size: 0.78rem; color: rgba(255,255,255,0.45);
+}
+.tr-kind {
+    font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em;
+    text-transform: uppercase; color: #5eeef8; opacity: 0.9;
+}
+.tr-timer { display: inline-flex; align-items: center; gap: 5px; }
+.tr-timer.is-soon { color: #ffb37a; }
+.tr-timer.is-urgent { color: #ff8b8b; }
+.tr-timer.is-forever { color: rgba(255,255,255,0.35); }
+.tr-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+.tr-empty { text-align: center; padding: 60px 20px; color: rgba(255,255,255,0.4); }
+.tr-empty i { font-size: 2.4rem; opacity: 0.35; display: block; margin-bottom: 12px; }
+
+.tr-pager { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 20px; }
+.tr-page-btn {
+    min-width: 34px; padding: 6px 10px; border-radius: 8px; cursor: pointer;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.13);
+    color: inherit; font: inherit; font-size: 0.84rem;
+}
+.tr-page-btn.is-active { background: rgba(94,238,248,0.16); border-color: rgba(94,238,248,0.4); }
+.tr-page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.tr-retention { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 0.86rem; }
+.tr-note {
+    margin-top: 14px; padding: 10px 13px; border-radius: 9px;
+    background: rgba(255,196,84,0.08); border: 1px solid rgba(255,196,84,0.26);
+    color: #ffd08a; font-size: 0.8rem; line-height: 1.5;
+}
+.tr-conflict {
+    padding: 11px 13px; border-radius: 9px; margin-bottom: 12px;
+    background: rgba(255,196,84,0.1); border: 1px solid rgba(255,196,84,0.3);
+    color: #ffd08a; font-size: 0.84rem; line-height: 1.5;
+}
+.tr-field { margin-bottom: 12px; }
+.tr-field label { display: block; font-size: 0.82rem; margin-bottom: 5px; opacity: 0.75; }
+</style>
+
+<div class="tr-page">
+    <div class="tr-head">
+        <h1 class="tr-title"><i class="fas fa-trash-can"></i> Trash</h1>
+    </div>
+    <p class="tr-sub">
+        Anything deleted lands here first, so a wrong click is not the end of it.
+        Restoring puts an item back exactly as it was — and asks you what to do
+        first if something else has since taken its name.
+    </p>
+
+    <div class="tr-bar">
+        <input class="tr-search" id="trSearch" type="search" placeholder="Search deleted items…"
+               oninput="trDebouncedLoad()">
+        <select class="tr-select" id="trType" onchange="trLoad(1)">
+            <option value="">All types</option>
+            {% for t in type_filters %}
+            <option value="{{ t.key }}">{{ t.label }}</option>
+            {% endfor %}
+        </select>
+        <span class="tr-spacer"></span>
+        {% if can_restore %}
+        <button class="tr-btn tr-btn-restore" id="trRestoreSel" onclick="trRestoreSelected()" disabled>
+            <i class="fas fa-rotate-left"></i> Restore selected
+        </button>
+        {% endif %}
+        {% if can_purge %}
+        <button class="tr-btn tr-btn-danger" id="trDeleteSel" onclick="trDeleteSelected()" disabled>
+            <i class="fas fa-xmark"></i> Delete selected
+        </button>
+        <button class="tr-btn tr-btn-danger" onclick="trEmpty()">
+            <i class="fas fa-broom"></i> Empty trash
+        </button>
+        {% endif %}
+    </div>
+
+    {% if can_configure %}
+    <div class="tr-bar">
+        <div class="tr-retention">
+            <i class="fas fa-hourglass-half" style="opacity:0.6;"></i>
+            <label for="trRetention">Keep deleted items for</label>
+            <select class="tr-select" id="trRetention" onchange="trSaveRetention()">
+                <option value="0"{% if not retention_days %} selected{% endif %}>Forever</option>
+                {% for d in [7, 14, 30, 60, 90, 180, 365] %}
+                <option value="{{ d }}"{% if retention_days == d %} selected{% endif %}>{{ d }} days</option>
+                {% endfor %}
+            </select>
+            <span id="trRetentionMsg" style="font-size:0.8rem;color:#5eeec8;opacity:0;transition:opacity 0.2s;">Saved</span>
+        </div>
+        <div class="tr-note" style="width:100%;margin-top:0;">
+            Deleted <strong>accounts</strong> — members and admins — are always removed after
+            {{ people_days }} days regardless of this setting. Their records are personal data,
+            not site content, and keeping them indefinitely is not ours to choose.
+        </div>
+    </div>
+    {% endif %}
+
+    <div id="trList" class="tr-list"></div>
+    <div id="trPager" class="tr-pager"></div>
+</div>
+
+<!-- Restoring something whose name is already taken -->
+<div class="uw-overlay" id="trConflictOverlay">
+    <div class="uw-modal" role="dialog" aria-modal="true" aria-labelledby="trConflictTitle">
+        <div class="uw-modal-header">
+            <h3 class="uw-modal-title" id="trConflictTitle">Resolve before restoring</h3>
+            <button class="uw-modal-close" onclick="trCloseConflict()" aria-label="Close">&times;</button>
+        </div>
+        <div class="uw-modal-body">
+            <p style="font-size:0.86rem;color:rgba(255,255,255,0.6);margin:0 0 12px;">
+                Something else has taken this while it was in the trash. Give it a new
+                value and it will go back under that instead.
+            </p>
+            <div id="trConflictList"></div>
+            <div id="trConflictError" style="display:none;color:#ff8888;font-size:0.84rem;margin-top:10px;"></div>
+        </div>
+        <div class="uw-modal-footer">
+            <button type="button" class="tr-btn" onclick="trCloseConflict()">Cancel</button>
+            <button type="button" class="tr-btn tr-btn-restore" id="trConflictGo"
+                    onclick="trConfirmRestore()">Restore</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const TR_CAN_RESTORE = {{ can_restore | tojson }};
+const TR_CAN_PURGE   = {{ can_purge | tojson }};
+let trPage = 1;
+let trTimer = null;
+let trPendingId = null;
+
+function trDebouncedLoad() {
+    clearTimeout(trTimer);
+    trTimer = setTimeout(function () { trLoad(1); }, 250);
+}
+
+function trEsc(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function trWhen(iso) {
+    if (!iso) return '';
+    var d = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+         + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// The countdown is the point of the timer icon: how long is left to change
+// your mind, not when it was deleted.
+function trTimerHtml(item) {
+    if (item.days_left === null || item.days_left === undefined) {
+        return '<span class="tr-timer is-forever" title="Kept until the trash is emptied">'
+             + '<i class="fas fa-infinity"></i> Kept until emptied</span>';
+    }
+    var cls = item.days_left <= 3 ? ' is-urgent' : (item.days_left <= 14 ? ' is-soon' : '');
+    var text = item.days_left === 0 ? 'Deleted today'
+             : (item.days_left === 1 ? '1 day left' : item.days_left + ' days left');
+    var why = item.is_person
+        ? 'Accounts are always removed after a fixed period'
+        : 'Removed automatically when this runs out';
+    return '<span class="tr-timer' + cls + '" title="' + trEsc(why) + '">'
+         + '<i class="fas fa-hourglass-half"></i> ' + text + '</span>';
+}
+
+async function trLoad(page) {
+    trPage = page || trPage || 1;
+    var params = new URLSearchParams({ page: trPage });
+    var q = document.getElementById('trSearch').value.trim();
+    var t = document.getElementById('trType').value;
+    if (q) params.set('q', q);
+    if (t) params.set('type', t);
+
+    var list = document.getElementById('trList');
+    try {
+        var r = await fetch('/admin/trash/list?' + params.toString());
+        var d = await r.json();
+        if (!d.success) { list.innerHTML = '<div class="tr-empty">Could not load the trash.</div>'; return; }
+        if (!d.items.length) {
+            list.innerHTML = '<div class="tr-empty"><i class="fas fa-trash-can"></i>'
+                + (q || t ? 'Nothing here matches that.' : 'The trash is empty.') + '</div>';
+            document.getElementById('trPager').innerHTML = '';
+            trSyncButtons();
+            return;
+        }
+        list.innerHTML = d.items.map(function (it) {
+            return '<div class="tr-row" id="tr-row-' + it.id + '">'
+              + '<input type="checkbox" class="tr-check" data-id="' + it.id + '" onchange="trSyncButtons()">'
+              + '<span class="tr-ic"><i class="fas ' + trEsc(it.icon) + '"></i></span>'
+              + '<div class="tr-main">'
+                + '<div class="tr-name">' + trEsc(it.label) + '</div>'
+                + '<div class="tr-meta">'
+                  + '<span class="tr-kind">' + trEsc(it.type_label) + '</span>'
+                  + '<span><i class="fas fa-clock" style="opacity:0.6;"></i> Deleted ' + trEsc(trWhen(it.deleted_at))
+                    + (it.deleted_by ? ' by ' + trEsc(it.deleted_by) : '') + '</span>'
+                  + trTimerHtml(it)
+                + '</div>'
+              + '</div>'
+              + '<div class="tr-actions">'
+                + (TR_CAN_RESTORE ? '<button class="tr-btn tr-btn-restore" onclick="trRestore(' + it.id + ')">'
+                    + '<i class="fas fa-rotate-left"></i> Restore</button>' : '')
+                + (TR_CAN_PURGE ? '<button class="tr-btn tr-btn-danger" onclick="trDelete(' + it.id + ')" '
+                    + 'title="Delete permanently"><i class="fas fa-xmark"></i></button>' : '')
+              + '</div>'
+            + '</div>';
+        }).join('');
+        trRenderPager(d);
+        trSyncButtons();
+    } catch (e) {
+        list.innerHTML = '<div class="tr-empty">Could not load the trash.</div>';
+    }
+}
+
+function trRenderPager(d) {
+    var el = document.getElementById('trPager');
+    if (d.pages <= 1) { el.innerHTML = ''; return; }
+    var html = '<button class="tr-page-btn" onclick="trLoad(' + (d.page - 1) + ')"'
+             + (d.page <= 1 ? ' disabled' : '') + '>‹</button>';
+    for (var i = 1; i <= d.pages; i++) {
+        if (i === 1 || i === d.pages || Math.abs(i - d.page) <= 2) {
+            html += '<button class="tr-page-btn' + (i === d.page ? ' is-active' : '')
+                  + '" onclick="trLoad(' + i + ')">' + i + '</button>';
+        } else if (Math.abs(i - d.page) === 3) {
+            html += '<span style="opacity:0.4;">…</span>';
+        }
+    }
+    html += '<button class="tr-page-btn" onclick="trLoad(' + (d.page + 1) + ')"'
+          + (d.page >= d.pages ? ' disabled' : '') + '>›</button>';
+    el.innerHTML = html;
+}
+
+function trSelected() {
+    return [].slice.call(document.querySelectorAll('.tr-check:checked'))
+        .map(function (c) { return parseInt(c.dataset.id, 10); });
+}
+
+function trSyncButtons() {
+    var n = trSelected().length;
+    document.querySelectorAll('.tr-check').forEach(function (c) {
+        var row = c.closest('.tr-row');
+        if (row) row.classList.toggle('is-selected', c.checked);
+    });
+    ['trRestoreSel', 'trDeleteSel'].forEach(function (id) {
+        var b = document.getElementById(id);
+        if (b) b.disabled = (n === 0);
+    });
+}
+
+async function trRestore(id) {
+    // Ask first. A clash is the normal case for anything with a name, and
+    // finding out halfway through a restore would be worse than being asked.
+    var r = await fetch('/admin/trash/' + id + '/conflicts');
+    var d = await r.json();
+    if (d.success && d.conflicts && d.conflicts.length) {
+        trOpenConflict(id, d.conflicts);
+        return;
+    }
+    await trDoRestore(id, {});
+}
+
+async function trDoRestore(id, resolutions) {
+    var r = await fetch('/admin/trash/' + id + '/restore', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolutions: resolutions || {} })
+    });
+    var d = await r.json();
+    if (!d.success) {
+        if (d.conflicts && d.conflicts.length) { trOpenConflict(id, d.conflicts); return false; }
+        alert(d.error || 'Could not restore that.');
+        return false;
+    }
+    trCloseConflict();
+    trLoad(trPage);
+    return true;
+}
+
+function trOpenConflict(id, conflicts) {
+    trPendingId = id;
+    document.getElementById('trConflictList').innerHTML = conflicts.map(function (c) {
+        return '<div class="tr-conflict">' + trEsc(c.message) + '</div>'
+          + '<div class="tr-field"><label for="trc-' + trEsc(c.field) + '">New '
+          + trEsc(c.field.replace(/_/g, ' ')) + '</label>'
+          + '<input id="trc-' + trEsc(c.field) + '" data-field="' + trEsc(c.field) + '" '
+          + 'value="' + trEsc(c.value) + '"></div>';
+    }).join('');
+    document.getElementById('trConflictError').style.display = 'none';
+    document.getElementById('trConflictOverlay').classList.add('open');
+    document.body.classList.add('uw-modal-open');
+}
+
+function trCloseConflict() {
+    document.getElementById('trConflictOverlay').classList.remove('open');
+    document.body.classList.remove('uw-modal-open');
+    trPendingId = null;
+}
+
+async function trConfirmRestore() {
+    if (!trPendingId) return;
+    var res = {};
+    document.querySelectorAll('#trConflictList input[data-field]').forEach(function (i) {
+        res[i.dataset.field] = i.value.trim();
+    });
+    var ok = await trDoRestore(trPendingId, res);
+    if (!ok) {
+        var err = document.getElementById('trConflictError');
+        err.textContent = 'That is still taken — try something else.';
+        err.style.display = 'block';
+    }
+}
+
+async function trRestoreSelected() {
+    var ids = trSelected();
+    if (!ids.length) return;
+    // One at a time, so a clash on one stops to ask rather than skipping it.
+    for (var i = 0; i < ids.length; i++) {
+        var r = await fetch('/admin/trash/' + ids[i] + '/conflicts');
+        var d = await r.json();
+        if (d.success && d.conflicts && d.conflicts.length) {
+            trOpenConflict(ids[i], d.conflicts);
+            return;
+        }
+        await trDoRestore(ids[i], {});
+    }
+    trLoad(trPage);
+}
+
+async function trPurge(payload, question) {
+    if (!confirm(question)) return;
+    var r = await fetch('/admin/trash/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    var d = await r.json();
+    if (!d.success) { alert(d.error || 'Could not delete.'); return; }
+    trLoad(1);
+}
+
+function trDelete(id) {
+    trPurge({ ids: [id] },
+        'Permanently delete this item?\n\nThis cannot be undone — it is the last copy.');
+}
+
+function trDeleteSelected() {
+    var ids = trSelected();
+    if (!ids.length) return;
+    trPurge({ ids: ids },
+        'Permanently delete ' + ids.length + ' item(s)?\n\nThis cannot be undone.');
+}
+
+function trEmpty() {
+    trPurge({ all: true },
+        'Empty the entire trash?\n\nEverything in it is deleted for good. This cannot be undone.');
+}
+
+async function trSaveRetention() {
+    var days = parseInt(document.getElementById('trRetention').value, 10) || 0;
+    var r = await fetch('/admin/trash/retention', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days: days })
+    });
+    var d = await r.json();
+    if (!d.success) { alert(d.error || 'Could not save.'); return; }
+    var msg = document.getElementById('trRetentionMsg');
+    msg.style.opacity = '1';
+    setTimeout(function () { msg.style.opacity = '0'; }, 2000);
+    trLoad(trPage);
+}
+
+document.addEventListener('DOMContentLoaded', function () { trLoad(1); });
+</script>
+{% endblock %}

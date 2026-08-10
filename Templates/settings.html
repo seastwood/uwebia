@@ -557,88 +557,11 @@
             </div>
 
             {% if can_set_org_2fa %}
-            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
-                <h2 class="settings-section-title">Organization 2FA Policy</h2>
-                <p class="settings-help">
-                    A site-wide security policy (not just your account). When on, <strong>every admin</strong> — main
-                    admin, co-owners and all sub-admins — must pass a second factor at login, whether or not they've
-                    enabled 2FA individually. Either factor satisfies it: an
-                    <strong>authenticator app</strong>, or a code emailed to the admin. Admins who hold no email address
-                    use an authenticator, which is what makes this workable alongside the admin privacy settings below.
-                    Stored on the primary owner so it survives ownership changes.
-                </p>
-                <p class="settings-help">
-                    To turn it on you confirm your own second factor first — your authenticator code if you have one set
-                    up, otherwise a code emailed to you. It switches off automatically only if the email server settings
-                    change <em>and</em> some admin still depends on emailed codes; once every admin has an authenticator,
-                    mail settings no longer affect it.
-                </p>
-
-                {% if org_2fa_needs_attention %}
-                <p class="settings-help" style="color:#ffb3b3;">
-                    Org-wide 2FA was turned off automatically because the email server settings changed while some admins
-                    still relied on emailed codes. Re-verify below to turn it back on.
-                </p>
-                {% endif %}
-
-                {% if org_require_2fa %}
-                <p class="settings-help">Org-wide 2FA is currently <strong>ON</strong> — every admin must pass a second
-                   factor at login (authenticator app, or an emailed code where they have an address).</p>
-                <button type="button" class="settings-button danger" onclick="disableOrg2fa()">Turn off org-wide 2FA</button>
-                {% else %}
-                {% if not current_user.totp_enabled and (not email_settings or not email_settings.is_active) %}
-                <p class="settings-help" style="color:#ffb3b3;">
-                    Set up an authenticator app above, or configure an active email server, so your own second factor can
-                    be confirmed before it's required of everyone.
-                </p>
-                {% endif %}
-                <button type="button" class="settings-button" onclick="startOrg2fa()">
-                    {% if current_user.totp_enabled %}Verify with authenticator{% else %}Send Verification Code{% endif %}
-                </button>
-                <div id="org2faVerifyBox" style="display:none; margin-top:16px;">
-                    <div class="settings-field">
-                        <label for="org2faCode">Verification Code</label>
-                        <input id="org2faCode" type="text" inputmode="numeric" maxlength="6" class="form-control" placeholder="000000">
-                    </div>
-                    <button type="button" class="settings-button" onclick="confirmOrg2fa()">Enable Org-wide 2FA</button>
-                </div>
-                {% endif %}
-
-                <div class="settings-message" id="org2faMessage"></div>
-            </div>
-
+            
             {# Requiring an owner-issued code before an admin may set up their own
                authenticator is the stricter posture, not the default one: on its
                own it stops a new admin completing their first sign-in. #}
-            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
-                <h2 class="settings-section-title">Authenticator Setup Codes</h2>
-                <p class="settings-help">
-                    When an admin who has no second factor signs in and the org requires one, they set up an
-                    authenticator app there and then. By default they can do that themselves — which is what lets a
-                    newly created or newly promoted admin finish their first sign-in without anyone else present.
-                </p>
-                <p class="settings-help">
-                    Turn this on to require a <strong>setup code</strong> instead: an owner issues a single-use code
-                    from the admin's row on the Users page and passes it on in person, and without it the enrolment is
-                    refused. This is what stops a stolen password alone from satisfying the 2FA requirement — the thief
-                    could otherwise enrol their own device. The cost is that every new admin has to be handed a code
-                    before they can sign in, so leave it off unless someone is available to do that.
-                </p>
-                <p class="settings-help">
-                    Either way, issuing someone a code makes it required <em>for them</em> until it is used or expires.
-                    The primary owner is always exempt.
-                </p>
-                <div class="settings-row" style="display:flex;align-items:center;gap:12px;margin-top:6px;">
-                    <label class="settings-toggle-label" for="orgEnrollTicketTog" style="flex:1;">
-                        Require an owner-issued setup code to enrol an authenticator
-                    </label>
-                    <input type="checkbox" id="orgEnrollTicketTog"
-                           {% if org_require_enroll_ticket %}checked{% endif %}
-                           onchange="saveEnrollTicketPolicy(this)">
-                </div>
-                <div class="settings-message" id="enrollTicketMessage"></div>
-            </div>
-            {% endif %}
+                        {% endif %}
 
             {# Your own authenticator is not a site setting: it was gated on
                settings.edit, so a sub-admin without that permission had no way
@@ -681,6 +604,19 @@
             {% endif %}
 
             {% if can_edit_settings %}
+            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
+                <h2 class="settings-section-title">Admin Access &amp; Policy</h2>
+                <p class="settings-help">
+                    The settings that govern <strong>every admin account</strong> — requiring a second
+                    factor, setup codes for enrolling one, GitHub-only sign-in, admin name collection
+                    and email restrictions — now live with the admins they apply to, alongside the
+                    equivalent switches for public members.
+                </p>
+                <a class="settings-button" href="{{ url_for('admin_users_page') }}">
+                    <i class="fas fa-user-shield"></i> Open Admin Users
+                </a>
+            </div>
+
             <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
                 <h2 class="settings-section-title">GitHub Sign-In</h2>
                 <p class="settings-help" style="margin-top:-6px;">
@@ -703,51 +639,7 @@
                 <div class="settings-message" id="githubMessage"></div>
             </div>
 
-            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
-                <h2 class="settings-section-title">Admin Privacy</h2>
-                <p class="settings-help" style="margin-top:-6px;">
-                    Org-wide. For teams whose admins are students or minors.
-                </p>
-                <div class="settings-field">
-                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
-                        <input type="checkbox" id="adminCollectNames"
-                               {% if admin_collect_names %}checked{% endif %}>
-                        Collect admin first &amp; last names
-                    </label>
-                    <p class="settings-help">
-                        Turning this off hides the name fields and
-                        <strong>permanently deletes</strong> names already stored.
-                    </p>
-                </div>
-                <div class="settings-field">
-                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
-                        <input type="checkbox" id="adminGithubOnly"
-                               {% if admin_github_only %}checked{% endif %}>
-                        Admins sign in with GitHub only (no passwords, no email)
-                    </label>
-                    <p class="settings-help">
-                        Every admin must have a linked GitHub account and at least one must
-                        have an authenticator app set up, or this can't be turned on.
-                        Two-factor authentication then uses the authenticator app instead of email.
-                    </p>
-                </div>
-                <div class="settings-field">
-                    <label style="display:flex;align-items:center;gap:10px;text-transform:none;letter-spacing:0;">
-                        <input type="checkbox" id="adminEmailRestricted"
-                               {% if admin_email_restricted %}checked{% endif %}>
-                        Admins have no email unless individually permitted
-                    </label>
-                    <p class="settings-help">
-                        Makes &ldquo;no email&rdquo; the default for admin accounts. Grant it
-                        per-admin on the Admin Users page. The primary owner is always
-                        exempt so the org can't lock itself out. Admins without email
-                        access use an authenticator app for two-factor sign-in.
-                    </p>
-                </div>
-                <button type="button" class="settings-button" onclick="saveAdminPrivacy()">Save privacy settings</button>
-                <div class="settings-message" id="adminPrivacyMessage"></div>
-            </div>
-            {% endif %}
+                        {% endif %}
 
             {% if can_edit_settings %}
             <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
@@ -1506,82 +1398,7 @@
             }
         }
 
-        function _org2faMsg(text, isErr) {
-            const el = document.getElementById('org2faMessage');
-            if (el) { el.textContent = text || ''; el.style.color = isErr ? '#ffb3b3' : '#9cf0c0'; }
-        }
-        async function startOrg2fa() {
-            _org2faMsg('');
-            if (!confirm('Require 2FA for EVERY admin login?\n\nYou\'ll confirm your own second factor first. Once on, all admins (co-owners and sub-admins included) must pass one at login — an authenticator app, or an emailed code where they have an address.')) return;
-            try {
-                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/start', { method: 'POST' });
-                const d = await r.json();
-                if (!d.success) { _org2faMsg(d.error || 'Could not start verification.', true); return; }
-                document.getElementById('org2faVerifyBox').style.display = 'block';
-                const box = document.getElementById('org2faCode');
-                if (box) {
-                    box.placeholder = '000000';
-                    box.focus();
-                }
-                _org2faMsg(d.message || 'Verification code sent.');
-            } catch (e) { _org2faMsg('Request failed.', true); }
-        }
-        async function confirmOrg2fa() {
-            const code = (document.getElementById('org2faCode').value || '').trim();
-            if (!code) { _org2faMsg('Enter the verification code.', true); return; }
-            try {
-                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/confirm', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ code }) });
-                const d = await r.json();
-                if (!d.success) { _org2faMsg(d.error || 'Could not enable.', true); return; }
-                _org2faMsg('Org-wide 2FA is now required for all admins.');
-                window.location.reload();
-            } catch (e) { _org2faMsg('Request failed.', true); }
-        }
-        async function disableOrg2fa() {
-            if (!confirm('Turn off the org-wide 2FA requirement?\n\nAdmins who haven\'t enabled 2FA individually will no longer be prompted.')) return;
-            try {
-                const r = await fetch('/admin/dashboard/settings/2fa/org-policy/disable', { method: 'POST' });
-                const d = await r.json();
-                if (!d.success) { _org2faMsg(d.error || 'Could not disable.', true); return; }
-                window.location.reload();
-            } catch (e) { _org2faMsg('Request failed.', true); }
-        }
 
-        async function saveEnrollTicketPolicy(el) {
-            const on = el.checked;
-            try {
-                const r = await fetch('/admin/dashboard/settings/2fa/enroll-ticket-policy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ enabled: on })
-                });
-                const d = await r.json();
-                if (!d.success) {
-                    el.checked = !on;
-                    _msg('enrollTicketMessage', d.error || 'Could not save.', true);
-                    return;
-                }
-                // Naming who is affected beats a bare "Saved" — turning this on
-                // means these admins cannot sign in until someone issues them a
-                // code, and that is worth knowing before they try.
-                if (on && d.stranded && d.stranded.length) {
-                    _msg('enrollTicketMessage',
-                         'Saved. ' + d.stranded.length + ' admin' +
-                         (d.stranded.length === 1 ? '' : 's') +
-                         ' (' + d.stranded.join(', ') + ') hold no second factor and will ' +
-                         'need a setup code issued before they can sign in.', true);
-                } else {
-                    _msg('enrollTicketMessage',
-                         on ? 'Saved — a setup code is now required.'
-                            : 'Saved — admins can set up their own authenticator.', false);
-                }
-            } catch (e) {
-                el.checked = !on;
-                _msg('enrollTicketMessage', 'Request failed.', true);
-            }
-        }
 
         function _msg(id, text, isError) {
             const el = document.getElementById(id);
@@ -1608,29 +1425,6 @@
             } catch (e) { _msg('githubMessage', 'Request failed.', true); }
         }
 
-        async function saveAdminPrivacy() {
-            const collectNames = document.getElementById('adminCollectNames').checked;
-            const githubOnly   = document.getElementById('adminGithubOnly').checked;
-            const emailRestricted = document.getElementById('adminEmailRestricted').checked;
-            if (!collectNames && !confirm(
-                'Turn off admin name collection?\n\nAny first and last names already stored for admins will be permanently deleted.')) return;
-            if (githubOnly && !confirm(
-                'Switch admins to GitHub-only sign-in?\n\nPasswords will no longer be accepted at the admin login.')) return;
-            try {
-                const r = await fetch('/admin/dashboard/settings/admin-privacy', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ collect_names: collectNames, github_only: githubOnly,
-                                           email_restricted: emailRestricted })
-                });
-                const d = await r.json();
-                if (!d.success) { _msg('adminPrivacyMessage', d.error || 'Could not save.', true); return; }
-                let note = 'Saved.';
-                if (d.purged) note += ' Removed names from ' + d.purged + ' admin account(s).';
-                _msg('adminPrivacyMessage', note, false);
-                setTimeout(function () { window.location.reload(); }, 1200);
-            } catch (e) { _msg('adminPrivacyMessage', 'Request failed.', true); }
-        }
 
         async function saveLoggingSettings() {
             const verbose = document.getElementById('verboseLogging').checked;
