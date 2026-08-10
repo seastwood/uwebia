@@ -287,11 +287,27 @@ def main_test():
         check('so nothing was lost', main.TrashItem.query.count() > 0)
 
     navbar = open(os.path.join(_REPO, 'Templates', 'components', 'navbar.html')).read()
-    block = navbar[navbar.index("admin_trash_page") - 400:navbar.index("admin_trash_page") + 200]
+    at = navbar.index('admin_trash_page')
+    block = navbar[at - 500:at + 200]
     check('the navbar entry is not gated on the disable list',
           "'trash' not in _nd" not in block)
     check('and it lives in the dropdown, not the inline bar',
           'nav-tools-item' in block)
+
+    # Pinned to the foot of the dropdown: it is where you go when something has
+    # gone wrong, not somewhere to hit on the way past. Checked against the
+    # rendered page, since source order alone would not prove it.
+    page = c.get('/admin/users').get_data(as_text=True)
+    from bs4 import BeautifulSoup
+    menu = BeautifulSoup(page, 'html.parser').select_one('#navToolsDropdownContent')
+    check('the dropdown renders', menu is not None)
+    if menu:
+        items = [i.get_text(' ', strip=True) for i in menu.select('.nav-tools-item')
+                 if 'nav-tools-subitem' not in (i.get('class') or [])]
+        check(f'Trash is the last entry ({items[-1] if items else None})',
+              items and items[-1] == 'Trash')
+        check('and is set apart from what sits above it',
+              'nav-tools-item--last' in str(menu))
 
     print('\n[10] the page itself renders')
     r = c.get('/admin/trash')

@@ -595,6 +595,15 @@
     font-size: 0.9rem;
 }
 
+/* Trash is pinned to the foot of the dropdown, so a rule sets it apart from
+   the places you go on purpose. */
+.nav-tools-item--last {
+    margin-top: 6px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0 0 8px 8px;
+}
+
 .global-color-palette-panel {
     display: none;
     position: fixed;
