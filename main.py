@@ -14601,6 +14601,7 @@ def delete_page(website_id, page_id):
     if not website:
         return jsonify({'error': 'You are not authorized to delete this page'}), 403
     try:
+        move_to_trash(page, 'page')
         _delete_single_page(page)
         db.session.commit()
         return jsonify({'message': 'Page deleted successfully'}), 200
@@ -14623,6 +14624,9 @@ def delete_website(website_id):
     if not root_user or not root_user.check_password(password):
         return jsonify({'error': 'Incorrect password.'}), 403
     try:
+        # Photographed before the wipe: _delete_website_all clears around thirty
+        # tables, and afterwards there is nothing left to describe.
+        move_to_trash(website, 'website')
         _delete_website_all(website)
         db.session.commit()
         return jsonify({'success': True}), 200
@@ -34761,8 +34765,116 @@ def _wrap_tables_for_scrolling(html):
 #   unique    fields that must not clash on the way back, each with the columns
 #             that scope it. A clash stops the restore and asks the admin what
 #             to call it instead.
+# Tables that hang off the page tree rather than off the website, so a sweep on
+# website_id alone would miss them. Followed repeatedly until nothing new turns
+# up, which also picks up grandchildren without listing every path by hand.
+_TRASH_TREE_LINKS = [
+    ('page_section',  'page_content_id', 'public_page_content'),
+    ('row',           'page_content_id', 'public_page_content'),
+    ('section_group', 'page_content_id', 'public_page_content'),
+    ('column',        'row_id',          'row'),
+    ('section_asset', 'section_id',      'page_section'),
+    ('section_image', 'section_id',      'page_section'),
+]
+
+
+def _table(name):
+    return db.metadata.tables.get(name)
+
+
+def _rows_where(table, column, values):
+    if table is None or column not in table.c or not values:
+        return []
+    res = db.session.execute(table.select().where(table.c[column].in_(list(values))))
+    return [{k: _json_safe(v) for k, v in dict(r).items()} for r in res.mappings().all()]
+
+
+def _expand_tree(captured):
+    """Follow the page-tree links until the captured set stops growing."""
+    for _ in range(6):   # deep enough for page -> row -> column -> ...
+        grew = False
+        for child_name, fk, parent_name in _TRASH_TREE_LINKS:
+            parent_rows = captured.get(parent_name) or []
+            if not parent_rows:
+                continue
+            parent_ids = {r.get('id') for r in parent_rows if r.get('id') is not None}
+            have = {r.get('id') for r in captured.get(child_name, [])}
+            rows = _rows_where(_table(child_name), fk, parent_ids)
+            fresh = [r for r in rows if r.get('id') not in have]
+            if fresh:
+                captured.setdefault(child_name, []).extend(fresh)
+                grew = True
+        if not grew:
+            break
+    return captured
+
+
+def collect_page_tables(page):
+    """One page and everything hanging beneath it."""
+    captured = {'public_page_content': [_dump_row(page)]}
+    return _expand_tree(captured)
+
+
+def collect_website_tables(website):
+    """A whole website: every row keyed to it, plus the page tree beneath it.
+
+    Swept off the schema rather than a hand-written list — deleting a website
+    touches around thirty tables, and a list would be one migration away from
+    quietly dropping something out of the snapshot.
+    """
+    wid = website.id
+    captured = {'website': [_dump_row(website)]}
+    for table in db.metadata.tables.values():
+        if table.name in ('website', 'trash_item'):
+            continue
+        if 'website_id' not in table.c:
+            continue
+        rows = _rows_where(table, 'website_id', [wid])
+        if rows:
+            captured[table.name] = rows
+    return _expand_tree(captured)
+
+
+def restore_tables(captured):
+    """Put raw rows back, parents first. Returns how many rows were written.
+
+    Rows whose primary key has been taken since are skipped rather than
+    renumbered: their children point at the old key, and silently rehoming half
+    a page tree would be worse than leaving the piece out and saying so.
+    """
+    written, skipped = 0, 0
+    for table in db.metadata.sorted_tables:
+        rows = captured.get(table.name)
+        if not rows:
+            continue
+        for row in rows:
+            values = {k: _json_load(v) for k, v in row.items() if k in table.c}
+            pk = list(table.primary_key.columns)
+            if pk and values.get(pk[0].name) is not None:
+                exists = db.session.execute(
+                    table.select().where(pk[0] == values[pk[0].name])).first()
+                if exists:
+                    skipped += 1
+                    continue
+            db.session.execute(table.insert().values(**values))
+            written += 1
+    return written, skipped
+
+
 def _trash_registry():
     return {
+        'page': {
+            'label': 'Page', 'model': PublicPageContent, 'icon': 'fa-file-lines',
+            'name': lambda o: o.name or o.slug,
+            'children': [], 'unique': [('slug', ['website_id'])],
+            'collect': collect_page_tables,
+        },
+        'website': {
+            'label': 'Website', 'model': Website, 'icon': 'fa-globe',
+            'name': lambda o: o.name,
+            'children': [], 'unique': [('url_prefix', [])],
+            'collect': collect_website_tables,
+        },
         'asset': {
             'label': 'File', 'model': Asset, 'icon': 'fa-file',
             'name': lambda o: o.original_filename or o.stored_filename or 'File',
@@ -34885,8 +34997,14 @@ def move_to_trash(obj, item_type, actor=None, root_user_id=None):
     if spec is None:
         return None
 
-    payload = {'row': _dump_row(obj), 'children': {}}
-    for attr, child_model, fk in spec['children']:
+    if spec.get('collect'):
+        # Types whose delete takes a whole tree with it are photographed as raw
+        # tables instead of a row plus named children — there are far too many
+        # relationships to name, and a missed one is a hole in the snapshot.
+        payload = {'row': _dump_row(obj), 'tables': spec['collect'](obj)}
+    else:
+        payload = {'row': _dump_row(obj), 'children': {}}
+    for attr, child_model, fk in (spec['children'] if not spec.get('collect') else []):
         try:
             rows = getattr(obj, attr)
             rows = rows.all() if hasattr(rows, 'all') else list(rows or [])
@@ -34998,6 +35116,25 @@ def restore_trash_item(item, resolutions=None):
             })
     if conflicts:
         return False, 'Resolve the conflict before restoring.', conflicts
+
+    tables = item.payload.get('tables')
+    if tables:
+        # The root row is in there with everything else, so a resolution has to
+        # be applied to the captured copy rather than to a separate row dict.
+        root_table = model.__table__.name
+        for i, captured_row in enumerate(tables.get(root_table, [])):
+            if captured_row.get('id') == (item.payload.get('row') or {}).get('id'):
+                merged = dict(captured_row)
+                merged.update({k: v for k, v in (resolutions or {}).items()
+                               if k in merged})
+                tables[root_table][i] = merged
+        written, skipped = restore_tables(tables)
+        db.session.delete(item)
+        db.session.commit()
+        if skipped:
+            app.logger.warning('trash restore: %s row(s) skipped, their ids were taken',
+                               skipped)
+        return True, None, []
 
     values = _load_row(model, row)
     old_id = values.get('id')

@@ -93,8 +93,40 @@ def setup():
         member.set_password('memberpassword')
         db.session.add(member)
         db.session.commit()
+
+        # A second site with a page tree on it. The main site cannot be deleted,
+        # so a website test needs one that can.
+        second = main.Website(user_id=owner.id, name='Second', url_prefix='second',
+                              is_draft=False, is_live=True)
+        db.session.add(second)
+        db.session.commit()
+        home = main.PublicPageContent(website_id=second.id, name='Home', slug='home',
+                                      site_active_status=True)
+        about = main.PublicPageContent(website_id=second.id, name='About', slug='about',
+                                       site_active_status=True)
+        db.session.add_all([home, about])
+        db.session.commit()
+        group = main.SectionGroup(page_content_id=about.id, name='G', group_order=0)
+        db.session.add(group)
+        db.session.commit()
+        section = main.PageSection(page_content_id=about.id, section_type='text', order=0,
+                                   content={'html': '<p>About us</p>'})
+        db.session.add(section)
+        db.session.commit()
+        prow = main.Row(page_content_id=about.id, row_number=0, section_group_id=group.id)
+        db.session.add(prow)
+        db.session.commit()
+        db.session.add(main.Column(row_id=prow.id, column_number=0,
+                                   section_id=section.id, width=100))
+        site_guide = main.Guide(website_id=second.id, title='Site guide', slug='sg',
+                                status='published')
+        db.session.add(site_guide)
+        db.session.commit()
+
         return dict(owner=owner.id, site=site.id, guide=guide.id, quiz=quiz.id,
-                    resource=res.id, calendar=cal.id, member=member.id)
+                    resource=res.id, calendar=cal.id, member=member.id,
+                    second=second.id, about=about.id, section=section.id,
+                    site_guide=site_guide.id)
 
 
 def as_owner(ids):
@@ -309,7 +341,57 @@ def main_test():
         check('and is set apart from what sits above it',
               'nav-tools-item--last' in str(menu))
 
-    print('\n[10] the page itself renders')
+    print('\n[10] a page goes to the bin with everything on it')
+    ids2 = setup()
+    c = as_owner(ids2)
+    r = c.post(f"/delete_page/{ids2['second']}/{ids2['about']}")
+    check(f'the page deletes — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('the page is gone',
+              db.session.get(main.PublicPageContent, ids2['about']) is None)
+        check('and its section with it',
+              db.session.get(main.PageSection, ids2['section']) is None)
+    entry = next(i for i in listing(c)['items'] if i['type'] == 'page')
+    check(f"it is in the bin as a page ({entry['label']})", entry['label'] == 'About')
+    r = c.post(f"/admin/trash/{entry['id']}/restore", json={})
+    check(f'restoring succeeds — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('the page is back',
+              db.session.get(main.PublicPageContent, ids2['about']) is not None)
+        check('its section is back',
+              db.session.get(main.PageSection, ids2['section']) is not None)
+        check('and so are the row and column that laid it out',
+              main.Row.query.filter_by(page_content_id=ids2['about']).count() == 1
+              and main.Column.query.count() == 1)
+
+    print('\n[11] and so does a whole website')
+    # Deleting a website clears around thirty tables, so the snapshot is swept
+    # off the schema rather than a hand-written list.
+    r = c.post(f"/delete_website/{ids2['second']}", json={'password': 'ownerpassword'})
+    check(f'the website deletes — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        check('the site is gone', db.session.get(main.Website, ids2['second']) is None)
+        check('its pages went with it',
+              main.PublicPageContent.query.filter_by(website_id=ids2['second']).count() == 0)
+        check('and its guide',
+              db.session.get(main.Guide, ids2['site_guide']) is None)
+    entry = next(i for i in listing(c)['items'] if i['type'] == 'website')
+    check(f"it is in the bin as a website ({entry['label']})", entry['label'] == 'Second')
+    r = c.post(f"/admin/trash/{entry['id']}/restore", json={})
+    check(f'restoring succeeds — got {r.status_code}', r.status_code == 200)
+    with app.app_context():
+        site = db.session.get(main.Website, ids2['second'])
+        check('the site is back', site is not None)
+        check(f'with its address ({site.url_prefix if site else None})',
+              site is not None and site.url_prefix == 'second')
+        check('both pages came back',
+              main.PublicPageContent.query.filter_by(website_id=ids2['second']).count() == 2)
+        check('its guide came back',
+              db.session.get(main.Guide, ids2['site_guide']) is not None)
+        check('and the page tree beneath it',
+              main.PageSection.query.count() == 1 and main.Column.query.count() == 1)
+
+    print('\n[12] the page itself renders')
     r = c.get('/admin/trash')
     body = r.get_data(as_text=True)
     check(f'it opens — got {r.status_code}', r.status_code == 200)
