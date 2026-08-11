@@ -239,7 +239,9 @@
             </div>
             <div class="ra-field">
                 <label class="ra-label">Picture <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional — shown beside the title)</span></label>
-                {{ imgspot.image_spot('resImage', 'Resource picture') }}
+                {{ imgspot.image_spot('resImage', 'Resource picture', kind='resource',
+                                      title_field='resTitle',
+                                      desc_field='resDesc') }}
             </div>
             <div class="ra-field">
                 <label class="ra-label" for="resDesc">Description <span style="opacity:0.5;text-transform:none;font-weight:400;">(optional)</span></label>

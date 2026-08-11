@@ -4262,6 +4262,86 @@ FAVORITABLE_TYPES = ('guide', 'quiz', 'resource')
 # upload endpoint finds-or-creates by name, so nothing has to exist up front.
 EDUCATION_IMAGE_FOLDER = 'Quiz & resource images'
 
+# Guide covers are a different shape and a different job from the small inline
+# pictures above, so they get their own folder rather than being mixed in.
+GUIDE_COVER_FOLDER = 'Guide covers'
+
+# What "Generate with AI" makes for each kind of thing, and where it files it.
+# The wording matters more than it looks: image models will happily letter a
+# picture with a garbled version of the title, and a busy background ruins
+# something displayed at 58px, so both are ruled out explicitly.
+CONTENT_IMAGE_KINDS = {
+    'quiz': {
+        'folder': EDUCATION_IMAGE_FOLDER,
+        'subject': 'a quiz',
+        'style': ('A single bold, simple icon-style illustration, centred, '
+                  'flat vector art, one clear subject, plain uncluttered '
+                  'background, bright friendly colours.'),
+    },
+    'resource': {
+        'folder': EDUCATION_IMAGE_FOLDER,
+        'subject': 'a reference resource',
+        'style': ('A single bold, simple icon-style illustration, centred, '
+                  'flat vector art, one clear subject, plain uncluttered '
+                  'background, bright friendly colours.'),
+    },
+    'guide': {
+        'folder': GUIDE_COVER_FOLDER,
+        'subject': 'a training guide',
+        'style': ('A clean modern editorial cover illustration with a clear '
+                  'focal subject and plenty of open space, suitable as a wide '
+                  'banner behind a title.'),
+    },
+}
+
+
+def content_image_prompt(kind, title, description=''):
+    """Turn a title and blurb into an image prompt. Returns '' if there is
+    nothing to work from."""
+    spec = CONTENT_IMAGE_KINDS.get(kind)
+    if not spec:
+        return ''
+    title = ' '.join((title or '').split())[:200]
+    # The blurb is rich text on guides and quizzes; the model wants prose.
+    description = _html_to_plain(description or '')
+    import html as _html
+    description = ' '.join(_html.unescape(description).split())[:400]
+    if not title and not description:
+        return ''
+    subject = f'“{title}”' if title else 'this'
+    parts = [f'An illustration representing {subject}, {spec["subject"]}.']
+    if description:
+        parts.append(f'It covers: {description}.')
+    parts.append(spec['style'])
+    # Left to itself a model will stamp a mangled copy of the title across the
+    # picture, which looks broken next to the real title beside it.
+    parts.append('Do not include any text, words, letters or numbers.')
+    return ' '.join(parts)
+
+
+def image_capable_agents():
+    """The signed-in account's agents that can actually make an image."""
+    return AIAgent.query.filter(
+        AIAgent.user_id == current_user.root_user_id,
+        AIAgent.capabilities.in_(('image', 'both')),
+        AIAgent.provider != 'anthropic',
+    ).order_by(AIAgent.created_at).all()
+
+
+def asset_folder_by_name(name, pool_user_id):
+    """Find-or-create a top-level image folder in this pool, by name."""
+    name = (name or '').strip()
+    if not name:
+        return None
+    folder = AssetFolder.query.filter_by(
+        user_id=pool_user_id, name=name, parent_id=None).first()
+    if not folder:
+        folder = AssetFolder(name=name[:120], user_id=pool_user_id,
+                             asset_type='image', parent_id=None)
+        db.session.add(folder)
+        db.session.commit()
+    return folder
+
 
 def favorite_ids_for(public_user):
     """{'guide': {1, 2}, 'quiz': set(), 'resource': {7}} for this member.
@@ -6905,15 +6985,7 @@ def asset_upload():
     # the shared Quill paste-to-upload handler (folder_name='Pasted images').
     folder_name = (request.form.get('folder_name') or '').strip()
     if not folder_id and folder_name:
-        folder = AssetFolder.query.filter_by(
-            user_id=pool_user_id, name=folder_name, parent_id=None
-        ).first()
-        if not folder:
-            folder = AssetFolder(name=folder_name[:120], user_id=pool_user_id,
-                                 asset_type='image', parent_id=None)
-            db.session.add(folder)
-            db.session.commit()
-        folder_id = folder.id
+        folder_id = asset_folder_by_name(folder_name, pool_user_id).id
 
     if folder_id:
         folder = AssetFolder.query.filter_by(
@@ -7006,35 +7078,33 @@ def asset_upload():
     })
 
 
-@app.route('/admin/assets/ai-generate', methods=['POST'])
-@login_required
-@require_perm('assets.ai_generate')
-def ai_generate_asset():
+def _generate_image_asset(agent_id, prompt, size='1024x1024', model_ovr='',
+                          folder_id=None, ref_asset_id=None):
+    """Generate one image with an AI agent and file it in the asset library.
+
+    Returns (asset, error_response): exactly one of the two is set. Shared by
+    the library's Generate modal and the one-click buttons on guides, quizzes
+    and resources, so all of them handle providers, reference images and
+    failures identically.
+    """
     import io as _io, base64 as _b64, requests as _req
-    data = request.get_json() or {}
-    agent_id = data.get('agent_id')
-    prompt = (data.get('prompt') or '').strip()
-    size = data.get('size', '1024x1024')
-    model_ovr = (data.get('model') or '').strip()
-    folder_id = data.get('folder_id') or None
-    ref_asset_id = data.get('ref_asset_id') or None
 
     if not agent_id:
-        return _utf8_json({'success': False, 'error': 'Select an AI agent'}, 400)
+        return None, _utf8_json({'success': False, 'error': 'Select an AI agent'}, 400)
     if not prompt:
-        return _utf8_json({'success': False, 'error': 'Enter a prompt'}, 400)
+        return None, _utf8_json({'success': False, 'error': 'Enter a prompt'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
     if not agent_belongs_to_current_user(agent):
-        return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+        return None, _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     if agent.provider == 'anthropic':
-        return _utf8_json({'success': False,
+        return None, _utf8_json({'success': False,
                            'error': 'Claude does not support image generation. Use an OpenAI agent.'}, 400)
 
     api_key, key_error = agent_api_key(agent)
     if key_error:
-        return _utf8_json({'success': False, 'error': key_error}, 400)
+        return None, _utf8_json({'success': False, 'error': key_error}, 400)
 
     if agent.provider == 'openai':
         base_url = 'https://api.openai.com'
@@ -7042,7 +7112,7 @@ def ai_generate_asset():
     else:
         base_url = (agent.api_url or '').rstrip('/')
         if not base_url:
-            return _utf8_json({'success': False, 'error': 'API URL required for custom agents'}, 400)
+            return None, _utf8_json({'success': False, 'error': 'API URL required for custom agents'}, 400)
         model = model_ovr or agent.model or 'dall-e-3'
 
     valid_sizes = {'1024x1024', '1792x1024', '1024x1792', '512x512', '256x256'}
@@ -7123,10 +7193,10 @@ def ai_generate_asset():
                 timeout=120
             )
     except _req.exceptions.RequestException as e:
-        return _utf8_json({'success': False, 'error': f'Request failed: {e}'}, 502)
+        return None, _utf8_json({'success': False, 'error': f'Request failed: {e}'}, 502)
 
     if not r.ok:
-        return _utf8_json({'success': False, 'error': _extract_api_error(r)}, 502)
+        return None, _utf8_json({'success': False, 'error': _extract_api_error(r)}, 502)
 
     item = (r.json().get('data') or [{}])[0]
 
@@ -7136,9 +7206,9 @@ def ai_generate_asset():
         try:
             img_bytes = _req.get(item['url'], timeout=60).content
         except Exception as e:
-            return _utf8_json({'success': False, 'error': f'Failed to download image: {e}'}, 502)
+            return None, _utf8_json({'success': False, 'error': f'Failed to download image: {e}'}, 502)
     else:
-        return _utf8_json({'success': False, 'error': 'No image data in API response'}, 502)
+        return None, _utf8_json({'success': False, 'error': 'No image data in API response'}, 502)
 
     # AI-generated assets land in the shared library pool (root admin's dir).
     pool_user_id = current_user.root_user_id
@@ -7159,7 +7229,7 @@ def ai_generate_asset():
     try:
         saved = save_optimized_versions(_Buf(img_bytes), user_folder)
     except Exception as e:
-        return _utf8_json({'success': False, 'error': f'Image processing failed: {e}'}, 500)
+        return None, _utf8_json({'success': False, 'error': f'Image processing failed: {e}'}, 500)
 
     safe_slug = secure_filename(prompt[:40].replace(' ', '_')) or 'ai_generated'
     # Derive display name from what PIL actually detected (saved['original_filename'] carries the ext)
@@ -7193,7 +7263,75 @@ def ai_generate_asset():
     )
     db.session.add(asset)
     db.session.commit()
+    return asset, None
+
+@app.route('/admin/assets/ai-generate', methods=['POST'])
+@login_required
+@require_perm('assets.ai_generate')
+def ai_generate_asset():
+    data = request.get_json() or {}
+    asset, err = _generate_image_asset(
+        agent_id=data.get('agent_id'),
+        prompt=(data.get('prompt') or '').strip(),
+        size=data.get('size', '1024x1024'),
+        model_ovr=(data.get('model') or '').strip(),
+        folder_id=data.get('folder_id') or None,
+        ref_asset_id=data.get('ref_asset_id') or None,
+    )
+    if err:
+        return err
     return _utf8_json({'success': True, 'asset': asset.to_dict()})
+
+
+@app.route('/admin/assets/ai-generate-for-content', methods=['POST'])
+@login_required
+@require_perm('assets.ai_generate')
+def ai_generate_content_image():
+    """One-click picture for a guide, quiz or resource, from its own words.
+
+    Takes the title and blurb as they are currently typed rather than reading
+    them back from the database, so the button works on something that has not
+    been saved yet — which is exactly when you are most likely to want it.
+    """
+    data = request.get_json() or {}
+    kind = (data.get('kind') or '').strip()
+    if kind not in CONTENT_IMAGE_KINDS:
+        return _utf8_json({'success': False, 'error': 'Unknown content type'}, 400)
+
+    prompt = content_image_prompt(kind, data.get('title') or '',
+                                  data.get('description') or '')
+    if not prompt:
+        return _utf8_json({'success': False,
+                           'error': 'Add a title first — the picture is drawn '
+                                    'from the title and description.'}, 400)
+
+    agent_id = data.get('agent_id')
+    if agent_id:
+        agent = AIAgent.query.get_or_404(agent_id)
+        if not agent_belongs_to_current_user(agent):
+            return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
+    else:
+        agents = image_capable_agents()
+        if not agents:
+            return _utf8_json(
+                {'success': False,
+                 'error': 'No image-capable AI agent is set up. Add one under '
+                          'AI Agents and set its capabilities to Image.'}, 400)
+        agent = agents[0]
+
+    folder = asset_folder_by_name(CONTENT_IMAGE_KINDS[kind]['folder'],
+                                  current_user.root_user_id)
+    asset, err = _generate_image_asset(
+        agent_id=agent.id, prompt=prompt,
+        size=data.get('size') or '1024x1024',
+        folder_id=folder.id if folder else None,
+    )
+    if err:
+        return err
+    return _utf8_json({'success': True, 'url': asset.url,
+                       'asset': asset.to_dict(), 'prompt': prompt,
+                       'agent': agent.name,
+                       'folder': CONTENT_IMAGE_KINDS[kind]['folder']})
 
 
 @app.route('/admin/assets/download/<int:asset_id>')

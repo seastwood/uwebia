@@ -256,7 +256,9 @@
                 </div>
                 <div class="uw-field">
                     <label>Picture <span style="color:rgba(255,255,255,0.4);">(optional — shown beside the title)</span></label>
-                    {{ imgspot.image_spot('quizImage', 'Quiz picture') }}
+                    {{ imgspot.image_spot('quizImage', 'Quiz picture', kind='quiz',
+                          title_field='quizModalTitleInput',
+                          desc_field='quizModalDesc') }}
                 </div>
                 <div class="uw-field">
                     <label for="quizModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
