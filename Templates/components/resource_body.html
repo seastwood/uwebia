@@ -1,0 +1,75 @@
+{# A resource rendered in full: the embedded video, the article text, the
+   file previews or the outbound links.
+
+   Shared by the single-resource page and the bundle page, where videos and
+   articles are inlined so a bundle reads as one document. A second copy would
+   have meant a resource looking different depending on how you reached it.
+
+   Usage:
+     {% import 'components/resource_body.html' as body with context %}
+     {{ body.resource_body(resource, items, videos) }}
+     {{ body.resource_body_styles() }}      once per page
+#}
+
+{% macro resource_body(resource, items=None, videos=None) -%}
+{% if resource.resource_type == 'video' %}
+        {% for v in (videos or []) %}
+        <div style="margin:0 0 26px;">
+            {% if v.label %}<p class="rsc-item-label">{{ v.label }}</p>{% endif %}
+            {% if v.kind == 'iframe' %}
+            <div class="rsc-video">
+                <iframe src="{{ v.src }}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+            </div>
+            {% else %}
+            <video src="{{ v.src }}" controls style="width:100%;border-radius:12px;background:#000;"></video>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% elif resource.resource_type == 'page' %}
+        <div class="rsc-rich">{{ resource.content | scroll_tables | safe }}</div>
+    {% elif resource.resource_type == 'file' %}
+        {% for it in (items or []) %}
+        {% set _ul = (it.url.split('?')[0]).lower() %}
+        <div style="margin:0 0 22px;">
+            {% if it.label %}<p class="rsc-item-label">{{ it.label }}</p>{% endif %}
+            {% if _ul.endswith('.png') or _ul.endswith('.jpg') or _ul.endswith('.jpeg') or _ul.endswith('.gif') or _ul.endswith('.webp') or _ul.endswith('.svg') or _ul.endswith('.avif') %}
+            <img src="{{ it.url }}" alt="{{ it.label or resource.title }}" style="max-width:100%;height:auto;border-radius:10px;display:block;">
+            {% elif _ul.endswith('.pdf') %}
+            <iframe src="{{ it.url }}" style="width:100%;height:min(70vh,640px);border:1px solid rgba(127,127,127,0.3);border-radius:10px;background:#fff;"></iframe>
+            <a href="{{ it.url }}" target="_blank" rel="noopener" class="rsc-open"><i class="fas fa-external-link-alt"></i> Open in new tab</a>
+            {% else %}
+            <a href="{{ it.url }}" target="_blank" rel="noopener" class="rsc-btn"><i class="fas fa-download"></i> {{ it.label or it.url.split('/')[-1] }}</a>
+            {% endif %}
+        </div>
+        {% endfor %}
+    {% else %}{# link #}
+        <div class="rsc-links">
+        {% for it in (items or []) %}
+            <a href="{{ it.url }}" target="_blank" rel="noopener" class="rsc-btn"><i class="fas fa-external-link-alt"></i> {{ it.label or it.url }}</a>
+        {% endfor %}
+        </div>
+    {% endif %}
+{%- endmacro %}
+
+{% macro resource_body_styles() -%}
+<style>
+.rsc-item-label { font-weight: 700; font-size: 0.95rem; margin: 0 0 8px; opacity: 0.85; }
+.rsc-video { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: 12px; overflow: hidden; background: #000; }
+.rsc-video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.rsc-links { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.rsc-btn { display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; border-radius: 10px; border: 1px solid rgba(127,127,127,0.4); text-decoration: none; color: inherit; font-weight: 700; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.rsc-btn:hover { border-color: rgba(127,127,127,0.75); }
+.rsc-open { display: inline-flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.85rem; text-decoration: none; color: inherit; opacity: 0.75; }
+.rsc-open:hover { opacity: 1; }
+.rsc-rich { line-height: 1.7; font-size: 1rem; }
+.rsc-rich h1, .rsc-rich h2, .rsc-rich h3 { font-weight: 800; margin: 1.1em 0 0.4em; }
+.rsc-rich h1 { font-size: 1.5rem; } .rsc-rich h2 { font-size: 1.25rem; } .rsc-rich h3 { font-size: 1.08rem; }
+.rsc-rich p { margin: 0 0 0.8em; }
+.rsc-rich a { color: #3aa7c2; }
+.rsc-rich img { max-width: 100%; height: auto; border-radius: 10px; }
+.rsc-rich iframe { max-width: 100%; border-radius: 10px; }
+.rsc-rich ul, .rsc-rich ol { padding-left: 1.5em; margin: 0 0 0.8em; }
+.rsc-rich blockquote { border-left: 3px solid rgba(127,127,127,0.5); margin: 0.8em 0; padding: 4px 0 4px 14px; opacity: 0.85; }
+.rsc-rich pre { background: rgba(127,127,127,0.14); padding: 12px; border-radius: 8px; overflow-x: auto; }
+</style>
+{%- endmacro %}

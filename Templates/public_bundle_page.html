@@ -1,5 +1,6 @@
 {% extends 'public_base.html' %}
 {% import 'components/resource_row.html' as rows with context %}
+{% import 'components/resource_body.html' as body with context %}
 
 {% block title %}{{ bundle.name }} — {{ website.name if website else 'Resources' }}{% endblock %}
 
@@ -29,6 +30,26 @@
     letter-spacing: 0.05em; opacity: 0.55; margin: 18px 0 10px;
 }
 .bp-rule { border: 0; border-top: 1px solid rgba(127,127,127,0.22); margin: 14px 0 0; }
+
+/* An inlined video or article: its own titled section in the running order. */
+.bp-item { margin: 0 0 34px; scroll-margin-top: 80px; }
+.bp-item-head { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 14px; }
+.bp-item-ic, .bp-item-pic {
+    width: 38px; height: 38px; flex-shrink: 0; border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; font-size: 0.95rem;
+    background: linear-gradient(135deg, rgba(255,196,120,0.2), rgba(94,238,200,0.12));
+}
+.bp-item-pic { overflow: hidden; background: rgba(127,127,127,0.1); }
+.bp-item-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bp-item-headings { flex: 1; min-width: 0; }
+.bp-item-title { font-size: 1.2rem; font-weight: 800; margin: 0; overflow-wrap: anywhere; }
+.bp-item-desc { font-size: 0.88rem; opacity: 0.62; margin: 4px 0 0; line-height: 1.5; }
+.bp-item-open { flex-shrink: 0; opacity: 0.4; color: inherit; font-size: 0.85rem; padding: 4px; }
+.bp-item-open:hover { opacity: 0.9; }
+/* The star is positioned by the shared row stylesheet against .gi-fav-wrap,
+   which an inlined section has no reason to be; keep it in the flow instead. */
+.bp-item-head > .gi-fav { position: static; flex-shrink: 0; }
+.bp-row { margin: 0 0 14px; }
 @media (max-width: 560px) {
     .bp-title { font-size: 1.45rem; }
     .bp-icon { width: 40px; height: 40px; font-size: 1.05rem; }
@@ -63,12 +84,46 @@
         {{ resources|length }} item{{ '' if resources|length == 1 else 's' }}
     </p>
 
-    <div class="gi-rsc-list">
-        {% for r in resources %}
+    {# Videos and articles open out in place so the bundle reads as one
+       document; links and files are pointers, so they stay as rows. #}
+    {% for b in blocks %}
+    {% set r = b.resource %}
+    {% if b.inline %}
+    <section class="bp-item" id="resource-{{ r.id }}">
+        <div class="bp-item-head">
+            {% if r.image_url %}
+            {# The frame clips: zooming scales the picture past its own box. #}
+            <span class="bp-item-pic">
+                <img src="{{ r.image_url }}" alt="" loading="lazy" style="{{ image_fit(r) }}">
+            </span>
+            {% else %}
+            <span class="bp-item-ic">
+                <i class="fas {{ r.icon or ('fa-play' if r.resource_type == 'video' else 'fa-file-alt') }}" aria-hidden="true"></i>
+            </span>
+            {% endif %}
+            <div class="bp-item-headings">
+                <h2 class="bp-item-title">{{ r.title }}</h2>
+                {% if r.description %}<p class="bp-item-desc">{{ r.description }}</p>{% endif %}
+            </div>
+            {{ rows.fav_button('resource', r.id, favorites, favorites_enabled) }}
+            <a class="bp-item-open" href="{{ url_for('public_resource_page', rid=r.id) }}"
+               title="Open on its own page" aria-label="Open {{ r.title }} on its own page">
+                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+            </a>
+        </div>
+        <div class="bp-item-body">
+            {{ body.resource_body(r, b.items, b.videos) }}
+        </div>
+    </section>
+    {% else %}
+    <div class="gi-rsc-list bp-row">
         {{ rows.resource_row(r, favorites, favorites_enabled, category.name if category else '', bundle.name) }}
-        {% endfor %}
     </div>
+    {% endif %}
+    {% endfor %}
 </div>
+
+{{ body.resource_body_styles() }}
 
 {% if favorites_enabled %}
 {{ rows.fav_script(

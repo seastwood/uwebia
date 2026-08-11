@@ -88,10 +88,13 @@ def setup():
         rows = [
             main.Resource(website_id=site.id, category_id=cat.id, bundle_id=bundle.id,
                           title='How to solder', resource_type='video',
-                          url='https://youtu.be/x', is_public=True, sort_order=1),
+                          url='https://www.youtube.com/watch?v=abc123',
+                          is_public=True, sort_order=1),
             main.Resource(website_id=site.id, category_id=cat.id, bundle_id=bundle.id,
                           title='Written steps', resource_type='page',
-                          content='<p>Steps</p>', is_public=True, sort_order=2),
+                          content='<h2>Tin the tip</h2><p>A clean tip transfers heat.</p>'
+                                  '<table><tr><th>Alloy</th></tr></table>',
+                          is_public=True, sort_order=2),
             # Present but not for everybody, and not listed on the tab.
             main.Resource(website_id=site.id, category_id=cat.id, bundle_id=bundle.id,
                           title='Instructor notes', resource_type='page',
@@ -103,6 +106,11 @@ def setup():
             # Same category, no bundle — must not appear on the bundle page.
             main.Resource(website_id=site.id, category_id=cat.id, title='Loose item',
                           resource_type='link', url='http://e.com', is_public=True),
+            # Content behind a login: listed, but never inlined for a visitor.
+            main.Resource(website_id=site.id, category_id=cat.id, bundle_id=bundle.id,
+                          title='Members-first article', resource_type='page',
+                          content='<p>Gated body text</p>', is_public=True,
+                          require_login_to_view=True, sort_order=5),
             # A members-only resource is the ONLY thing in this bundle.
             main.Resource(website_id=site.id, category_id=cat.id, bundle_id=empty.id,
                           title='Members handbook', resource_type='page',
@@ -152,7 +160,8 @@ def main_test():
     print('\n[2] the page presents everything in the bundle')
     r = anon.get(f"/resources/bundle/{ids['bundle']}")
     check(f'it opens — got {r.status_code}', r.status_code == 200)
-    page = BeautifulSoup(r.get_data(as_text=True), 'html.parser')
+    body = r.get_data(as_text=True)
+    page = BeautifulSoup(body, 'html.parser')
     check('the bundle name is the heading',
           (page.select_one('.bp-title') or page).get_text().strip() == 'Soldering kit')
     check('its description is shown',
@@ -162,28 +171,66 @@ def main_test():
           and '#ff8844' in (page.select_one('.bp-icon') or {}).get('style', ''))
     check('the category is named as a breadcrumb',
           'Workshop' in (page.select_one('.bp-crumb') or page).get_text())
-    titles = [t.get_text() for t in page.select('.gi-rsc-title')]
-    check(f'both public resources are listed ({titles})',
-          titles == ['How to solder', 'Written steps'])
-    check('the count matches what is shown',
-          '2 items' in page.get_text())
-    check('rows use the same markup as the tab',
-          len(page.select('a.gi-rsc-row')) == 2)
+    # Inlined sections carry their own heading; only link/file items stay rows.
+    titles = ([t.get_text().strip() for t in page.select('.bp-item-title')]
+              + [t.get_text().strip() for t in page.select('.gi-rsc-title')])
+    check(f'everything a visitor may see is listed, in order ({titles})',
+          titles == ['How to solder', 'Written steps', 'Members-first article'])
+    check(f'the count matches what is shown',
+          '3 items' in page.get_text())
     check('and there is a way back',
           page.select_one('a.bp-back') is not None)
 
-    print('\n[3] nothing leaks that the tab would not show')
+    print('\n[3] videos and articles render in full, in place')
+    # The point of the page: a bundle should read as one document rather than
+    # four links you have to open one at a time.
+    check('the video is embedded, not linked',
+          page.select_one('.rsc-video iframe') is not None)
+    check('through the same embed builder its own page uses',
+          'youtube.com/embed/abc123' in body)
+    check('the article body is on the page',
+          'A clean tip transfers heat.' in body)
+    check('with its formatting intact', page.select_one('.rsc-rich h2') is not None)
+    # A wide table used to drag the whole page sideways on a phone.
+    check('and a wide table scrolls inside itself',
+          page.select_one('.rsc-rich table') is not None
+          and page.select_one('.uw-table-scroll, [style*="overflow-x"]') is not None)
+    check('each inlined resource is a titled section',
+          len(page.select('section.bp-item')) == 2)
+    check('anchored so it can be linked to directly',
+          page.select_one('section.bp-item[id^="resource-"]') is not None)
+    check('with a way to open it on its own page',
+          page.select_one('.bp-item-open') is not None)
+    # Links and files are pointers — there is nothing to inline, so they stay
+    # as compact rows.
+    check('a link is still a row', len(page.select('a.gi-rsc-row')) == 1)
+    check('and it points at the resource route',
+          '/resource/' in page.select_one('a.gi-rsc-row')['href'])
+
+    print('\n[4] a resource behind a login is listed but never inlined')
+    # Inlining it would hand out exactly the content the /resource/<id> gate
+    # exists to withhold.
+    check('it is listed', 'Members-first article' in body)
+    check('but its body is not on the page', 'Gated body text' not in body)
+    check('it is shown as a locked row',
+          page.select_one('.gi-rsc-lock') is not None)
+    signed_in = as_public(ids, 'visitor')
+    body_in = signed_in.get(f"/resources/bundle/{ids['bundle']}").get_data(as_text=True)
+    check('and it opens out once signed in', 'Gated body text' in body_in)
+
+    print('\n[5] nothing leaks that the tab would not show')
     body = r.get_data(as_text=True)
     check('a members-only resource is not on the page', 'Instructor notes' not in body)
     check('nor an unlisted one', 'Unlisted draft' not in body)
     check('nor a resource from the same category outside the bundle',
           'Loose item' not in body)
 
-    print('\n[4] a member sees their own material')
+    print('\n[6] a member sees their own material')
     mc = as_public(ids, 'member')
     page = BeautifulSoup(mc.get(f"/resources/bundle/{ids['bundle']}").get_data(as_text=True),
                          'html.parser')
-    titles = [t.get_text() for t in page.select('.gi-rsc-title')]
+    titles = ([t.get_text().strip() for t in page.select('.bp-item-title')]
+              + [t.get_text().strip() for t in page.select('.gi-rsc-title')])
     check(f'the members-only item appears for them ({titles})',
           'Instructor notes' in titles)
     check('but the unlisted one still does not', 'Unlisted draft' not in titles)
@@ -192,7 +239,7 @@ def main_test():
     check('a signed-in non-member is treated like a visitor',
           'Instructor notes' not in body)
 
-    print('\n[5] a bundle with nothing to show is a plain 404')
+    print('\n[7] a bundle with nothing to show is a plain 404')
     # Saying "this bundle is empty" would confirm the hidden material exists.
     r = anon.get(f"/resources/bundle/{ids['empty']}")
     check(f'not an empty page — got {r.status_code}', r.status_code == 404)
@@ -201,14 +248,15 @@ def main_test():
     r = anon.get('/resources/bundle/99999')
     check(f'an id that does not exist — got {r.status_code}', r.status_code == 404)
 
-    print('\n[6] members can star from the bundle page too')
+    print('\n[8] members can star from the bundle page too')
     check('signed out, there are no stars',
           not BeautifulSoup(anon.get(f"/resources/bundle/{ids['bundle']}")
                             .get_data(as_text=True), 'html.parser').select('button.gi-fav'))
     page = BeautifulSoup(mc.get(f"/resources/bundle/{ids['bundle']}").get_data(as_text=True),
                          'html.parser')
     stars = page.select('button.gi-fav')
-    check(f'signed in, every row has one ({len(stars)})', len(stars) == 3)
+    check(f'signed in, every item has one — rows and inlined sections alike '
+          f'({len(stars)} for {len(titles)} items)', len(stars) == len(titles))
     # Same rule as the index: the row is a link, so a button inside it would be
     # invalid HTML and would navigate instead of saving.
     check('and none is nested inside the row link', not page.select('a .gi-fav'))
@@ -221,7 +269,7 @@ def main_test():
     check('and it comes back starred',
           len(page.select('button.gi-fav[aria-pressed="true"]')) == 1)
 
-    print('\n[7] an offline or draft site does not serve it')
+    print('\n[9] an offline or draft site does not serve it')
     with app.app_context():
         site = db.session.get(main.Website, ids['site'])
         site.is_live = False

@@ -46799,6 +46799,20 @@ def _resource_video_embed(url):
     return ('video', u)
 
 
+def _resource_render_parts(resource):
+    """The items and (for a video) the embeds a resource needs to render in
+    full. Shared so an inlined resource on a bundle page is built exactly the
+    way its own page builds it."""
+    items = resource.item_list()
+    videos = None
+    if resource.resource_type == 'video':
+        videos = []
+        for it in items:
+            kind, src = _resource_video_embed(it['url'])
+            videos.append({'kind': kind, 'src': src, 'label': it.get('label') or ''})
+    return items, videos
+
+
 @app.route('/resources/bundle/<int:bid>')
 def public_resource_bundle(bid):
     """Everything inside one bundle, on its own page.
@@ -46825,11 +46839,24 @@ def public_resource_bundle(bid):
     if not resources:
         abort(404)
 
+    # Videos and articles are shown in full so the bundle reads as one
+    # document; links and files are pointers with nothing to inline, so they
+    # stay as rows. A resource that needs a login is never inlined — that would
+    # hand out the content the /resource/<id> gate exists to withhold — so it
+    # stays a row, and clicking it asks for a login as before.
+    blocks = []
+    for r in resources:
+        inline = (r.resource_type in ('video', 'page')
+                  and not (r.require_login_to_view and not public_user))
+        items, videos = _resource_render_parts(r) if inline else (None, None)
+        blocks.append({'resource': r, 'inline': inline,
+                       'items': items, 'videos': videos})
+
     category = (ResourceCategory.query.get(bundle.category_id)
                 if bundle.category_id else None)
     return render_template('public_bundle_page.html', website=website,
                            bundle=bundle, category=category, resources=resources,
-                           public_user=public_user,
+                           blocks=blocks, public_user=public_user,
                            favorites=favorite_ids_for(public_user),
                            favorites_enabled=bool(public_user))
 
@@ -46853,12 +46880,7 @@ def public_resource_page(rid):
     # A single link/file goes straight to its target; multiple render a list page.
     if resource.resource_type in ('link', 'file') and len(items) == 1:
         return redirect(items[0]['url'])
-    videos = None
-    if resource.resource_type == 'video':
-        videos = []
-        for it in items:
-            kind, src = _resource_video_embed(it['url'])
-            videos.append({'kind': kind, 'src': src, 'label': it.get('label') or ''})
+    items, videos = _resource_render_parts(resource)
     return render_template('public_resource_page.html', website=website,
                            resource=resource, items=items, videos=videos,
                            public_user=public_user)
