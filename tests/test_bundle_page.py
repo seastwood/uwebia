@@ -181,39 +181,54 @@ def main_test():
     check('and there is a way back',
           page.select_one('a.bp-back') is not None)
 
-    print('\n[3] videos and articles render in full, in place')
-    # The point of the page: a bundle should read as one document rather than
-    # four links you have to open one at a time.
+    print('\n[3] videos and articles open out in place, from the list')
+    # It stays a list — a video or an article expands where it is rather than
+    # sending you to another page and back.
+    drawers = page.select('details.bp-item')
+    check(f'each is a disclosure row ({len(drawers)})', len(drawers) == 2)
+    check('closed to begin with, so it reads as a list',
+          not any(d.has_attr('open') for d in drawers))
+    check('each has a summary you click',
+          all(d.select_one('summary.bp-item-row') is not None for d in drawers))
+    # <details> rather than a hand-rolled accordion: it works with no
+    # JavaScript, is keyboard-operable, and the browser's own find-in-page
+    # reaches inside it.
+    check('the content is really in the page, not fetched on click',
+          'A clean tip transfers heat.' in body)
     check('the video is embedded, not linked',
           page.select_one('.rsc-video iframe') is not None)
     check('through the same embed builder its own page uses',
           'youtube.com/embed/abc123' in body)
-    check('the article body is on the page',
-          'A clean tip transfers heat.' in body)
-    check('with its formatting intact', page.select_one('.rsc-rich h2') is not None)
+    # Ten collapsed videos must not mean ten players loading up front.
+    check('and the player is deferred until it is shown',
+          page.select_one('.rsc-video iframe').get('loading') == 'lazy')
+    check('the article keeps its formatting', page.select_one('.rsc-rich h2') is not None)
     # A wide table used to drag the whole page sideways on a phone.
     check('and a wide table scrolls inside itself',
           page.select_one('.rsc-rich table') is not None
           and page.select_one('.uw-table-scroll, [style*="overflow-x"]') is not None)
-    check('each inlined resource is a titled section',
-          len(page.select('section.bp-item')) == 2)
     check('anchored so it can be linked to directly',
-          page.select_one('section.bp-item[id^="resource-"]') is not None)
-    check('with a way to open it on its own page',
-          page.select_one('.bp-item-open') is not None)
-    # Links and files are pointers — there is nothing to inline, so they stay
-    # as compact rows.
-    check('a link is still a row', len(page.select('a.gi-rsc-row')) == 1)
+          page.select_one('details.bp-item[id^="resource-"]') is not None)
+    check('and a link to one opens it rather than scrolling to a shut drawer',
+          'hashchange' in body and 'el.open = true' in body)
+    check('each offers its own page as well',
+          len(page.select('.bp-item-open')) == 2)
+    # Links and files are pointers — there is nothing to open out, so they stay
+    # as ordinary rows that navigate.
+    check('a link is still a row that navigates', len(page.select('a.gi-rsc-row')) == 1)
     check('and it points at the resource route',
           '/resource/' in page.select_one('a.gi-rsc-row')['href'])
+    check('the star sits outside the drawer, not inside the summary',
+          not page.select('summary .gi-fav'))
 
     print('\n[4] a resource behind a login is listed but never inlined')
     # Inlining it would hand out exactly the content the /resource/<id> gate
     # exists to withhold.
     check('it is listed', 'Members-first article' in body)
     check('but its body is not on the page', 'Gated body text' not in body)
-    check('it is shown as a locked row',
-          page.select_one('.gi-rsc-lock') is not None)
+    check('it is shown as a locked row, not a drawer',
+          page.select_one('.gi-rsc-lock') is not None
+          and len(page.select('details.bp-item')) == 2)
     signed_in = as_public(ids, 'visitor')
     body_in = signed_in.get(f"/resources/bundle/{ids['bundle']}").get_data(as_text=True)
     check('and it opens out once signed in', 'Gated body text' in body_in)

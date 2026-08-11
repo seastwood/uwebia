@@ -18,7 +18,8 @@
             {% if v.label %}<p class="rsc-item-label">{{ v.label }}</p>{% endif %}
             {% if v.kind == 'iframe' %}
             <div class="rsc-video">
-                <iframe src="{{ v.src }}" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+                <iframe src="{{ v.src }}" loading="lazy" title="{{ v.label or resource.title }}"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
             </div>
             {% else %}
             <video src="{{ v.src }}" controls style="width:100%;border-radius:12px;background:#000;"></video>

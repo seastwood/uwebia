@@ -31,25 +31,36 @@
 }
 .bp-rule { border: 0; border-top: 1px solid rgba(127,127,127,0.22); margin: 14px 0 0; }
 
-/* An inlined video or article: its own titled section in the running order. */
-.bp-item { margin: 0 0 34px; scroll-margin-top: 80px; }
-.bp-item-head { display: flex; align-items: flex-start; gap: 12px; margin: 0 0 14px; }
-.bp-item-ic, .bp-item-pic {
-    width: 38px; height: 38px; flex-shrink: 0; border-radius: 9px;
-    display: flex; align-items: center; justify-content: center; font-size: 0.95rem;
-    background: linear-gradient(135deg, rgba(255,196,120,0.2), rgba(94,238,200,0.12));
+/* An inlined video or article: a list row that opens in place. */
+.bp-item { border-radius: 12px; scroll-margin-top: 80px; }
+.bp-item[open] { background: rgba(127,127,127,0.05); border: 1px solid rgba(127,127,127,0.2); }
+.bp-item-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 52px 12px 16px; border-radius: 12px; cursor: pointer;
+    border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05);
+    transition: background 0.15s, border-color 0.15s;
+    list-style: none;   /* Firefox */
 }
-.bp-item-pic { overflow: hidden; background: rgba(127,127,127,0.1); }
-.bp-item-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.bp-item-headings { flex: 1; min-width: 0; }
-.bp-item-title { font-size: 1.2rem; font-weight: 800; margin: 0; overflow-wrap: anywhere; }
-.bp-item-desc { font-size: 0.88rem; opacity: 0.62; margin: 4px 0 0; line-height: 1.5; }
-.bp-item-open { flex-shrink: 0; opacity: 0.4; color: inherit; font-size: 0.85rem; padding: 4px; }
-.bp-item-open:hover { opacity: 0.9; }
-/* The star is positioned by the shared row stylesheet against .gi-fav-wrap,
-   which an inlined section has no reason to be; keep it in the flow instead. */
-.bp-item-head > .gi-fav { position: static; flex-shrink: 0; }
-.bp-row { margin: 0 0 14px; }
+.bp-item-row::-webkit-details-marker { display: none; }
+.bp-item-row:hover { background: rgba(127,127,127,0.11); border-color: rgba(127,127,127,0.4); }
+.bp-item[open] > .bp-item-row {
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-color: transparent; background: transparent;
+}
+.bp-caret { flex-shrink: 0; align-self: center; opacity: 0.45; font-size: 0.8rem; transition: transform 0.18s ease; }
+.bp-item[open] .bp-caret { transform: rotate(180deg); }
+.bp-item-body { padding: 4px 16px 18px; }
+.bp-item-open {
+    display: inline-flex; align-items: center; gap: 7px; margin-top: 16px;
+    font-size: 0.83rem; text-decoration: none; color: inherit; opacity: 0.6;
+}
+.bp-item-open:hover { opacity: 1; text-decoration: underline; }
+/* The shared star is positioned against a row; a drawer is taller, so pin it
+   to the row at the top of it rather than the middle of the whole thing. */
+.bp-fav-wrap { display: block; position: relative; }
+.bp-fav-wrap > .gi-fav { top: 21px; right: 12px; left: auto; transform: translateY(-50%); }
+.bp-fav-wrap > .gi-fav:hover { transform: translateY(-50%) scale(1.08); }
+@media (prefers-reduced-motion: reduce) { .bp-caret { transition: none; } }
 @media (max-width: 560px) {
     .bp-title { font-size: 1.45rem; }
     .bp-icon { width: 40px; height: 40px; font-size: 1.05rem; }
@@ -84,44 +95,69 @@
         {{ resources|length }} item{{ '' if resources|length == 1 else 's' }}
     </p>
 
-    {# Videos and articles open out in place so the bundle reads as one
-       document; links and files are pointers, so they stay as rows. #}
+    {# Videos and articles open out in place, so the bundle reads as a list you
+       can expand rather than four pages to visit. <details> rather than a
+       hand-rolled accordion: it is keyboard-operable, findable by the
+       browser's own find-in-page, and works with no JavaScript at all. #}
+    <div class="gi-rsc-list">
     {% for b in blocks %}
     {% set r = b.resource %}
+    {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(r.resource_type, '') %}
     {% if b.inline %}
-    <section class="bp-item" id="resource-{{ r.id }}">
-        <div class="bp-item-head">
+    <div class="gi-fav-wrap bp-fav-wrap" data-fav-item="resource-{{ r.id }}"
+         data-fav="{{ '1' if (favorites and r.id in favorites['resource']) else '0' }}">
+    {{ rows.fav_button('resource', r.id, favorites, favorites_enabled) }}
+    <details class="bp-item" id="resource-{{ r.id }}">
+        <summary class="bp-item-row">
             {% if r.image_url %}
             {# The frame clips: zooming scales the picture past its own box. #}
-            <span class="bp-item-pic">
+            <span class="gi-rsc-ic gi-rsc-pic">
                 <img src="{{ r.image_url }}" alt="" loading="lazy" style="{{ image_fit(r) }}">
+                <i class="fas {{ 'fa-play' if r.resource_type == 'video' else 'fa-file-alt' }} gi-rsc-pic-badge" aria-hidden="true"></i>
             </span>
             {% else %}
-            <span class="bp-item-ic">
+            <span class="gi-rsc-ic">
                 <i class="fas {{ r.icon or ('fa-play' if r.resource_type == 'video' else 'fa-file-alt') }}" aria-hidden="true"></i>
             </span>
             {% endif %}
-            <div class="bp-item-headings">
-                <h2 class="bp-item-title">{{ r.title }}</h2>
-                {% if r.description %}<p class="bp-item-desc">{{ r.description }}</p>{% endif %}
-            </div>
-            {{ rows.fav_button('resource', r.id, favorites, favorites_enabled) }}
-            <a class="bp-item-open" href="{{ url_for('public_resource_page', rid=r.id) }}"
-               title="Open on its own page" aria-label="Open {{ r.title }} on its own page">
-                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
-            </a>
-        </div>
+            <span class="gi-rsc-main">
+                <span class="gi-rsc-title">{{ r.title }}</span>
+                {% if r.description %}<span class="gi-rsc-desc">{{ r.description }}</span>{% endif %}
+            </span>
+            <span class="gi-rsc-tag">{{ _tlabel }}</span>
+            <i class="fas fa-chevron-down bp-caret" aria-hidden="true"></i>
+        </summary>
         <div class="bp-item-body">
             {{ body.resource_body(r, b.items, b.videos) }}
+            <a class="bp-item-open" href="{{ url_for('public_resource_page', rid=r.id) }}">
+                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+                Open on its own page
+            </a>
         </div>
-    </section>
-    {% else %}
-    <div class="gi-rsc-list bp-row">
-        {{ rows.resource_row(r, favorites, favorites_enabled, category.name if category else '', bundle.name) }}
+    </details>
     </div>
+    {% else %}
+    {{ rows.resource_row(r, favorites, favorites_enabled, category.name if category else '', bundle.name) }}
     {% endif %}
     {% endfor %}
+    </div>
 </div>
+
+<script>
+// A link to #resource-12 should show it, not scroll to a shut drawer.
+(function () {
+    function openTarget() {
+        if (!location.hash) return;
+        var el = document.getElementById(location.hash.slice(1));
+        if (el && el.tagName === 'DETAILS') {
+            el.open = true;
+            el.scrollIntoView({ block: 'start' });
+        }
+    }
+    window.addEventListener('hashchange', openTarget);
+    openTarget();
+})();
+</script>
 
 {{ body.resource_body_styles() }}
 
