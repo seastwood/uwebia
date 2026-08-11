@@ -1,5 +1,10 @@
 {% extends 'base.html' %}
+{% import 'components/image_spot.html' as imgspot with context %}
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
+{% include 'components/photo_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
+{{ imgspot.image_spot_assets() }}
 {% include 'components/navbar.html' %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
@@ -188,7 +193,7 @@
                         {% endif %}
                         {% if user_has_perm('quizzes.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }}, {{ q.members_only | tojson }})'>
+                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }}, {{ q.members_only | tojson }}, {{ (q.image_url or '') | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-secondary" title="Duplicate quiz"
@@ -248,6 +253,10 @@
                 <div class="uw-field">
                     <label for="quizModalTitleInput">Title <span style="color:#ff6b6b;">*</span></label>
                     <input type="text" id="quizModalTitleInput" required placeholder="e.g. Module 1 Knowledge Check">
+                </div>
+                <div class="uw-field">
+                    <label>Picture <span style="color:rgba(255,255,255,0.4);">(optional — shown beside the title)</span></label>
+                    {{ imgspot.image_spot('quizImage', 'Quiz picture') }}
                 </div>
                 <div class="uw-field">
                     <label for="quizModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
@@ -488,6 +497,7 @@ function openQuizModal() {
     document.getElementById('quizModalId').value = '';
     document.getElementById('quizModalTitleInput').value = '';
     document.getElementById('quizModalDesc').value = '';
+    ImageSpot.set('quizImage', '');
     document.getElementById('quizModalExtraFields').style.display = 'none';
     // Category is chosen on create too; default to the first selectable option
     // (restricted admins can't pick Uncategorized or a locked category).
@@ -501,10 +511,11 @@ function openQuizModal() {
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin, membersOnly) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin, membersOnly, imageUrl) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
+    ImageSpot.set('quizImage', imageUrl || '');
     document.getElementById('quizModalShuffle').checked = !!shuffle;
     document.getElementById('quizModalPass').value = Math.round((passThreshold == null ? 0.9 : passThreshold) * 100);
     document.getElementById('quizModalCategory').value = categoryId ? String(categoryId) : '';
@@ -536,7 +547,7 @@ async function submitQuizModal(e) {
     const btn = document.getElementById('quizModalSubmitBtn');
     btn.disabled = true;
 
-    const body = { title, description: desc };
+    const body = { title, description: desc, image_url: ImageSpot.get('quizImage') };
     const _catVal = document.getElementById('quizModalCategory');
     if (_catVal) body.category_id = _catVal.value || null;
     if (id) {

@@ -44,7 +44,17 @@ window.PhotoLibraryModal = (function () {
             modal.style.display = 'block';
         }
 
-        loadRoot();
+        // Opening straight to a named folder saves hunting through a library
+        // that may hold thousands of files. The folder is created on first
+        // upload, so it legitimately may not exist yet — fall back to root
+        // rather than showing an error for a folder nobody has filled.
+        loadRoot().then(function () {
+            if (!options.folderName) return;
+            const match = (state.folders || []).find(function (f) {
+                return (f.name || '').toLowerCase() === String(options.folderName).toLowerCase();
+            });
+            if (match) loadFolder(match.id, match.name);
+        });
         updateSelectionCount();
     }
 
