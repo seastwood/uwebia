@@ -12,12 +12,19 @@ always NULL, get_or_404(None) always 404'd, and every agent was unusable the
 moment it existed: no edit, no delete, no chat, no test, no image generation,
 no AI assist. Creating one worked, which is what made it look configured.
 
-The second failure this covers is quieter. API keys are Fernet-encrypted with a
-key derived from SECRET_KEY, and decrypt_api_key() returns the ciphertext
-unchanged when it cannot decrypt — correct for a key saved before encryption
-existed, wrong when SECRET_KEY has since changed. The Fernet token then gets
-sent to the provider as the credential, and the provider says the key is
-invalid, so a perfectly good key looks like a typo.
+The other two failures here are quieter, and both end with a good API key
+looking like a typo.
+
+The editor loads the masked key and posts it straight back, so a save has to
+recognise its own mask. It tested for an all-asterisks value — but the mask
+ended with the last four characters of the CIPHERTEXT, so it never matched,
+the mask was re-encrypted over the real key, and the agent stopped working the
+first time anyone edited the system prompt.
+
+And API keys are Fernet-encrypted with a key derived from SECRET_KEY, while
+decrypt_api_key() returns the ciphertext unchanged when it cannot decrypt —
+correct for a key saved before encryption existed, wrong once SECRET_KEY has
+changed. The Fernet token then goes to the provider as the credential.
 
 Copies main.py into a throwaway directory and imports it from there, so it
 builds its own SQLite database and cannot touch the real instance.
@@ -160,7 +167,73 @@ def main_test():
     finally:
         _requests.post = real_post
 
-    print('\n[4] an unreadable key is reported, not sent as the credential')
+    print('\n[4] editing anything else keeps the API key')
+    # The editor loads the masked key and posts it straight back, so the save
+    # has to recognise its own mask. It did not: the mask ended with the last
+    # four characters of the CIPHERTEXT, so an all-asterisks test never
+    # matched, the mask was re-encrypted over the real key, and the agent
+    # stopped working the first time anyone touched the system prompt.
+    listed = (c.get('/admin/ai-agents/list').get_json() or {})['agents'][0]
+    mask = listed['api_key']
+    check(f'the page shows a masked key ({mask})',
+          '*' in mask and 'sk-real-key' not in mask)
+    check('which covers the key, not the stored ciphertext — no gAAAAA tail',
+          not mask.endswith('==') and 'gAAAAA' not in mask)
+    check(f'and does not leak how long the key is (len {len(mask)})',
+          len(mask) < 20)
+    r = c.post(f'/admin/ai-agents/{agent_id}/update',
+               json={'name': 'Renamed', 'provider': 'openai_compatible',
+                     'api_url': 'http://ai.example', 'model': 'llama3',
+                     'capabilities': 'both', 'system_prompt': 'Be helpful',
+                     'api_key': mask})
+    check(f'saving a new system prompt succeeds — got {r.status_code}',
+          r.status_code == 200)
+    with app.app_context():
+        agent = db.session.get(main.AIAgent, agent_id)
+        check('the system prompt changed', agent.system_prompt == 'Be helpful')
+        check('and the key is untouched',
+              main.decrypt_api_key(agent.api_key) == 'sk-real-key')
+    # Replacing it for real must still work.
+    c.post(f'/admin/ai-agents/{agent_id}/update',
+           json={'name': 'Renamed', 'provider': 'openai_compatible',
+                 'api_url': 'http://ai.example', 'capabilities': 'both',
+                 'api_key': 'sk-brand-new-key'})
+    with app.app_context():
+        check('a genuinely new key replaces it',
+              main.decrypt_api_key(
+                  db.session.get(main.AIAgent, agent_id).api_key) == 'sk-brand-new-key')
+    c.post(f'/admin/ai-agents/{agent_id}/update',
+           json={'name': 'Renamed', 'provider': 'openai_compatible',
+                 'api_url': 'http://ai.example', 'capabilities': 'both',
+                 'api_key': 'sk-real-key'})
+
+    print('\n[5] an agent already wrecked by that bug says so')
+    # Its key decrypts perfectly and is still a row of asterisks, so without
+    # this the provider just reports an invalid key and the admin re-reads a
+    # key that was never the problem.
+    with app.app_context():
+        wrecked = main.AIAgent(user_id=ids['owner'], name='Wrecked',
+                               provider='openai_compatible',
+                               api_url='http://ai.example', model='m',
+                               api_key=main.encrypt_api_key('************abcd'),
+                               capabilities='chat')
+        db.session.add(wrecked)
+        db.session.commit()
+        wrecked_id = wrecked.id
+    CALLS.clear()
+    _requests.post = fake_post
+    try:
+        r = c.post(f'/admin/ai-agents/{wrecked_id}/test', json={})
+        d = r.get_json() or {}
+        msg = d.get('error') or ''
+        check('testing it fails rather than blaming the key', not d.get('success'))
+        check(f'and names the real cause ({msg[:56]}…)',
+              'masked placeholder' in msg and 'again' in msg)
+        check('nothing was sent to the provider', not CALLS)
+    finally:
+        _requests.post = real_post
+
+    print('\n[6] an unreadable key is reported, not sent as the credential')
     # What a Docker deploy with no fixed SECRET_KEY does on every restart.
     from cryptography.fernet import Fernet
     real_fernet = main._get_fernet
@@ -180,7 +253,7 @@ def main_test():
         main._get_fernet = real_fernet
         _requests.post = real_post
 
-    print('\n[5] a key stored before encryption existed still works')
+    print('\n[7] a key stored before encryption existed still works')
     with app.app_context():
         legacy = main.AIAgent(user_id=ids['owner'], name='Legacy',
                               provider='openai_compatible',
@@ -202,7 +275,7 @@ def main_test():
     finally:
         _requests.post = real_post
 
-    print("\n[6] another account still cannot touch it")
+    print("\n[8] another account still cannot touch it")
     # The broken check did do this much, by refusing everyone. Replacing it
     # must not open the pool up.
     other = client_for(ids, 'stranger')
@@ -220,7 +293,7 @@ def main_test():
     listed = (other.get('/admin/ai-agents/list').get_json() or {}).get('agents', [])
     check(f'and it is not in their list ({len(listed)})', listed == [])
 
-    print('\n[7] and the owner can delete it')
+    print('\n[9] and the owner can delete it')
     r = c.post(f'/admin/ai-agents/{agent_id}/delete')
     check(f'delete — got {r.status_code}',
           r.status_code == 200 and (r.get_json() or {}).get('success'))

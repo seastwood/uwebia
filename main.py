@@ -4284,27 +4284,42 @@ GUIDE_COVER_FOLDER = 'Guide covers'
 # The wording matters more than it looks: image models will happily letter a
 # picture with a garbled version of the title, and a busy background ruins
 # something displayed at 58px, so both are ruled out explicitly.
+# Everything the image must NOT contain, said once and reused. Image models
+# letter a picture at the slightest excuse, and a garbled half-word sitting
+# next to the real title is worse than no picture at all — so this is stated
+# positively ("wordless") as well as negatively, since a bare "no text" is
+# weakly followed on its own.
+NO_TEXT_CLAUSE = ('The image must be completely wordless: no text, no words, '
+                  'no letters, no numbers, no labels, no captions, no signage, '
+                  'no logos and no watermarks anywhere in it.')
+
+# Sent as a separate negative prompt to endpoints that support one (Stable
+# Diffusion and friends). OpenAI rejects unknown parameters, so it is only
+# attached for openai_compatible providers.
+IMAGE_NEGATIVE_PROMPT = ('text, words, letters, numbers, typography, caption, '
+                         'title, label, watermark, signature, logo, ui, '
+                         'frame, border, collage, multiple objects')
+
 CONTENT_IMAGE_KINDS = {
     'quiz': {
         'folder': EDUCATION_IMAGE_FOLDER,
-        'subject': 'a quiz',
-        'style': ('A single bold, simple icon-style illustration, centred, '
-                  'flat vector art, one clear subject, plain uncluttered '
-                  'background, bright friendly colours.'),
+        'style': ('A minimalist flat vector icon of that subject. One single '
+                  'centred pictogram, bold simple shapes, a small flat palette, '
+                  'plain solid background. Not a scene, not a poster, not a '
+                  'document — just the icon, with no frame and no border.'),
     },
     'resource': {
         'folder': EDUCATION_IMAGE_FOLDER,
-        'subject': 'a reference resource',
-        'style': ('A single bold, simple icon-style illustration, centred, '
-                  'flat vector art, one clear subject, plain uncluttered '
-                  'background, bright friendly colours.'),
+        'style': ('A minimalist flat vector icon of that subject. One single '
+                  'centred pictogram, bold simple shapes, a small flat palette, '
+                  'plain solid background. Not a scene, not a poster, not a '
+                  'document — just the icon, with no frame and no border.'),
     },
     'guide': {
         'folder': GUIDE_COVER_FOLDER,
-        'subject': 'a training guide',
-        'style': ('A clean modern editorial cover illustration with a clear '
-                  'focal subject and plenty of open space, suitable as a wide '
-                  'banner behind a title.'),
+        'style': ('A clean modern editorial illustration of that subject, with '
+                  'one clear focal point and plenty of open space, suitable as '
+                  'a wide banner behind a title.'),
     },
 }
 
@@ -4381,7 +4396,13 @@ def apply_image_fit(obj, data, prefix='image_'):
 
 def content_image_prompt(kind, title, description=''):
     """Turn a title and blurb into an image prompt. Returns '' if there is
-    nothing to work from."""
+    nothing to work from.
+
+    The title is stated as plain subject matter and never quoted. A quoted
+    string in an image prompt reads as an instruction to draw those letters,
+    which is what put a mangled copy of the title across the picture — and no
+    amount of "do not include text" after it undoes that cue.
+    """
     spec = CONTENT_IMAGE_KINDS.get(kind)
     if not spec:
         return ''
@@ -4392,14 +4413,16 @@ def content_image_prompt(kind, title, description=''):
     description = ' '.join(_html.unescape(description).split())[:400]
     if not title and not description:
         return ''
-    subject = f'“{title}”' if title else 'this'
-    parts = [f'An illustration representing {subject}, {spec["subject"]}.']
-    if description:
-        parts.append(f'It covers: {description}.')
+
+    subject = title or description
+    parts = [f'Subject: {subject}.']
+    # An icon wants one idea, so the blurb only narrows the subject rather than
+    # adding things to draw; a cover has room for the extra context.
+    if description and description != subject:
+        parts.append(f'Context: {description}.'
+                     if kind == 'guide' else f'It is about: {description}.')
     parts.append(spec['style'])
-    # Left to itself a model will stamp a mangled copy of the title across the
-    # picture, which looks broken next to the real title beside it.
-    parts.append('Do not include any text, words, letters or numbers.')
+    parts.append(NO_TEXT_CLAUSE)
     return ' '.join(parts)
 
 
@@ -4703,9 +4726,19 @@ class AIAgent(db.Model):
     capabilities = db.Column(db.String(20), nullable=False, default='chat', server_default='chat')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # A real API key never contains an asterisk, so a submitted value that does
+    # is the mask coming back unchanged. See update_ai_agent().
+    KEY_MASK_CHAR = '*'
+
     def to_dict(self, include_key=False):
         key = self.api_key or ''
-        masked = ('*' * max(0, len(key) - 4) + key[-4:]) if len(key) > 4 else ('*' * len(key))
+        # Mask the KEY, not the ciphertext: the last four characters of a
+        # Fernet token tell nobody anything, and its length made the field look
+        # like a 100-character key. A fixed run of stars keeps the real length
+        # secret too.
+        plain = decrypt_api_key(key) if key else ''
+        tail = plain[-4:] if len(plain) > 8 else ''
+        masked = (self.KEY_MASK_CHAR * 8 + tail) if key else ''
         return {
             'id': self.id,
             'name': self.name,
@@ -4760,6 +4793,13 @@ def agent_api_key(agent):
         return '', None
     key = decrypt_api_key_strict(stored)
     if key is not None:
+        # An agent saved before the masking bug was fixed holds the mask itself,
+        # encrypted. It decrypts perfectly and is still useless, so the provider
+        # would just report an invalid key.
+        if AIAgent.KEY_MASK_CHAR in key:
+            return None, ('The stored API key was overwritten by the masked '
+                          'placeholder when this agent was last edited. Edit '
+                          'the agent and enter the key again.')
         return key, None
     if stored.startswith('gAAAAA'):
         extra = (' This server has no SECRET_KEY set, so it generates a new one '
@@ -7172,7 +7212,7 @@ def asset_upload():
 
 
 def _generate_image_asset(agent_id, prompt, size='1024x1024', model_ovr='',
-                          folder_id=None, ref_asset_id=None):
+                          folder_id=None, ref_asset_id=None, negative_prompt=''):
     """Generate one image with an AI agent and file it in the asset library.
 
     Returns (asset, error_response): exactly one of the two is set. Shared by
@@ -7207,6 +7247,12 @@ def _generate_image_asset(agent_id, prompt, size='1024x1024', model_ovr='',
         if not base_url:
             return None, _utf8_json({'success': False, 'error': 'API URL required for custom agents'}, 400)
         model = model_ovr or agent.model or 'dall-e-3'
+
+    # An image API has no system-prompt channel, so the agent's system prompt
+    # is folded into the prompt as house style. Without this it did nothing at
+    # all on an image agent, which is not what setting it looks like it does.
+    if agent.system_prompt and agent.system_prompt.strip():
+        prompt = f'{prompt} Style guidance: {agent.system_prompt.strip()}'
 
     valid_sizes = {'1024x1024', '1792x1024', '1024x1792', '512x512', '256x256'}
     if size not in valid_sizes:
@@ -7279,9 +7325,16 @@ def _generate_image_asset(agent_id, prompt, size='1024x1024', model_ovr='',
         # ── Standard text-to-image ────────────────────────────────────────
         else:
             headers = {**auth_headers, 'Content-Type': 'application/json'}
+            payload = {'model': model, 'prompt': prompt, 'n': 1, 'size': size}
+            # Stable-Diffusion-style servers take a negative prompt, which
+            # suppresses lettering far better than asking nicely in the prompt.
+            # OpenAI rejects parameters it does not recognise, so it only goes
+            # to the compatible endpoints — same rule as init_image above.
+            if negative_prompt and agent.provider != 'openai':
+                payload['negative_prompt'] = negative_prompt
             r = _req.post(
                 f'{base_url}/v1/images/generations',
-                json={'model': model, 'prompt': prompt, 'n': 1, 'size': size},
+                json=payload,
                 headers=headers,
                 timeout=120
             )
@@ -7418,12 +7471,13 @@ def ai_generate_content_image():
         agent_id=agent.id, prompt=prompt,
         size=data.get('size') or '1024x1024',
         folder_id=folder.id if folder else None,
+        negative_prompt=IMAGE_NEGATIVE_PROMPT,
     )
     if err:
         return err
     return _utf8_json({'success': True, 'url': asset.url,
                        'asset': asset.to_dict(), 'prompt': prompt,
-                       'agent': agent.name,
+                       'agent': agent.name, 'agent_id': agent.id,
                        'folder': CONTENT_IMAGE_KINDS[kind]['folder']})
 
 
@@ -28345,8 +28399,13 @@ def update_ai_agent(agent_id):
     agent.system_prompt = (data.get('system_prompt') or '').strip() or None
     new_caps = (data.get('capabilities') or 'chat').strip()
     agent.capabilities = new_caps if new_caps in ('chat', 'image', 'both') else 'chat'
+    # The editor is loaded with the masked key and hands it straight back, so a
+    # value that still carries the mask means "leave it alone". Testing for
+    # ALL-asterisks was not enough: the mask ended with the last four
+    # characters of the ciphertext, so every save re-encrypted the mask itself
+    # and the real key was gone the first time anyone edited the system prompt.
     new_key = (data.get('api_key') or '').strip()
-    if new_key and not all(c == '*' for c in new_key):
+    if new_key and AIAgent.KEY_MASK_CHAR not in new_key:
         agent.api_key = encrypt_api_key(new_key)
     db.session.commit()
     return jsonify({'success': True, 'agent': agent.to_dict()})
