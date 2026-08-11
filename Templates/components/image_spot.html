@@ -1,0 +1,212 @@
+{# A small picture attached to a quiz or a resource, shown beside its title.
+
+   Three ways in, because each is the obvious one in a different moment: paste
+   an image straight into the box (screenshot in the clipboard), pick one
+   already in the library, or choose a file. All three land in the same folder
+   so they stay together, and the picker opens straight to it.
+
+   Usage:
+     {% include 'components/image_spot.html' %}          once per page
+     {{ image_spot('quizImage') }}                        wherever the box goes
+     ImageSpot.set('quizImage', url)  /  ImageSpot.get('quizImage')
+#}
+
+{% macro image_spot(spot_id, label='Picture') -%}
+<div class="img-spot" id="{{ spot_id }}" data-image-spot
+     tabindex="0" role="group" aria-label="{{ label }} — paste, pick or upload an image">
+    <div class="img-spot-preview" data-spot-preview>
+        <i class="fas fa-image img-spot-placeholder" aria-hidden="true"></i>
+        <img data-spot-img alt="" hidden>
+    </div>
+    <div class="img-spot-side">
+        <div class="img-spot-hint" data-spot-hint>Paste an image here, or</div>
+        <div class="img-spot-actions">
+            <button type="button" class="img-spot-btn" data-spot-pick>
+                <i class="fas fa-box-open"></i> Library
+            </button>
+            <button type="button" class="img-spot-btn" data-spot-upload>
+                <i class="fas fa-arrow-up-from-bracket"></i> Upload
+            </button>
+            <button type="button" class="img-spot-btn img-spot-clear" data-spot-clear hidden>
+                <i class="fas fa-xmark"></i> Remove
+            </button>
+        </div>
+        <div class="img-spot-msg" data-spot-msg></div>
+    </div>
+    <input type="file" accept="image/*" data-spot-file hidden>
+</div>
+{%- endmacro %}
+
+{# The styles and script, as a macro rather than loose markup: a template
+   brought in with {% import %} exposes its macros but never runs its top-level
+   content, so anything left outside a macro here would silently not render. #}
+{% macro image_spot_assets() -%}
+<style>
+.img-spot {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px; border-radius: 11px;
+    border: 1px dashed rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.03);
+    transition: border-color 0.15s, background 0.15s;
+}
+.img-spot:focus-within, .img-spot.is-hot {
+    border-color: rgba(94,238,248,0.55); background: rgba(94,238,248,0.06);
+}
+.img-spot-preview {
+    width: 58px; height: 58px; flex-shrink: 0; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+}
+.img-spot-preview img { width: 100%; height: 100%; object-fit: cover; }
+.img-spot-placeholder { font-size: 1.2rem; color: rgba(255,255,255,0.3); }
+.img-spot-side { flex: 1; min-width: 0; }
+.img-spot-hint { font-size: 0.78rem; color: rgba(255,255,255,0.45); margin-bottom: 7px; }
+.img-spot-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.img-spot-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 11px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-size: 0.79rem;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14);
+    color: inherit;
+}
+.img-spot-btn:hover { background: rgba(255,255,255,0.13); }
+.img-spot-clear:hover { color: #ff8b8b; border-color: rgba(255,80,80,0.35); }
+.img-spot-msg { font-size: 0.76rem; margin-top: 6px; min-height: 15px; color: rgba(255,255,255,0.5); }
+.img-spot-msg.is-error { color: #ff8b8b; }
+</style>
+
+<script>
+window.ImageSpot = (function () {
+    // One folder for all of these, so they stay together in the library and the
+    // picker has somewhere definite to open. Matches EDUCATION_IMAGE_FOLDER.
+    const FOLDER = {{ education_image_folder | tojson if education_image_folder is defined else '"Quiz & resource images"' }};
+    const urls = {};
+
+    function parts(spot) {
+        return {
+            preview: spot.querySelector('[data-spot-img]'),
+            placeholder: spot.querySelector('.img-spot-placeholder'),
+            clear: spot.querySelector('[data-spot-clear]'),
+            msg: spot.querySelector('[data-spot-msg]'),
+            file: spot.querySelector('[data-spot-file]'),
+        };
+    }
+
+    function say(spot, text, isError) {
+        const p = parts(spot);
+        p.msg.textContent = text || '';
+        p.msg.classList.toggle('is-error', !!isError);
+    }
+
+    function set(spotId, url) {
+        const spot = document.getElementById(spotId);
+        if (!spot) return;
+        const p = parts(spot);
+        urls[spotId] = url || '';
+        if (url) {
+            p.preview.src = url;
+            p.preview.hidden = false;
+            p.placeholder.style.display = 'none';
+            p.clear.hidden = false;
+        } else {
+            p.preview.removeAttribute('src');
+            p.preview.hidden = true;
+            p.placeholder.style.display = '';
+            p.clear.hidden = true;
+        }
+        say(spot, '');
+    }
+
+    function get(spotId) { return urls[spotId] || ''; }
+
+    async function upload(spot, file) {
+        if (!file || !/^image\//.test(file.type || '')) {
+            say(spot, 'That is not an image.', true);
+            return;
+        }
+        say(spot, 'Uploading…');
+        const fd = new FormData();
+        fd.append('asset', file, file.name || 'pasted.png');
+        // By name, not id: the folder is created on first use, so nothing has
+        // to exist before somebody pastes their first picture.
+        fd.append('folder_name', FOLDER);
+        try {
+            const r = await fetch('/admin/assets/upload', { method: 'POST', body: fd });
+            const d = await r.json();
+            if (d.status !== 'success' || !(d.assets || []).length) {
+                say(spot, d.error || 'Upload failed.', true);
+                return;
+            }
+            set(spot.id, d.assets[0].url);
+            say(spot, 'Saved to “' + FOLDER + '”.');
+        } catch (e) {
+            say(spot, 'Upload failed.', true);
+        }
+    }
+
+    function wire(spot) {
+        if (spot.dataset.spotWired) return;
+        spot.dataset.spotWired = '1';
+        const p = parts(spot);
+
+        // Paste anywhere in the box — the reason this exists.
+        spot.addEventListener('paste', function (e) {
+            const items = (e.clipboardData || {}).items || [];
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+                    e.preventDefault();
+                    upload(spot, items[i].getAsFile());
+                    return;
+                }
+            }
+        });
+        // Dragging one in is the same gesture by another route.
+        spot.addEventListener('dragover', function (e) {
+            e.preventDefault(); spot.classList.add('is-hot');
+        });
+        spot.addEventListener('dragleave', function () { spot.classList.remove('is-hot'); });
+        spot.addEventListener('drop', function (e) {
+            e.preventDefault(); spot.classList.remove('is-hot');
+            const f = (e.dataTransfer.files || [])[0];
+            if (f) upload(spot, f);
+        });
+
+        spot.querySelector('[data-spot-upload]').addEventListener('click', function () {
+            p.file.click();
+        });
+        p.file.addEventListener('change', function () {
+            if (p.file.files && p.file.files[0]) upload(spot, p.file.files[0]);
+            p.file.value = '';
+        });
+        p.clear.addEventListener('click', function () { set(spot.id, ''); });
+
+        spot.querySelector('[data-spot-pick]').addEventListener('click', function () {
+            if (!window.PhotoLibraryModal) {
+                say(spot, 'The asset library is not available on this page.', true);
+                return;
+            }
+            PhotoLibraryModal.open({
+                mode: 'single',
+                assetType: 'image',
+                title: 'Choose a picture',
+                subtitle: 'Pictures for quizzes and resources live in “' + FOLDER + '”.',
+                // Opens straight to the folder these live in, rather than the
+                // root of a library that may hold thousands of files.
+                folderName: FOLDER,
+                onConfirm: function (assets) {
+                    const a = (assets || [])[0];
+                    if (a && a.url) set(spot.id, a.url);
+                }
+            });
+        });
+    }
+
+    function init() {
+        document.querySelectorAll('[data-image-spot]').forEach(wire);
+    }
+
+    document.addEventListener('DOMContentLoaded', init);
+    return { set: set, get: get, init: init, folder: FOLDER };
+})();
+</script>
+{%- endmacro %}

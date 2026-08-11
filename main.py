@@ -3985,6 +3985,9 @@ class Quiz(db.Model):
                                   server_default=_sa_false())
     created_at        = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     updated_at        = db.Column(db.DateTime, nullable=True)
+    # A small picture shown beside the title wherever the quiz is listed. Sits
+    # in the shared asset pool like any other image — see EDUCATION_IMAGE_FOLDER.
+    image_url         = db.Column(db.String(500), nullable=True)
     # First time this quiz was listed publicly. Kept when it is unlisted again,
     # the way Guide.published_at is — it records when readers could first see
     # it, not the current state of the switch.
@@ -4254,6 +4257,11 @@ class PublicUserFavorite(db.Model):
 
 FAVORITABLE_TYPES = ('guide', 'quiz', 'resource')
 
+# Pictures attached to quizzes and resources go here rather than the root of the
+# library, so they stay together and the picker can open straight to them. The
+# upload endpoint finds-or-creates by name, so nothing has to exist up front.
+EDUCATION_IMAGE_FOLDER = 'Quiz & resource images'
+
 
 def favorite_ids_for(public_user):
     """{'guide': {1, 2}, 'quiz': set(), 'resource': {7}} for this member.
@@ -4323,6 +4331,9 @@ class Resource(db.Model):
     # page → Quill HTML for the self-contained rich-text page.
     content     = db.Column(db.Text, nullable=True)
     icon        = db.Column(db.String(60), nullable=True)    # optional FA class override
+    # A picture shown in place of the icon, beside the title. Beats a glyph for
+    # telling one worksheet from another at a glance.
+    image_url   = db.Column(db.String(500), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id', ondelete='SET NULL'),
                             nullable=True, index=True)
     # Optional grouping within a category (Category → Bundle → Resource).
@@ -4367,6 +4378,7 @@ class Resource(db.Model):
                 'resource_type': self.resource_type, 'url': self.url or '',
                 'items': self.item_list(),
                 'content': self.content or '', 'icon': self.icon or '',
+                'image_url': self.image_url or '',
                 'category_id': self.category_id, 'bundle_id': self.bundle_id,
                 'is_public': self.is_public,
                 'require_login_to_view': self.require_login_to_view,
@@ -9963,6 +9975,12 @@ _FOLDER_ACTION_MAP = {
     'pages.publish': 'publish',
     'pages.templates': 'template',
 }
+
+
+@app.context_processor
+def inject_education_image_folder():
+    """Where quiz and resource pictures live, from the one place it is named."""
+    return {'education_image_folder': EDUCATION_IMAGE_FOLDER}
 
 
 @app.context_processor
@@ -43149,6 +43167,8 @@ def _apply_resource_fields(r, data, website):
             r.category_id = bundle.category_id
         else:
             r.bundle_id = None
+    if 'image_url' in data:
+        r.image_url = (data.get('image_url') or '').strip() or None
     r.is_public = bool(data.get('is_public', True))
     r.require_login_to_view = bool(data.get('require_login_to_view', False))
     r.members_only = bool(data.get('members_only', False))
@@ -45354,6 +45374,7 @@ def admin_quizzes_create():
                 'error': 'You can only create quizzes inside a category you have access to.'}, 403)
     quiz = Quiz(website_id=website.id, title=title,
                 description=(data.get('description') or '').strip() or None,
+                image_url=(data.get('image_url') or '').strip() or None,
                 category_id=cat_id)
     _stamp_editor(quiz)
     db.session.add(quiz)
@@ -45411,6 +45432,8 @@ def admin_quizzes_update(qid):
                 val = 0
             setattr(quiz, _field, val if val > 0 else None)
     # Public listing + access flags.
+    if 'image_url' in data:
+        quiz.image_url = (data.get('image_url') or '').strip() or None
     if 'is_public' in data:
         quiz.is_public = bool(data['is_public'])
         if quiz.is_public and not quiz.published_at:
