@@ -4546,6 +4546,58 @@ class AIAgent(db.Model):
         }
 
 
+def agent_belongs_to_current_user(agent) -> bool:
+    """Is this agent part of the signed-in admin's pool?
+
+    Agents are user-scoped: one pool per root account, usable from any of that
+    account's websites. The owner is agent.user_id. agent.website_id is an
+    optional link that create_ai_agent never fills in, so authorising through
+    it — Website.query.get_or_404(agent.website_id) — turned every agent into
+    a 404 on every route that touched one.
+
+    Mirrors owns_calendar()/owns_review_board(), including the website
+    fall-back, so an agent restored from an old backup that carries only the
+    website link still resolves to its owner.
+    """
+    if agent is None:
+        return False
+    if agent.user_id is not None:
+        return agent.user_id == current_user.root_user_id
+    if agent.website_id is not None:
+        w = Website.query.get(agent.website_id)
+        return bool(w and w.user_id == current_user.root_user_id)
+    return False
+
+
+def agent_api_key(agent):
+    """Read an agent's stored API key. Returns (key, error).
+
+    decrypt_api_key() hands back the ciphertext unchanged when it can't
+    decrypt, which is right for a key stored as plain text before encryption
+    existed — but wrong when the value really is encrypted and the SECRET_KEY
+    that encrypted it is gone. The provider then rejects a Fernet token as the
+    credential and reports an invalid key, so a correctly-entered key looks
+    like a typo and no amount of re-reading it explains anything.
+
+    A Fernet token always starts 'gAAAAA' (version byte 0x80, base64), which
+    separates the two cases cleanly.
+    """
+    stored = agent.api_key or ''
+    if not stored:
+        return '', None
+    key = decrypt_api_key_strict(stored)
+    if key is not None:
+        return key, None
+    if stored.startswith('gAAAAA'):
+        extra = (' This server has no SECRET_KEY set, so it generates a new one '
+                 'every restart.' if _SECRET_KEY_IS_EPHEMERAL else '')
+        return None, ('The stored API key can\u2019t be decrypted \u2014 the '
+                      'server\u2019s SECRET_KEY has changed since it was saved.'
+                      + extra + ' Edit the agent and enter the key again.')
+    # Saved before keys were encrypted; still perfectly usable.
+    return stored, None
+
+
 class SavedColor(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
@@ -6973,14 +7025,16 @@ def ai_generate_asset():
         return _utf8_json({'success': False, 'error': 'Enter a prompt'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     if agent.provider == 'anthropic':
         return _utf8_json({'success': False,
                            'error': 'Claude does not support image generation. Use an OpenAI agent.'}, 400)
 
-    api_key = decrypt_api_key(agent.api_key or '')
+    api_key, key_error = agent_api_key(agent)
+    if key_error:
+        return _utf8_json({'success': False, 'error': key_error}, 400)
 
     if agent.provider == 'openai':
         base_url = 'https://api.openai.com'
@@ -28017,7 +28071,7 @@ def create_ai_agent():
 @require_perm('ai_agents.edit')
 def update_ai_agent(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     data = request.get_json()
     name = (data.get('name') or '').strip()
@@ -28042,7 +28096,7 @@ def update_ai_agent(agent_id):
 @require_perm('ai_agents.delete')
 def delete_ai_agent(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return jsonify({'success': False, 'error': 'Unauthorized'}), 403
     db.session.delete(agent)
     db.session.commit()
@@ -28342,7 +28396,7 @@ def ai_assist_section_tweaks(section_id):
         return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     # Get the section's rendered HTML
@@ -28491,7 +28545,7 @@ def code_section_ai_assist(section_id):
         return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     # Render the full public page for context
@@ -28605,7 +28659,7 @@ def ai_assist_page_code(page_id):
         return _utf8_json({'success': False, 'error': 'Prompt is required'}, 400)
 
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     try:
@@ -28693,7 +28747,9 @@ def _call_ai_agent(agent, messages):
     import requests as req
 
     provider = agent.provider
-    api_key = decrypt_api_key(agent.api_key or '')
+    api_key, key_error = agent_api_key(agent)
+    if key_error:
+        return None, key_error
     timeout = 60
 
     try:
@@ -28759,7 +28815,7 @@ def _utf8_json(data, status=200):
 @require_perm('ai_agents.chat')
 def ai_agent_chat(agent_id):
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
     data = request.get_json()
     messages = data.get('messages', [])
@@ -28777,14 +28833,16 @@ def ai_agent_chat(agent_id):
 def test_ai_agent(agent_id):
     import requests as _req, base64 as _b64
     agent = AIAgent.query.get_or_404(agent_id)
-    if Website.query.get_or_404(agent.website_id).user_id != current_user.root_user_id:
+    if not agent_belongs_to_current_user(agent):
         return _utf8_json({'success': False, 'error': 'Unauthorized'}, 403)
 
     caps = agent.capabilities or 'chat'
 
     if caps == 'image':
         # Test image generation with a minimal prompt
-        api_key = decrypt_api_key(agent.api_key or '')
+        api_key, key_error = agent_api_key(agent)
+        if key_error:
+            return _utf8_json({'success': False, 'error': key_error}, 400)
         if agent.provider == 'openai':
             base_url = 'https://api.openai.com'
             model = agent.model or 'dall-e-3'
