@@ -28,6 +28,7 @@ builds its own SQLite database and writes no files into the real instance.
 """
 import base64
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -158,13 +159,36 @@ def main_test():
     check(f'the title is in it ({p[:48]}…)', 'Ladder Safety' in p)
     check('so is the blurb, as plain text',
           'Setting up & climbing safely' in p and '<p>' not in p)
-    # Otherwise the picture arrives with a garbled title lettered across it,
-    # right next to the real title.
-    check('and it rules out text in the image', 'Do not include any text' in p)
-    check('a guide is framed as a cover, not an icon',
-          'cover illustration' in main.content_image_prompt('guide', 'X'))
-    check('a quiz is framed as a small icon',
-          'icon-style' in main.content_image_prompt('quiz', 'X'))
+
+    # The title is never quoted. A quoted string in an image prompt reads as an
+    # instruction to draw those letters — it is what put a mangled copy of the
+    # title across the picture, and no amount of "do not include text"
+    # afterwards undoes the cue.
+    check(f'the title is not quoted anywhere ({p[:34]}…)',
+          not any(q in p for q in ('“', '”', '"', "'")))
+    check('it is stated as subject matter instead',
+          p.startswith('Subject: Ladder Safety.'))
+    # "a quiz" or "a worksheet" pushes a model straight to document imagery,
+    # which comes covered in writing. These words may only ever appear inside a
+    # negation — asked for, they undo everything else the prompt says.
+    low = p.lower()
+    for word in ('quiz', 'worksheet', 'document', 'poster', 'signage'):
+        asked_for = [i for i in range(len(low))
+                     if low.startswith(word, i)
+                     and not re.search(r'(not a|not an|no)\s$', low[max(0, i - 8):i])]
+        check(f'the prompt never asks for {word!r} imagery '
+              f'({len(asked_for)} un-negated)', not asked_for)
+
+    check('it rules out text, positively and negatively',
+          'completely wordless' in p and 'no letters' in p)
+    check('including the near misses a model reaches for',
+          all(w in p for w in ('no labels', 'no captions', 'no watermarks')))
+    check('a quiz asks for one pictogram and nothing else',
+          'single centred pictogram' in p and 'Not a scene' in p)
+    check('a resource is framed the same way',
+          'single centred pictogram' in main.content_image_prompt('resource', 'X'))
+    check('a guide is still framed as a cover',
+          'editorial illustration' in main.content_image_prompt('guide', 'X'))
     check('nothing to work from yields no prompt',
           main.content_image_prompt('quiz', '', '') == '')
     check('an unknown kind yields no prompt',
@@ -198,6 +222,21 @@ def main_test():
         check(f'it hands back a url ({d.get("url")})',
               (d.get('url') or '').startswith('/static/uploads/'))
         check('the title reached the provider', 'Ladder Safety' in sent_prompt())
+        # A negative prompt suppresses lettering far better than asking in the
+        # prompt does — but OpenAI 400s on parameters it does not know, so it
+        # only goes to the compatible endpoints.
+        check('a negative prompt goes to an openai-compatible endpoint',
+              'text' in (CALLS[-1]['json'].get('negative_prompt') or ''))
+        with app.app_context():
+            oa = main.AIAgent(user_id=ids['owner'], name='OpenAI', provider='openai',
+                              api_key=main.encrypt_api_key('sk-test'),
+                              model='dall-e-3', capabilities='image')
+            db.session.add(oa)
+            db.session.commit()
+            oa_id = oa.id
+        c.post(gen, json={'kind': 'quiz', 'title': 'Ladder Safety', 'agent_id': oa_id})
+        check('but never to OpenAI, which would reject the whole request',
+              'negative_prompt' not in CALLS[-1]['json'])
         check('and the prompt is reported back', 'Ladder Safety' in (d.get('prompt') or ''))
 
         print('\n[4] the file lands where that kind of picture belongs')
