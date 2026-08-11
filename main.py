@@ -4726,9 +4726,19 @@ class AIAgent(db.Model):
     capabilities = db.Column(db.String(20), nullable=False, default='chat', server_default='chat')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # A real API key never contains an asterisk, so a submitted value that does
+    # is the mask coming back unchanged. See update_ai_agent().
+    KEY_MASK_CHAR = '*'
+
     def to_dict(self, include_key=False):
         key = self.api_key or ''
-        masked = ('*' * max(0, len(key) - 4) + key[-4:]) if len(key) > 4 else ('*' * len(key))
+        # Mask the KEY, not the ciphertext: the last four characters of a
+        # Fernet token tell nobody anything, and its length made the field look
+        # like a 100-character key. A fixed run of stars keeps the real length
+        # secret too.
+        plain = decrypt_api_key(key) if key else ''
+        tail = plain[-4:] if len(plain) > 8 else ''
+        masked = (self.KEY_MASK_CHAR * 8 + tail) if key else ''
         return {
             'id': self.id,
             'name': self.name,
@@ -4783,6 +4793,13 @@ def agent_api_key(agent):
         return '', None
     key = decrypt_api_key_strict(stored)
     if key is not None:
+        # An agent saved before the masking bug was fixed holds the mask itself,
+        # encrypted. It decrypts perfectly and is still useless, so the provider
+        # would just report an invalid key.
+        if AIAgent.KEY_MASK_CHAR in key:
+            return None, ('The stored API key was overwritten by the masked '
+                          'placeholder when this agent was last edited. Edit '
+                          'the agent and enter the key again.')
         return key, None
     if stored.startswith('gAAAAA'):
         extra = (' This server has no SECRET_KEY set, so it generates a new one '
@@ -28376,8 +28393,13 @@ def update_ai_agent(agent_id):
     agent.system_prompt = (data.get('system_prompt') or '').strip() or None
     new_caps = (data.get('capabilities') or 'chat').strip()
     agent.capabilities = new_caps if new_caps in ('chat', 'image', 'both') else 'chat'
+    # The editor is loaded with the masked key and hands it straight back, so a
+    # value that still carries the mask means "leave it alone". Testing for
+    # ALL-asterisks was not enough: the mask ended with the last four
+    # characters of the ciphertext, so every save re-encrypted the mask itself
+    # and the real key was gone the first time anyone edited the system prompt.
     new_key = (data.get('api_key') or '').strip()
-    if new_key and not all(c == '*' for c in new_key):
+    if new_key and AIAgent.KEY_MASK_CHAR not in new_key:
         agent.api_key = encrypt_api_key(new_key)
     db.session.commit()
     return jsonify({'success': True, 'agent': agent.to_dict()})
