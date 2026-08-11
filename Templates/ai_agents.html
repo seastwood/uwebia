@@ -314,11 +314,14 @@
     async function deleteAgent(agentId, name) {
         if (!confirm(`Delete agent "${name}"?`)) return;
         const r = await fetch(`/admin/ai-agents/${agentId}/delete`, { method: 'POST' });
-        const data = await r.json();
-        if (data.success) {
+        // An error page is HTML, and r.json() throws on it — which is why a
+        // failing delete used to look like the button simply doing nothing.
+        let data = null;
+        try { data = await r.json(); } catch (e) { data = null; }
+        if (r.ok && data && data.success) {
             document.getElementById(`agentCard-${agentId}`)?.remove();
         } else {
-            alert(data.error || 'Failed to delete');
+            alert((data && data.error) || `Failed to delete (${r.status}).`);
         }
     }
 
