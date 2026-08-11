@@ -177,12 +177,45 @@ def main_test():
           len(soup.select('button.gi-fav[aria-pressed="true"]')) == 3)
     check('and the Favourites filter is offered', bool(soup.select('.gi-chip-fav')))
 
-    print('\n[5] a signed-out visitor is offered none of it')
+    print('\n[5] searching hides each star with its row')
+    # The star is a SIBLING of the row inside the wrapper, not a child, so
+    # hiding the row alone left every star behind. With nothing to give the
+    # wrapper height they collapsed into one stack — nine stars piled up over
+    # the single result. Confirmed in a browser: one match used to leave five
+    # stars visible, 8px apart.
+    import re as _re
+    src = open(os.path.join(_REPO, 'Templates', 'guides_index.html')).read()
+    wrapped = soup.select('.gi-fav-wrap > .gi-rsc-row, .gi-fav-wrap > .gi-card')
+    check(f'rows really do sit inside a wrapper ({len(wrapped)})', len(wrapped) >= 1)
+    filt = src[src.index('function giSetupSearch'):src.index("giSetupSearch('guides'")]
+    check('the filter hides the row', "row.style.display = match" in filt)
+    check('and the wrapper holding its star',
+          _re.search(r"gi-fav-wrap[\s\S]{0,160}style\.display = match", filt) is not None)
+    # Every searchable tab shares this one filter, so all three are covered.
+    check('all three tabs use that same filter',
+          src.count('giSetupSearch(') == 4)
+
+    print('\n[6] the star is quiet enough to sit on every item')
+    css = open(os.path.join(_REPO, 'static', 'css', 'resource_rows.css')).read()
+    rule = _re.search(r'\.gi-fav \{([^}]*)\}', css).group(1)
+    # It was a filled black disc, which on a light page was the loudest thing
+    # in the list.
+    check(f'no filled backing plate ({rule.strip().splitlines()[-3:][0].strip()[:40]}…)',
+          'background: transparent' in rule and 'rgba(0,0,0,0.5)' not in rule)
+    check('and no ring around it', 'border: 1px solid transparent' in rule)
+    check('it is dimmed until wanted', _re.search(r'opacity:\s*0\.[1-6]', rule))
+    check('legible over a cover image without one', 'drop-shadow' in rule)
+    # Neutral grey, because these pages render light as well as dark.
+    check('themed neutrally, not white-on-dark', 'rgba(127,127,127' in rule)
+    check('saved is the state that gets colour',
+          _re.search(r'\.gi-fav\.is-on \{[^}]*color:\s*#', css) is not None)
+
+    print('\n[7] a signed-out visitor is offered none of it')
     page = BeautifulSoup(anon.get('/guides').get_data(as_text=True), 'html.parser')
     check('no stars', not page.select('button.gi-fav'))
     check('and no Favourites chip', not page.select('.gi-chip-fav'))
 
-    print('\n[6] favourites are per member')
+    print('\n[8] favourites are per member')
     with app.app_context():
         other_member = main.PublicUser(website_id=ids['site'], username='someoneelse')
         other_member.set_password('memberpassword')
@@ -197,7 +230,7 @@ def main_test():
     check('another member sees nothing starred',
           'aria-pressed="true"' not in page)
 
-    print('\n[7] deleting an item clears it from everyone\'s list')
+    print('\n[9] deleting an item clears it from everyone\'s list')
     admin = app.test_client()
     with admin.session_transaction() as s:
         s['_user_id'] = str(ids['owner'])
@@ -214,7 +247,7 @@ def main_test():
               main.PublicUserFavorite.query.filter_by(
                   item_type='quiz', item_id=ids['quiz']).count() == 0)
 
-    print('\n[8] closing an account takes its favourites with it')
+    print('\n[10] closing an account takes its favourites with it')
     with app.app_context():
         member = db.session.get(main.PublicUser, ids['member'])
         main._delete_public_user_row(member)
