@@ -51,6 +51,18 @@
 .ra-tag.is-draft { background: rgba(255,180,90,0.16); color: #ffc27a; }
 .ra-tag.is-lock { background: rgba(120,160,255,0.16); color: #a9c2ff; }
 .ra-item-btns { display: flex; gap: 6px; flex-shrink: 0; }
+/* A picture stands in for the glyph, but the glyph still rides on top: it is
+   what tells you whether this opens a video, a download or a page. */
+.ra-item-pic { padding: 0; overflow: hidden; background: rgba(255,255,255,0.06); position: relative; }
+.ra-item-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ra-item-pic i {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 0.95rem;
+    background: rgba(0,0,0,0.42);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    opacity: 0.85;
+}
 .ra-icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.14); background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.7); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .ra-icon-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
 .ra-icon-btn.danger:hover { color: #ff7676; border-color: rgba(255,118,118,0.4); }
@@ -125,8 +137,9 @@
     {% macro ra_item(r) %}
     <div class="ra-item">
         {% if r.image_url %}
-        <div class="ra-item-icon" style="padding:0;overflow:hidden;background:rgba(255,255,255,0.06);">
-            <img src="{{ r.image_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">
+        <div class="ra-item-icon ra-item-pic">
+            <img src="{{ r.image_url }}" alt="">
+            <i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}" aria-hidden="true"></i>
         </div>
         {% else %}
         <div class="ra-item-icon"><i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}"></i></div>

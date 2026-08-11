@@ -193,9 +193,15 @@ window.ImageSpot = (function () {
                 // Opens straight to the folder these live in, rather than the
                 // root of a library that may hold thousands of files.
                 folderName: FOLDER,
-                onConfirm: function (assets) {
-                    const a = (assets || [])[0];
-                    if (a && a.url) set(spot.id, a.url);
+                // The picker hands back a payload object — {assets, assetUrls,
+                // mode, …} — not the array of assets its name suggests. Reading
+                // it as an array silently picked nothing at all.
+                onConfirm: function (payload) {
+                    const chosen = (payload && payload.assets) || [];
+                    const url = (chosen[0] && chosen[0].url)
+                        || ((payload && payload.assetUrls) || [])[0];
+                    if (url) set(spot.id, url);
+                    else say(spot, 'Nothing was selected.', true);
                 }
             });
         });

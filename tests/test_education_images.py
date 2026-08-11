@@ -195,7 +195,38 @@ def main_test():
         check(f'{label}: and the picker opens straight to it',
               'folderName: FOLDER' in body)
 
-    print('\n[5] the picker knows how to open a named folder')
+    print('\n[5] the type glyph still rides on top of the picture')
+    # A picture says which item this is; the glyph says what opening it will do
+    # — a video, a download, a link. Losing the second to gain the first would
+    # be a bad trade, so it sits over the image on a scrim.
+    badges = soup.select('.gi-rsc-pic .gi-rsc-pic-badge')
+    check(f'every picture carries its type glyph ({len(badges)})',
+          len(badges) == len(tiles))
+    icons = sorted({c for b in badges for c in (b.get('class') or [])
+                    if c.startswith('fa-')})
+    check(f'and they are the real type icons, not one generic mark ({icons})',
+          len(icons) >= 2)
+    index_css = open(os.path.join(_REPO, 'Templates', 'guides_index.html')).read()
+    check('the glyph is laid over the image rather than beside it',
+          re.search(r'\.gi-rsc-pic-badge\s*\{[^}]*position:\s*absolute', index_css))
+    check('on a scrim, so it reads on a light picture as well as a dark one',
+          re.search(r'\.gi-rsc-pic-badge\s*\{[^}]*background:\s*rgba\(0,0,0', index_css))
+    admin_css = open(os.path.join(_REPO, 'Templates', 'resources_admin.html')).read()
+    check('the admin list overlays it the same way',
+          re.search(r'\.ra-item-pic i\s*\{[^}]*position:\s*absolute', admin_css))
+
+    print('\n[6] the picker hands back a payload, not a list')
+    # It is named onConfirm(assets) but receives {assets, assetUrls, mode, …}.
+    # Reading it as an array picked nothing at all, silently — pasting worked,
+    # so the box looked functional right up until you used the library.
+    spot_src = open(os.path.join(_REPO, 'Templates', 'components',
+                                 'image_spot.html')).read()
+    check('the component reads payload.assets', 'payload && payload.assets' in spot_src)
+    check('with the url list as a fallback', 'payload.assetUrls' in spot_src)
+    check('and says so when nothing came back',
+          "Nothing was selected." in spot_src)
+
+    print('\n[7] the picker knows how to open a named folder')
     js = open(os.path.join(_REPO, 'static', 'js', 'photo_library_modal.js')).read()
     check('it accepts a folder name', 'options.folderName' in js)
     # The folder only exists once somebody has uploaded, so asking for one that
