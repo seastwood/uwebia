@@ -138,7 +138,7 @@
     <div class="ra-item">
         {% if r.image_url %}
         <div class="ra-item-icon ra-item-pic">
-            <img src="{{ r.image_url }}" alt="">
+            <img src="{{ r.image_url }}" alt="" style="{{ image_fit(r) }}">
             <i class="fas {{ r.icon or {'link':'fa-link','file':'fa-file-arrow-down','video':'fa-play','page':'fa-file-lines'}.get(r.resource_type, 'fa-folder') }}" aria-hidden="true"></i>
         </div>
         {% else %}
@@ -452,7 +452,9 @@ function openResourceModal(r) {
     document.getElementById('resModalTitle').textContent = r ? 'Edit resource' : 'New resource';
     document.getElementById('resTitle').value = r ? r.title : '';
     document.getElementById('resDesc').value = r ? (r.description || '') : '';
-    ImageSpot.set('resImage', r ? (r.image_url || '') : '');
+    ImageSpot.set('resImage', r ? (r.image_url || '') : '',
+                  r ? { zoom: r.image_zoom, focus_x: r.image_focus_x,
+                        focus_y: r.image_focus_y } : null);
     document.getElementById('resCategory').value = r && r.category_id ? String(r.category_id) : '';
     refreshResBundleOptions(r && r.bundle_id ? r.bundle_id : null);
     document.getElementById('resIsPublic').checked = r ? !!r.is_public : true;
@@ -478,6 +480,9 @@ async function saveResource() {
         title: document.getElementById('resTitle').value.trim(),
         description: document.getElementById('resDesc').value.trim(),
         image_url: ImageSpot.get('resImage'),
+        image_zoom: ImageSpot.getFit('resImage').zoom,
+        image_focus_x: ImageSpot.getFit('resImage').focus_x,
+        image_focus_y: ImageSpot.getFit('resImage').focus_y,
         resource_type: _resType,
         category_id: document.getElementById('resCategory').value || null,
         bundle_id: document.getElementById('resBundle').value || null,

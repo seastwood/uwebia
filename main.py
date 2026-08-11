@@ -3837,6 +3837,13 @@ class Guide(db.Model):
     slug            = db.Column(db.String(200), nullable=False)
     description     = db.Column(db.Text, nullable=True)
     cover_image_url = db.Column(db.String(500), nullable=True)
+    # How the picture is framed inside its fixed-size spot. Zoom is a percentage
+    # (100 = exactly covering the frame), matching Website.background_image_zoom;
+    # focus is the point of the picture that should sit at the centre of the
+    # frame, also in percent. Turned into CSS by image_fit_style().
+    cover_zoom     = db.Column(db.Integer, nullable=False, default=100, server_default='100')
+    cover_focus_x  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
+    cover_focus_y  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
     status          = db.Column(db.String(20), nullable=False, default='draft',
                                 server_default="'draft'")
     require_login_to_view = db.Column(db.Boolean, nullable=False, default=False,
@@ -3988,6 +3995,13 @@ class Quiz(db.Model):
     # A small picture shown beside the title wherever the quiz is listed. Sits
     # in the shared asset pool like any other image — see EDUCATION_IMAGE_FOLDER.
     image_url         = db.Column(db.String(500), nullable=True)
+    # How the picture is framed inside its fixed-size spot. Zoom is a percentage
+    # (100 = exactly covering the frame), matching Website.background_image_zoom;
+    # focus is the point of the picture that should sit at the centre of the
+    # frame, also in percent. Turned into CSS by image_fit_style().
+    image_zoom     = db.Column(db.Integer, nullable=False, default=100, server_default='100')
+    image_focus_x  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
+    image_focus_y  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
     # First time this quiz was listed publicly. Kept when it is unlisted again,
     # the way Guide.published_at is — it records when readers could first see
     # it, not the current state of the switch.
@@ -4295,6 +4309,76 @@ CONTENT_IMAGE_KINDS = {
 }
 
 
+IMAGE_ZOOM_MIN, IMAGE_ZOOM_MAX = 100, 300
+
+
+def clamp_image_fit(zoom, focus_x, focus_y):
+    """Coerce a stored/submitted framing to sane numbers: (zoom%, fx%, fy%)."""
+    import math
+
+    def _num(v, default):
+        # floor(x + 0.5), not round(): Python rounds halves to even and
+        # JavaScript's Math.round goes up, and the editor's live preview has to
+        # land on the same number as the server for the same drag.
+        try:
+            return int(math.floor(float(v) + 0.5))
+        except (TypeError, ValueError, OverflowError):
+            return default
+    zoom = max(IMAGE_ZOOM_MIN, min(IMAGE_ZOOM_MAX, _num(zoom, 100)))
+    return (zoom,
+            max(0, min(100, _num(focus_x, 50))),
+            max(0, min(100, _num(focus_y, 50))))
+
+
+def image_fit_style(zoom=100, focus_x=50, focus_y=50):
+    """CSS placing a picture inside a fixed frame at a given zoom and focus.
+
+    The frame crops (object-fit: cover), and a picture can overflow it two
+    different ways, so both are steered by the same stored focus:
+
+      • Aspect mismatch — a square picture in a 16:9 cover slot. object-fit
+        already crops it; object-position chooses which part survives. This is
+        the only overflow at 100%, and it is exactly what a guide cover needs.
+
+      • Zoom — scaling past 100% makes the picture bigger than the frame in
+        both directions, which object-position cannot address at all (a square
+        picture in a square frame has no aspect overflow to pan). A translate
+        after the scale moves it instead.
+
+    The translate is scaled by (z-1)/z so that focus 0–100 always maps to the
+    full pannable range and never exposes an empty edge: at 100% the term
+    vanishes, leaving object-position in sole charge.
+    """
+    zoom, fx, fy = clamp_image_fit(zoom, focus_x, focus_y)
+    css = f'object-position:{fx}% {fy}%;'
+    if zoom != 100:
+        z = zoom / 100.0
+        span = (z - 1) / z
+        # Four decimals, trailing zeros stripped — the same string JavaScript's
+        # String(Number(v.toFixed(4))) produces, so the editor preview and this
+        # can be compared character for character.
+        def _n(v):
+            return (f'{v:.4f}'.rstrip('0').rstrip('.')) or '0'
+        css += (f'transform:scale({z:g}) '
+                f'translate({_n((50 - fx) * span)}%,{_n((50 - fy) * span)}%);')
+    return css
+
+
+def apply_image_fit(obj, data, prefix='image_'):
+    """Read zoom/focus off a submitted payload onto a record, clamped.
+
+    Only touches what was sent, so a caller that knows nothing about framing
+    (an older client, an import) leaves an existing framing alone.
+    """
+    zoom, fx, fy = clamp_image_fit(
+        data.get(prefix + 'zoom', getattr(obj, prefix + 'zoom', 100)),
+        data.get(prefix + 'focus_x', getattr(obj, prefix + 'focus_x', 50)),
+        data.get(prefix + 'focus_y', getattr(obj, prefix + 'focus_y', 50)))
+    setattr(obj, prefix + 'zoom', zoom)
+    setattr(obj, prefix + 'focus_x', fx)
+    setattr(obj, prefix + 'focus_y', fy)
+
+
 def content_image_prompt(kind, title, description=''):
     """Turn a title and blurb into an image prompt. Returns '' if there is
     nothing to work from."""
@@ -4414,6 +4498,13 @@ class Resource(db.Model):
     # A picture shown in place of the icon, beside the title. Beats a glyph for
     # telling one worksheet from another at a glance.
     image_url   = db.Column(db.String(500), nullable=True)
+    # How the picture is framed inside its fixed-size spot. Zoom is a percentage
+    # (100 = exactly covering the frame), matching Website.background_image_zoom;
+    # focus is the point of the picture that should sit at the centre of the
+    # frame, also in percent. Turned into CSS by image_fit_style().
+    image_zoom     = db.Column(db.Integer, nullable=False, default=100, server_default='100')
+    image_focus_x  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
+    image_focus_y  = db.Column(db.Integer, nullable=False, default=50, server_default='50')
     category_id = db.Column(db.Integer, db.ForeignKey('resource_category.id', ondelete='SET NULL'),
                             nullable=True, index=True)
     # Optional grouping within a category (Category → Bundle → Resource).
@@ -4459,6 +4550,8 @@ class Resource(db.Model):
                 'items': self.item_list(),
                 'content': self.content or '', 'icon': self.icon or '',
                 'image_url': self.image_url or '',
+                'image_zoom': self.image_zoom, 'image_focus_x': self.image_focus_x,
+                'image_focus_y': self.image_focus_y,
                 'category_id': self.category_id, 'bundle_id': self.bundle_id,
                 'is_public': self.is_public,
                 'require_login_to_view': self.require_login_to_view,
@@ -10172,7 +10265,20 @@ _FOLDER_ACTION_MAP = {
 @app.context_processor
 def inject_education_image_folder():
     """Where quiz and resource pictures live, from the one place it is named."""
-    return {'education_image_folder': EDUCATION_IMAGE_FOLDER}
+    return {'education_image_folder': EDUCATION_IMAGE_FOLDER,
+            'image_zoom_min': IMAGE_ZOOM_MIN, 'image_zoom_max': IMAGE_ZOOM_MAX}
+
+
+@app.template_global('image_fit')
+def _tpl_image_fit(obj, prefix='image_'):
+    """Framing CSS for a picture on a guide, quiz or resource.
+
+    Takes the record itself so every template reads the same three fields and
+    a new render site cannot quietly forget one of them.
+    """
+    return image_fit_style(getattr(obj, prefix + 'zoom', 100),
+                           getattr(obj, prefix + 'focus_x', 50),
+                           getattr(obj, prefix + 'focus_y', 50))
 
 
 @app.context_processor
@@ -18625,7 +18731,9 @@ def _serialize_backup(uid):
                               } for c in guide_categories],
         'guides': [{'id': g.id, 'website_id': g.website_id, 'category_id': g.category_id,
                     'title': g.title, 'slug': g.slug, 'description': g.description,
-                    'cover_image_url': g.cover_image_url, 'status': g.status,
+                    'cover_image_url': g.cover_image_url,
+                    'cover_zoom': g.cover_zoom, 'cover_focus_x': g.cover_focus_x,
+                    'cover_focus_y': g.cover_focus_y, 'status': g.status,
                     'require_login_to_view': g.require_login_to_view,
                     'members_only': g.members_only,
                     'track_progress': g.track_progress,
@@ -18651,6 +18759,8 @@ def _serialize_backup(uid):
                              } for c in quiz_categories],
         'quizzes': [{'id': q.id, 'website_id': q.website_id, 'title': q.title,
                      'description': q.description, 'category_id': q.category_id,
+                     'image_url': q.image_url, 'image_zoom': q.image_zoom,
+                     'image_focus_x': q.image_focus_x, 'image_focus_y': q.image_focus_y,
                      'shuffle_questions': q.shuffle_questions,
                      'pass_threshold': q.pass_threshold,
                      'max_attempts': q.max_attempts,
@@ -18676,6 +18786,8 @@ def _serialize_backup(uid):
                                } for b in resource_bundles],
         'resources': [{'id': r.id, 'website_id': r.website_id, 'title': r.title,
                        'description': r.description, 'resource_type': r.resource_type,
+                       'image_url': r.image_url, 'image_zoom': r.image_zoom,
+                       'image_focus_x': r.image_focus_x, 'image_focus_y': r.image_focus_y,
                        'url': r.url, 'items': r.items, 'content': r.content, 'icon': r.icon,
                        'category_id': r.category_id, 'bundle_id': r.bundle_id,
                        'is_public': r.is_public,
@@ -20077,6 +20189,9 @@ def import_backup():
                     category_id=guide_cat_map.get(gd['category_id']) if gd.get('category_id') else None,
                     title=gd['title'], slug=gd['slug'], description=gd.get('description'),
                     cover_image_url=gd.get('cover_image_url'),
+                    cover_zoom=gd.get('cover_zoom', 100),
+                    cover_focus_x=gd.get('cover_focus_x', 50),
+                    cover_focus_y=gd.get('cover_focus_y', 50),
                     status=gd.get('status', 'draft'),
                     require_login_to_view=gd.get('require_login_to_view', False),
                     members_only=gd.get('members_only', False),
@@ -20150,6 +20265,10 @@ def import_backup():
                 q = Quiz(
                     website_id=new_wid, title=qd['title'],
                     description=qd.get('description'),
+                    image_url=qd.get('image_url'),
+                    image_zoom=qd.get('image_zoom', 100),
+                    image_focus_x=qd.get('image_focus_x', 50),
+                    image_focus_y=qd.get('image_focus_y', 50),
                     category_id=quiz_cat_map.get(qd['category_id']) if qd.get('category_id') else None,
                     shuffle_questions=qd.get('shuffle_questions', False),
                     pass_threshold=qd.get('pass_threshold', 0.9),
@@ -20204,6 +20323,10 @@ def import_backup():
                     description=rd.get('description'),
                     resource_type=rd.get('resource_type', 'link'),
                     url=rd.get('url'), items=rd.get('items'), content=rd.get('content'), icon=rd.get('icon'),
+                    image_url=rd.get('image_url'),
+                    image_zoom=rd.get('image_zoom', 100),
+                    image_focus_x=rd.get('image_focus_x', 50),
+                    image_focus_y=rd.get('image_focus_y', 50),
                     category_id=resource_cat_map.get(rd['category_id']) if rd.get('category_id') else None,
                     bundle_id=resource_bundle_map.get(rd['bundle_id']) if rd.get('bundle_id') else None,
                     is_public=rd.get('is_public', True),
@@ -41866,6 +41989,7 @@ def admin_guides_update(gid):
     guide.description = (data.get('description') or '').strip() or None
     if 'cover_image_url' in data:
         guide.cover_image_url = (data.get('cover_image_url') or '').strip() or None
+    apply_image_fit(guide, data, 'cover_')
     if 'require_login_to_view' in data:
         guide.require_login_to_view = bool(data['require_login_to_view'])
     if 'members_only' in data:
@@ -43365,6 +43489,7 @@ def _apply_resource_fields(r, data, website):
             r.bundle_id = None
     if 'image_url' in data:
         r.image_url = (data.get('image_url') or '').strip() or None
+    apply_image_fit(r, data)
     r.is_public = bool(data.get('is_public', True))
     r.require_login_to_view = bool(data.get('require_login_to_view', False))
     r.members_only = bool(data.get('members_only', False))
@@ -45572,6 +45697,7 @@ def admin_quizzes_create():
                 description=(data.get('description') or '').strip() or None,
                 image_url=(data.get('image_url') or '').strip() or None,
                 category_id=cat_id)
+    apply_image_fit(quiz, data)
     _stamp_editor(quiz)
     db.session.add(quiz)
     db.session.commit()
@@ -45630,6 +45756,7 @@ def admin_quizzes_update(qid):
     # Public listing + access flags.
     if 'image_url' in data:
         quiz.image_url = (data.get('image_url') or '').strip() or None
+    apply_image_fit(quiz, data)
     if 'is_public' in data:
         quiz.is_public = bool(data['is_public'])
         if quiz.is_public and not quiz.published_at:

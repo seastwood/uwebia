@@ -52,7 +52,8 @@
 .gv-progress-fill { height: 100%; width: 0; border-radius: 99px; background: linear-gradient(90deg, #5eeef8, #5eeec8); transition: width 0.4s ease; }
 
 .gv-main { min-width: 0; }
-.gv-cover { width: 100%; max-height: 360px; object-fit: cover; border-radius: 16px; margin-bottom: 28px; }
+.gv-cover-wrap { border-radius: 16px; overflow: hidden; margin-bottom: 28px; }
+.gv-cover { width: 100%; max-height: 360px; object-fit: cover; display: block; }
 .gv-h1 { font-size: 2rem; font-weight: 800; margin: 0 0 10px; }
 /* "Lesson X of Y" position indicator shown just under the lesson title. */
 .gv-h1-lesson {
@@ -383,7 +384,7 @@
         </div>
         {% endif %}
         {% else %}
-        {% if guide.cover_image_url %}<img class="gv-cover" src="{{ guide.cover_image_url }}" alt="{{ guide.title }}">{% endif %}
+        {% if guide.cover_image_url %}<div class="gv-cover-wrap"><img class="gv-cover" src="{{ guide.cover_image_url }}" alt="{{ guide.title }}" style="{{ image_fit(guide, 'cover_') }}"></div>{% endif %}
         <h1 class="gv-h1">{{ guide.title }}</h1>
         {% if guide.description %}<p class="gv-guide-desc">{{ guide.description }}</p>{% endif %}
         {{ dates.freshness(guide.published_at or guide.created_at, guide.updated_at) }}

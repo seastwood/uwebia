@@ -40,6 +40,19 @@
             </button>
         </div>
         <div class="img-spot-msg" data-spot-msg></div>
+        <div class="img-spot-fit" data-spot-fit hidden>
+            <label class="img-spot-fit-row">
+                <span>Zoom</span>
+                <input type="range" data-spot-zoom
+                       min="{{ image_zoom_min | default(100) }}"
+                       max="{{ image_zoom_max | default(300) }}" step="5" value="100">
+                <output data-spot-zoom-val>100%</output>
+            </label>
+            <div class="img-spot-fit-foot">
+                <span>Drag the picture to reposition it.</span>
+                <button type="button" class="img-spot-fit-reset" data-spot-fit-reset>Reset</button>
+            </div>
+        </div>
     </div>
     <input type="file" accept="image/*" data-spot-file hidden>
 </div>
@@ -84,6 +97,20 @@
 .img-spot-btn[disabled] { opacity: 0.55; cursor: default; }
 .img-spot-msg { font-size: 0.76rem; margin-top: 6px; min-height: 15px; color: rgba(255,255,255,0.5); }
 .img-spot-msg.is-error { color: #ff8b8b; }
+.img-spot-fit { margin-top: 8px; font-size: 0.76rem; color: rgba(255,255,255,0.5); }
+.img-spot-fit-row { display: flex; align-items: center; gap: 8px; cursor: default; }
+.img-spot-fit-row input[type=range] { flex: 1; min-width: 90px; accent-color: #5eeef8; cursor: pointer; }
+.img-spot-fit-row output { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.img-spot-fit-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
+.img-spot-fit-reset {
+    font: inherit; font-size: 0.74rem; padding: 0; cursor: pointer;
+    background: none; border: none; color: rgba(255,255,255,0.55);
+    text-decoration: underline;
+}
+.img-spot-fit-reset:hover { color: #5eeef8; }
+/* Only meaningful once there is something to drag. */
+.img-spot-preview.is-draggable { cursor: grab; }
+.img-spot-preview.is-dragging { cursor: grabbing; }
 </style>
 
 <script>
@@ -91,7 +118,14 @@ window.ImageSpot = (function () {
     // One folder for all of these, so they stay together in the library and the
     // picker has somewhere definite to open. Matches EDUCATION_IMAGE_FOLDER.
     const FOLDER = {{ education_image_folder | tojson if education_image_folder is defined else '"Quiz & resource images"' }};
+    const ZOOM_MIN = {{ image_zoom_min | default(100) }};
+    const ZOOM_MAX = {{ image_zoom_max | default(300) }};
+    // How far you drag to sweep the framing end to end. Fixed in pixels rather
+    // than tied to the preview box, which is only ~58px — sweeping the whole
+    // range in 58px would be unusable.
+    const DRAG_SWEEP_PX = 160;
     const urls = {};
+    const fits = {};
 
     function parts(spot) {
         return {
@@ -100,7 +134,55 @@ window.ImageSpot = (function () {
             clear: spot.querySelector('[data-spot-clear]'),
             msg: spot.querySelector('[data-spot-msg]'),
             file: spot.querySelector('[data-spot-file]'),
+            fit: spot.querySelector('[data-spot-fit]'),
+            zoom: spot.querySelector('[data-spot-zoom]'),
+            zoomVal: spot.querySelector('[data-spot-zoom-val]'),
+            frame: spot.querySelector('[data-spot-preview]'),
         };
+    }
+
+    function clampFit(fit) {
+        // Number(null) and Number('') are both 0, so a missing value has to be
+        // rejected before it is converted — otherwise "reset" reads as 0%.
+        const n = (v, d) => {
+            if (v === null || v === undefined || v === '') return d;
+            const x = Math.round(Number(v));
+            return isFinite(x) ? x : d;
+        };
+        return {
+            zoom: Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, n(fit && fit.zoom, 100))),
+            focus_x: Math.max(0, Math.min(100, n(fit && fit.focus_x, 50))),
+            focus_y: Math.max(0, Math.min(100, n(fit && fit.focus_y, 50))),
+        };
+    }
+
+    /* Must match image_fit_style() in main.py: the editor is a preview of what
+       the server will render, so the two have to agree exactly. */
+    function fitCss(fit) {
+        const f = clampFit(fit);
+        let css = 'object-position:' + f.focus_x + '% ' + f.focus_y + '%;';
+        if (f.zoom !== 100) {
+            const z = f.zoom / 100;
+            const span = (z - 1) / z;
+            // Number(v.toFixed(4)) drops trailing zeros, matching the string
+            // image_fit_style() builds, so the two can be compared exactly.
+            const n = v => String(Number(v.toFixed(4)));
+            css += 'transform:scale(' + z + ') translate('
+                 + n((50 - f.focus_x) * span) + '%,'
+                 + n((50 - f.focus_y) * span) + '%);';
+        }
+        return css;
+    }
+
+    function paintFit(spotId) {
+        const spot = document.getElementById(spotId);
+        if (!spot) return;
+        const p = parts(spot);
+        const f = clampFit(fits[spotId]);
+        fits[spotId] = f;
+        p.preview.setAttribute('style', fitCss(f));
+        if (p.zoom) p.zoom.value = f.zoom;
+        if (p.zoomVal) p.zoomVal.textContent = f.zoom + '%';
     }
 
     function say(spot, text, isError) {
@@ -109,26 +191,37 @@ window.ImageSpot = (function () {
         p.msg.classList.toggle('is-error', !!isError);
     }
 
-    function set(spotId, url) {
+    function set(spotId, url, fit) {
         const spot = document.getElementById(spotId);
         if (!spot) return;
         const p = parts(spot);
         urls[spotId] = url || '';
+        // A new picture starts unframed unless the caller is restoring a saved
+        // one — keeping the old zoom would crop something else entirely.
+        fits[spotId] = clampFit(fit);
         if (url) {
             p.preview.src = url;
             p.preview.hidden = false;
             p.placeholder.style.display = 'none';
             p.clear.hidden = false;
+            if (p.fit) p.fit.hidden = false;
+            if (p.frame) p.frame.classList.add('is-draggable');
+            paintFit(spotId);
         } else {
             p.preview.removeAttribute('src');
+            p.preview.removeAttribute('style');
             p.preview.hidden = true;
             p.placeholder.style.display = '';
             p.clear.hidden = true;
+            if (p.fit) p.fit.hidden = true;
+            if (p.frame) p.frame.classList.remove('is-draggable');
         }
         say(spot, '');
     }
 
     function get(spotId) { return urls[spotId] || ''; }
+
+    function getFit(spotId) { return clampFit(fits[spotId]); }
 
     async function upload(spot, file) {
         if (!file || !/^image\//.test(file.type || '')) {
@@ -243,6 +336,50 @@ window.ImageSpot = (function () {
             aiBtn.addEventListener('click', function () { generate(spot, aiBtn); });
         }
 
+        /* ── Framing: zoom slider and drag-to-reposition ── */
+        if (p.zoom) {
+            p.zoom.addEventListener('input', function () {
+                fits[spot.id] = clampFit(Object.assign(getFit(spot.id),
+                                                       { zoom: p.zoom.value }));
+                paintFit(spot.id);
+            });
+        }
+        const resetBtn = spot.querySelector('[data-spot-fit-reset]');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function () {
+                fits[spot.id] = clampFit(null);
+                paintFit(spot.id);
+            });
+        }
+        if (p.frame) {
+            let dragging = null;
+            p.frame.addEventListener('pointerdown', function (e) {
+                if (!urls[spot.id]) return;
+                dragging = { x: e.clientX, y: e.clientY, fit: getFit(spot.id) };
+                p.frame.classList.add('is-dragging');
+                p.frame.setPointerCapture(e.pointerId);
+                e.preventDefault();
+            });
+            p.frame.addEventListener('pointermove', function (e) {
+                if (!dragging) return;
+                // Dragging right shows more of the left of the picture, so the
+                // point sitting at the centre moves left: focus decreases.
+                const sweep = 100 / DRAG_SWEEP_PX;
+                fits[spot.id] = clampFit({
+                    zoom: dragging.fit.zoom,
+                    focus_x: dragging.fit.focus_x - (e.clientX - dragging.x) * sweep,
+                    focus_y: dragging.fit.focus_y - (e.clientY - dragging.y) * sweep,
+                });
+                paintFit(spot.id);
+            });
+            const endDrag = function () {
+                dragging = null;
+                p.frame.classList.remove('is-dragging');
+            };
+            p.frame.addEventListener('pointerup', endDrag);
+            p.frame.addEventListener('pointercancel', endDrag);
+        }
+
         spot.querySelector('[data-spot-pick]').addEventListener('click', function () {
             if (!window.PhotoLibraryModal) {
                 say(spot, 'The asset library is not available on this page.', true);
@@ -275,7 +412,7 @@ window.ImageSpot = (function () {
     }
 
     document.addEventListener('DOMContentLoaded', init);
-    return { set: set, get: get, init: init, folder: FOLDER };
+    return { set: set, get: get, getFit: getFit, init: init, folder: FOLDER };
 })();
 </script>
 {%- endmacro %}
