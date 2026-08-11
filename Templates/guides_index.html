@@ -813,6 +813,14 @@ function giRefreshFavCounts() {
             rows.forEach(function (row) {
                 var match = !q || (row.getAttribute('data-search') || '').indexOf(q) >= 0;
                 row.style.display = match ? '' : 'none';
+                // The favourite star is a sibling of the row inside a wrapper,
+                // not a child of it. Hiding only the row left every star
+                // behind — with nothing to give the wrapper height, they all
+                // collapsed into one stack on top of each other.
+                var wrap = row.parentElement;
+                if (wrap && wrap.classList.contains('gi-fav-wrap')) {
+                    wrap.style.display = match ? '' : 'none';
+                }
                 if (match) anyVisible = true;
             });
             groups.forEach(function (sec) {

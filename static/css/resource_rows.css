@@ -7,18 +7,30 @@
 .gi-fav-wrap { position: relative; display: flex; }
 .gi-fav-wrap > .gi-card { flex: 1; }
 .gi-fav-wrap > .gi-rsc-row { flex: 1; padding-right: 52px; }
+/* Deliberately quiet: it sits on every single item, so a filled dark disc
+   read as the loudest thing in the list. Just the outline of a star, with a
+   drop-shadow rather than a backing plate so it stays legible over a cover
+   image without painting a hole in the card. Neutral grey, not white — these
+   pages render on a light background as well as a dark one. */
 .gi-fav {
     position: absolute; z-index: 3;
     top: 10px; right: 10px;
-    width: 32px; height: 32px; border-radius: 50%;
+    width: 30px; height: 30px; border-radius: 50%;
     display: inline-flex; align-items: center; justify-content: center;
     appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
-    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
-    color: rgba(255,255,255,0.55);
-    transition: color 0.15s, border-color 0.15s, transform 0.12s, background 0.15s;
+    background: transparent; border: 1px solid transparent;
+    color: rgba(127,127,127,0.9); opacity: 0.5;
+    filter: drop-shadow(0 1px 2px rgba(0,0,0,0.28));
+    transition: color 0.15s, opacity 0.15s, transform 0.12s, background 0.15s;
 }
-.gi-fav:hover { color: #ffd166; border-color: rgba(255,209,102,0.55); transform: scale(1.08); }
-.gi-fav.is-on { color: #ffd166; border-color: rgba(255,209,102,0.6); background: rgba(255,209,102,0.14); }
+.gi-fav:hover, .gi-fav:focus-visible {
+    opacity: 1; color: #e0a02a; background: rgba(127,127,127,0.14); transform: scale(1.08);
+}
+/* Saved is the one state worth noticing, so it is the only one with colour. */
+.gi-fav.is-on { opacity: 1; color: #e0a02a; filter: none; }
+.gi-fav.is-on:hover { background: rgba(127,127,127,0.14); }
+/* A card's star sits over the cover image, where the shadow earns its keep. */
+.gi-fav-wrap:has(> .gi-card) > .gi-fav { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5)); }
 .gi-fav.is-busy { opacity: 0.5; pointer-events: none; }
 /* A completed guide already wears a badge at the top right, so the star moves
    to the left on cards to avoid sitting on top of it. */
