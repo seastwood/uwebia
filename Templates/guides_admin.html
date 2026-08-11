@@ -292,7 +292,15 @@
                             <button type="button" onclick="gpResetCoverFit()" style="font:inherit;background:none;border:none;padding:0;color:rgba(255,255,255,0.55);text-decoration:underline;cursor:pointer;">Reset</button>
                         </div>
                     </div>
-                    <div style="display:flex;gap:8px;margin-bottom:14px;">
+                    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+                        <button type="button" class="pa-btn pa-btn-secondary" onclick="gpPasteCover()" id="gpPasteCoverBtn">
+                            <i class="fas fa-paste"></i> Paste
+                        </button>
+                        <button type="button" class="pa-btn pa-btn-secondary" onclick="document.getElementById('gpCoverFile').click()">
+                            <i class="fas fa-arrow-up-from-bracket"></i> Upload
+                        </button>
+                        <input type="file" accept="image/*" id="gpCoverFile" hidden
+                               onchange="gpUploadCover(this.files && this.files[0]); this.value='';">
                         <button type="button" class="pa-btn pa-btn-secondary" onclick="gpOpenCoverPicker()">
                             <i class="fas fa-images"></i> Pick from Library
                         </button>
@@ -311,7 +319,7 @@
                             <i class="fas fa-times"></i> Clear
                         </button>
                     </div>
-                    <div id="gpAiCoverMsg" style="font-size:0.78rem;margin:-8px 0 12px;min-height:16px;color:rgba(255,255,255,0.5);"></div>
+                    <div id="gpCoverMsg" style="font-size:0.78rem;margin:-8px 0 12px;min-height:16px;color:rgba(255,255,255,0.5);"></div>
                     <input type="hidden" id="guideModalCoverUrl">
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
                         <input type="checkbox" id="guideModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
@@ -664,6 +672,92 @@ document.addEventListener('DOMContentLoaded', function () {
 
 /* Draw a cover from the guide's own title and description. Reads the fields as
    currently typed, so it works before the guide has ever been saved. */
+const GP_COVER_FOLDER = {{ guide_cover_folder | tojson if guide_cover_folder is defined else '"Guide covers"' }};
+
+function _gpCoverMsg(text, isError) {
+    const el = document.getElementById('gpCoverMsg');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.color = isError ? '#ff8b8b' : 'rgba(255,255,255,0.5)';
+}
+
+/* Covers land in their own library folder, found-or-created by name, so a
+   pasted one sits with the generated ones instead of at the library root. */
+async function gpUploadCover(file) {
+    if (!file || !/^image\//.test(file.type || '')) {
+        _gpCoverMsg('That is not an image.', true);
+        return;
+    }
+    _gpCoverMsg('Uploading…');
+    const fd = new FormData();
+    fd.append('asset', file, file.name || 'pasted.png');
+    fd.append('folder_name', GP_COVER_FOLDER);
+    try {
+        const r = await fetch('/admin/assets/upload', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.status !== 'success' || !(d.assets || []).length) {
+            _gpCoverMsg(d.error || 'Upload failed.', true);
+            return;
+        }
+        _gpSetCover(d.assets[0].url);
+        _gpCoverMsg('Saved to “' + GP_COVER_FOLDER + '”.');
+    } catch (e) {
+        _gpCoverMsg('Upload failed.', true);
+    }
+}
+
+/* Reading the clipboard needs a secure context and the reader's blessing. Over
+   plain http on a LAN the API is simply absent, so there is always the
+   keyboard fallback, which the modal-wide paste listener below handles. */
+async function gpPasteCover() {
+    const btn = document.getElementById('gpPasteCoverBtn');
+    const manual = () => {
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+        _gpCoverMsg('Press ' + (mac ? '\u2318V' : 'Ctrl+V') + ' now to paste the image.');
+    };
+    if (!navigator.clipboard || !navigator.clipboard.read) { manual(); return; }
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading…';
+    try {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+            const type = (item.types || []).find(t => t.indexOf('image/') === 0);
+            if (type) {
+                const blob = await item.getType(type);
+                const ext = (type.split('/')[1] || 'png').split('+')[0];
+                btn.disabled = false;
+                btn.innerHTML = original;
+                await gpUploadCover(new File([blob], 'pasted.' + ext, { type: type }));
+                return;
+            }
+        }
+        _gpCoverMsg('There is no image on the clipboard — copy one first.', true);
+    } catch (e) {
+        manual();
+    }
+    btn.disabled = false;
+    btn.innerHTML = original;
+}
+
+/* Ctrl+V anywhere in the guide modal, so the keyboard works whether or not the
+   button could read the clipboard itself. */
+document.addEventListener('paste', function (e) {
+    const modal = document.getElementById('guideModalOverlay');
+    if (!modal || modal.style.display === 'none') return;
+    // Don't hijack pasting text into the title or description.
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+    const items = (e.clipboardData || {}).items || [];
+    for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
+            e.preventDefault();
+            gpUploadCover(items[i].getAsFile());
+            return;
+        }
+    }
+});
+
 const GP_AGENT_PREF_KEY = 'uwebiaImageAgentId';
 
 /* The image-capable agents, fetched once. Anthropic cannot generate images and
@@ -698,13 +792,10 @@ document.addEventListener('DOMContentLoaded', gpFillCoverAgents);
 
 async function gpGenerateCover() {
     const btn = document.getElementById('gpAiCoverBtn');
-    const msg = document.getElementById('gpAiCoverMsg');
     const agentSel = document.getElementById('gpCoverAgent');
     const title = (document.getElementById('guideModalTitleInput').value || '').trim();
-    const setMsg = (text, isError) => {
-        msg.textContent = text || '';
-        msg.style.color = isError ? '#ff8b8b' : 'rgba(255,255,255,0.5)';
-    };
+    // Shared with paste and upload, so all three report in the same place.
+    const setMsg = _gpCoverMsg;
     if (!title) { setMsg('Give the guide a title first — the cover is drawn from it.', true); return; }
     const original = btn.innerHTML;
     btn.disabled = true;
