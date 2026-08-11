@@ -10320,6 +10320,7 @@ _FOLDER_ACTION_MAP = {
 def inject_education_image_folder():
     """Where quiz and resource pictures live, from the one place it is named."""
     return {'education_image_folder': EDUCATION_IMAGE_FOLDER,
+            'guide_cover_folder': GUIDE_COVER_FOLDER,
             'image_zoom_min': IMAGE_ZOOM_MIN, 'image_zoom_max': IMAGE_ZOOM_MAX}
 
 

@@ -22,8 +22,11 @@
         <img data-spot-img alt="" hidden>
     </div>
     <div class="img-spot-side">
-        <div class="img-spot-hint" data-spot-hint>Paste an image here, or</div>
+        <div class="img-spot-hint" data-spot-hint>Paste a copied image, or</div>
         <div class="img-spot-actions">
+            <button type="button" class="img-spot-btn" data-spot-paste>
+                <i class="fas fa-paste"></i> Paste
+            </button>
             <button type="button" class="img-spot-btn" data-spot-pick>
                 <i class="fas fa-box-open"></i> Library
             </button>
@@ -348,6 +351,47 @@ window.ImageSpot = (function () {
         btn.innerHTML = original;
     }
 
+    // Reading the clipboard needs a secure context and the reader's blessing.
+    // Over plain http on a LAN — a self-hosted instance without TLS — the whole
+    // API is simply absent, so the button always has a working fallback: focus
+    // the box and let the keyboard do it, which the paste listener below
+    // already handles.
+    function offerManualPaste(spot) {
+        spot.focus();
+        const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
+        say(spot, 'Press ' + (mac ? '\u2318V' : 'Ctrl+V') + ' now to paste the image.');
+    }
+
+    async function pasteFromClipboard(spot, btn) {
+        if (!navigator.clipboard || !navigator.clipboard.read) {
+            offerManualPaste(spot);
+            return;
+        }
+        const original = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reading…';
+        try {
+            const items = await navigator.clipboard.read();
+            for (const item of items) {
+                const type = (item.types || []).find(t => t.indexOf('image/') === 0);
+                if (type) {
+                    const blob = await item.getType(type);
+                    const ext = (type.split('/')[1] || 'png').split('+')[0];
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                    await upload(spot, new File([blob], 'pasted.' + ext, { type: type }));
+                    return;
+                }
+            }
+            say(spot, 'There is no image on the clipboard — copy one first.', true);
+        } catch (e) {
+            // Denied, or a browser that will not hand the clipboard over.
+            offerManualPaste(spot);
+        }
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+
     function wire(spot) {
         if (spot.dataset.spotWired) return;
         spot.dataset.spotWired = '1';
@@ -375,6 +419,12 @@ window.ImageSpot = (function () {
             if (f) upload(spot, f);
         });
 
+        const pasteBtn = spot.querySelector('[data-spot-paste]');
+        if (pasteBtn) {
+            pasteBtn.addEventListener('click', function () {
+                pasteFromClipboard(spot, pasteBtn);
+            });
+        }
         spot.querySelector('[data-spot-upload]').addEventListener('click', function () {
             p.file.click();
         });

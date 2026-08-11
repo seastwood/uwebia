@@ -195,7 +195,33 @@ def main_test():
         check(f'{label}: and the picker opens straight to it',
               'folderName: FOLDER' in body)
 
-    print('\n[5] the type glyph still rides on top of the picture')
+    print('\n[5] there is a Paste button, not just a keyboard shortcut')
+    # Ctrl+V into the box worked, but only if you knew to click the box first —
+    # and on a phone there is no Ctrl+V at all.
+    from bs4 import BeautifulSoup as _BS
+    for label, path, sel in (('quizzes', '/admin/quizzes', 'button[data-spot-paste]'),
+                             ('resources', '/admin/resources', 'button[data-spot-paste]'),
+                             ('guides', '/admin/guides', 'button#gpPasteCoverBtn')):
+        body = c.get(path).get_data(as_text=True)
+        page = _BS(body, 'html.parser')
+        check(f'{label}: the Paste button renders', bool(page.select(sel)))
+        check(f'{label}: it reads the clipboard itself',
+              'navigator.clipboard' in body and '.read()' in body)
+        # Over plain http the clipboard API is absent entirely, and a reader can
+        # refuse; either way the button has to leave them somewhere useful.
+        check(f'{label}: with a keyboard fallback when it cannot',
+              'Ctrl+V' in body)
+    # The guide cover had no paste path at all before — library or AI only.
+    body = c.get('/admin/guides').get_data(as_text=True)
+    page = _BS(body, 'html.parser')
+    check('guides: a cover can now come from a file too',
+          page.select_one('input#gpCoverFile[type=file]') is not None)
+    check('guides: and pasted covers land in the covers folder',
+          'GP_COVER_FOLDER' in body and 'Guide covers' in body)
+    check('guides: typing into the title is not hijacked by the paste handler',
+          "t.tagName === 'INPUT'" in body)
+
+    print('\n[6] the type glyph still rides on top of the picture')
     # A picture says which item this is; the glyph says what opening it will do
     # — a video, a download, a link. Losing the second to gain the first would
     # be a bad trade, so it sits over the image on a scrim.
@@ -215,7 +241,7 @@ def main_test():
     check('the admin list overlays it the same way',
           re.search(r'\.ra-item-pic i\s*\{[^}]*position:\s*absolute', admin_css))
 
-    print('\n[6] the picker hands back a payload, not a list')
+    print('\n[7] the picker hands back a payload, not a list')
     # It is named onConfirm(assets) but receives {assets, assetUrls, mode, …}.
     # Reading it as an array picked nothing at all, silently — pasting worked,
     # so the box looked functional right up until you used the library.
@@ -226,7 +252,7 @@ def main_test():
     check('and says so when nothing came back',
           "Nothing was selected." in spot_src)
 
-    print('\n[7] the picker knows how to open a named folder')
+    print('\n[8] the picker knows how to open a named folder')
     js = open(os.path.join(_REPO, 'static', 'js', 'photo_library_modal.js')).read()
     check('it accepts a folder name', 'options.folderName' in js)
     # The folder only exists once somebody has uploaded, so asking for one that
