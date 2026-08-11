@@ -18,7 +18,7 @@
     <div class="print-wrap">
         <h1 class="print-doc-title">{{ guide.title }}</h1>
         {% if guide.description %}<p class="print-doc-sub">{{ guide.description }}</p>{% endif %}
-        {% if guide.cover_image_url %}<img class="print-cover" src="{{ guide.cover_image_url }}" alt="">{% endif %}
+        {% if guide.cover_image_url %}<div class="print-cover-wrap"><img class="print-cover" src="{{ guide.cover_image_url }}" alt="" style="{{ image_fit(guide, 'cover_') }}"></div>{% endif %}
 
         {% for item in items %}
             {% if item.type == 'chapter' %}

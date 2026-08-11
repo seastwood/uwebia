@@ -222,7 +222,7 @@
                         {% endif %}
                         {% if user_has_perm('guides.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }}, {{ g.show_start_button | tojson }}, {{ (g.prerequisite_guide_ids or []) | tojson }}, {{ g.prereq_lock | tojson }}, {{ g.members_only | tojson }})'>
+                                onclick='openGuideEdit({{ g.id }}, {{ g.title | tojson }}, {{ (g.description or "") | tojson }}, {{ g.require_login_to_view | tojson }}, {{ g.track_progress | tojson }}, {{ (g.cover_image_url or "") | tojson }}, {{ (g.category_id or "") | tojson }}, {{ g.show_start_button | tojson }}, {{ (g.prerequisite_guide_ids or []) | tojson }}, {{ g.prereq_lock | tojson }}, {{ g.members_only | tojson }}, {{ g.cover_zoom | tojson }}, {{ g.cover_focus_x | tojson }}, {{ g.cover_focus_y | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-danger"
@@ -278,16 +278,36 @@
                 <div class="uw-field" id="guideModalExtraFields" style="display:none;">
                     <label style="display:block;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:rgba(255,255,255,0.45);margin:0 0 8px;">Cover image</label>
                     <div id="guideModalCoverPreview" style="display:none;margin-bottom:8px;">
-                        <img id="guideModalCoverImg" alt="" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;display:block;">
+                        <!-- The wrapper clips: zooming scales the cover past its own box. -->
+                        <div id="guideModalCoverFrame" style="border-radius:8px;overflow:hidden;cursor:grab;">
+                            <img id="guideModalCoverImg" alt="" style="width:100%;max-height:180px;object-fit:cover;display:block;">
+                        </div>
+                        <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:0.76rem;font-weight:400;color:rgba(255,255,255,0.5);text-transform:none;letter-spacing:0;">
+                            <span>Zoom</span>
+                            <input type="range" id="guideModalCoverZoom" min="{{ image_zoom_min | default(100) }}" max="{{ image_zoom_max | default(300) }}" step="5" value="100" style="flex:1;accent-color:#5eeef8;cursor:pointer;">
+                            <output id="guideModalCoverZoomVal" style="min-width:40px;text-align:right;font-variant-numeric:tabular-nums;">100%</output>
+                        </label>
+                        <div style="display:flex;justify-content:space-between;gap:8px;margin-top:3px;font-size:0.74rem;color:rgba(255,255,255,0.4);">
+                            <span>Drag the cover to reposition it.</span>
+                            <button type="button" onclick="gpResetCoverFit()" style="font:inherit;background:none;border:none;padding:0;color:rgba(255,255,255,0.55);text-decoration:underline;cursor:pointer;">Reset</button>
+                        </div>
                     </div>
                     <div style="display:flex;gap:8px;margin-bottom:14px;">
                         <button type="button" class="pa-btn pa-btn-secondary" onclick="gpOpenCoverPicker()">
                             <i class="fas fa-images"></i> Pick from Library
                         </button>
+                        {% if user_has_perm('assets.ai_generate') %}
+                        <button type="button" class="pa-btn pa-btn-secondary" id="gpAiCoverBtn"
+                                onclick="gpGenerateCover()"
+                                style="color:#d9b8ff;border-color:rgba(155,93,229,0.4);">
+                            <i class="fas fa-magic"></i> Generate with AI
+                        </button>
+                        {% endif %}
                         <button type="button" class="pa-btn pa-btn-danger" id="gpClearCoverBtn" onclick="gpClearCover()" style="display:none;">
                             <i class="fas fa-times"></i> Clear
                         </button>
                     </div>
+                    <div id="gpAiCoverMsg" style="font-size:0.78rem;margin:-8px 0 12px;min-height:16px;color:rgba(255,255,255,0.5);"></div>
                     <input type="hidden" id="guideModalCoverUrl">
                     <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;font-weight:normal;">
                         <input type="checkbox" id="guideModalRequireLogin" style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
@@ -540,20 +560,143 @@ async function gaSavePageTitle(inp) {
 // ── Cover picker (image-only asset picker) ────────────────────────────────
 function gpEsc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-function _gpSetCover(url) {
+/* Framing of the cover inside its slot. Mirrors image_fit_style() in main.py
+   and the image_spot component — the preview has to show what will render. */
+const GP_ZOOM_MIN = {{ image_zoom_min | default(100) }};
+const GP_ZOOM_MAX = {{ image_zoom_max | default(300) }};
+const GP_DRAG_SWEEP_PX = 260;   // the cover preview is wide, so sweep slower
+let gpCoverFit = { zoom: 100, focus_x: 50, focus_y: 50 };
+
+function gpClampFit(fit) {
+    // Number(null) and Number('') are both 0, so a missing value has to be
+    // rejected before it is converted — otherwise "reset" reads as 0%.
+    const n = (v, d) => {
+        if (v === null || v === undefined || v === '') return d;
+        const x = Math.round(Number(v));
+        return isFinite(x) ? x : d;
+    };
+    return {
+        zoom: Math.max(GP_ZOOM_MIN, Math.min(GP_ZOOM_MAX, n(fit && fit.zoom, 100))),
+        focus_x: Math.max(0, Math.min(100, n(fit && fit.focus_x, 50))),
+        focus_y: Math.max(0, Math.min(100, n(fit && fit.focus_y, 50))),
+    };
+}
+
+function gpPaintCoverFit() {
+    gpCoverFit = gpClampFit(gpCoverFit);
+    const img = document.getElementById('guideModalCoverImg');
+    let css = 'width:100%;max-height:180px;object-fit:cover;display:block;'
+            + 'object-position:' + gpCoverFit.focus_x + '% ' + gpCoverFit.focus_y + '%;';
+    if (gpCoverFit.zoom !== 100) {
+        const z = gpCoverFit.zoom / 100;
+        const span = (z - 1) / z;
+        const n = v => String(Number(v.toFixed(4)));
+        css += 'transform:scale(' + z + ') translate('
+             + n((50 - gpCoverFit.focus_x) * span) + '%,'
+             + n((50 - gpCoverFit.focus_y) * span) + '%);';
+    }
+    img.setAttribute('style', css);
+    document.getElementById('guideModalCoverZoom').value = gpCoverFit.zoom;
+    document.getElementById('guideModalCoverZoomVal').textContent = gpCoverFit.zoom + '%';
+}
+
+function gpResetCoverFit() {
+    gpCoverFit = gpClampFit(null);
+    gpPaintCoverFit();
+}
+
+function _gpSetCover(url, fit) {
     document.getElementById('guideModalCoverUrl').value = url || '';
     const wrap = document.getElementById('guideModalCoverPreview');
     const clearBtn = document.getElementById('gpClearCoverBtn');
+    // A different picture starts unframed unless a saved framing is supplied —
+    // keeping the old zoom would crop something else entirely.
+    gpCoverFit = gpClampFit(fit);
     if (url) {
         wrap.style.display = 'block';
         document.getElementById('guideModalCoverImg').src = url;
         clearBtn.style.display = 'inline-flex';
+        gpPaintCoverFit();
     } else {
         wrap.style.display = 'none';
         clearBtn.style.display = 'none';
     }
 }
 function gpClearCover() { _gpSetCover(''); }
+
+document.addEventListener('DOMContentLoaded', function () {
+    const slider = document.getElementById('guideModalCoverZoom');
+    if (slider) {
+        slider.addEventListener('input', function () {
+            gpCoverFit.zoom = slider.value;
+            gpPaintCoverFit();
+        });
+    }
+    const frame = document.getElementById('guideModalCoverFrame');
+    if (!frame) return;
+    let drag = null;
+    frame.addEventListener('pointerdown', function (e) {
+        drag = { x: e.clientX, y: e.clientY, fit: gpClampFit(gpCoverFit) };
+        frame.style.cursor = 'grabbing';
+        frame.setPointerCapture(e.pointerId);
+        e.preventDefault();
+    });
+    frame.addEventListener('pointermove', function (e) {
+        if (!drag) return;
+        // Dragging right shows more of the left, so the point at the centre
+        // moves left: focus decreases.
+        const sweep = 100 / GP_DRAG_SWEEP_PX;
+        gpCoverFit = gpClampFit({
+            zoom: drag.fit.zoom,
+            focus_x: drag.fit.focus_x - (e.clientX - drag.x) * sweep,
+            focus_y: drag.fit.focus_y - (e.clientY - drag.y) * sweep,
+        });
+        gpPaintCoverFit();
+    });
+    const end = function () { drag = null; frame.style.cursor = 'grab'; };
+    frame.addEventListener('pointerup', end);
+    frame.addEventListener('pointercancel', end);
+});
+
+/* Draw a cover from the guide's own title and description. Reads the fields as
+   currently typed, so it works before the guide has ever been saved. */
+async function gpGenerateCover() {
+    const btn = document.getElementById('gpAiCoverBtn');
+    const msg = document.getElementById('gpAiCoverMsg');
+    const title = (document.getElementById('guideModalTitleInput').value || '').trim();
+    const setMsg = (text, isError) => {
+        msg.textContent = text || '';
+        msg.style.color = isError ? '#ff8b8b' : 'rgba(255,255,255,0.5)';
+    };
+    if (!title) { setMsg('Give the guide a title first — the cover is drawn from it.', true); return; }
+    const original = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating…';
+    setMsg('Drawing this from the title and description — 15–30 seconds…');
+    try {
+        const r = await fetch('/admin/assets/ai-generate-for-content', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                kind: 'guide', title: title,
+                description: document.getElementById('guideModalDesc').value || '',
+            })
+        });
+        // An error page is HTML, and r.json() throws on it.
+        let d = null;
+        try { d = await r.json(); } catch (e) { d = null; }
+        if (r.ok && d && d.success) {
+            _gpSetCover(d.url);
+            setMsg('Generated by ' + (d.agent || 'AI') + ' and saved to “' + (d.folder || 'the library') + '”.');
+        } else {
+            setMsg((d && d.error) || ('Generation failed (' + r.status + ').'), true);
+        }
+    } catch (e) {
+        setMsg('Generation failed: ' + e.message, true);
+    }
+    btn.disabled = false;
+    btn.innerHTML = original;
+}
 function gpOpenCoverPicker() {
     document.getElementById('gpPickerOverlay').style.display = 'flex';
     gpLoadPicker(null);
@@ -650,7 +793,8 @@ function openGuideModal() {
     setTimeout(() => document.getElementById('guideModalTitleInput').focus(), 60);
 }
 
-function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId, showStart, prereqIds, prereqLock, membersOnly) {
+function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, categoryId, showStart, prereqIds, prereqLock, membersOnly,
+                      coverZoom, coverFocusX, coverFocusY) {
     document.getElementById('guideModalId').value = id;
     document.getElementById('guideModalTitleInput').value = title;
     document.getElementById('guideModalDesc').value = desc;
@@ -660,7 +804,8 @@ function openGuideEdit(id, title, desc, requireLogin, trackProgress, coverUrl, c
     document.getElementById('guideModalShowStart').checked = (showStart === undefined ? true : !!showStart);
     document.getElementById('guideModalCategory').value = categoryId ? String(categoryId) : '';
     _renderPrereqList(id, prereqIds || [], !!prereqLock);
-    _gpSetCover(coverUrl || '');
+    _gpSetCover(coverUrl || '',
+                { zoom: coverZoom, focus_x: coverFocusX, focus_y: coverFocusY });
     _setGuideModalError('');
     document.getElementById('guideModalExtraFields').style.display = 'block';
     document.getElementById('guideModalTitle').textContent = 'Guide Settings';
@@ -694,6 +839,9 @@ async function submitGuideModal(e) {
         body.track_progress = document.getElementById('guideModalTrackProgress').checked;
         body.show_start_button = document.getElementById('guideModalShowStart').checked;
         body.cover_image_url = document.getElementById('guideModalCoverUrl').value || '';
+        body.cover_zoom = gpCoverFit.zoom;
+        body.cover_focus_x = gpCoverFit.focus_x;
+        body.cover_focus_y = gpCoverFit.focus_y;
         body.prerequisite_guide_ids = Array.from(document.querySelectorAll('.gPrereqCb:checked'))
             .map(cb => parseInt(cb.value, 10));
         const _mode = document.querySelector('input[name="gPrereqMode"]:checked');

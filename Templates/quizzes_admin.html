@@ -193,7 +193,7 @@
                         {% endif %}
                         {% if user_has_perm('quizzes.manage') %}
                         <button class="pa-btn pa-btn-secondary"
-                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }}, {{ q.members_only | tojson }}, {{ (q.image_url or '') | tojson }})'>
+                                onclick='openQuizEdit({{ q.id }}, {{ q.title | tojson }}, {{ (q.description or "") | tojson }}, {{ q.shuffle_questions | tojson }}, {{ (q.pass_threshold or 0.9) | tojson }}, {{ (q.category_id or "") | tojson }}, {{ (q.max_attempts or 0) | tojson }}, {{ (q.retake_cooldown_minutes or 0) | tojson }}, {{ (q.draw_count or 0) | tojson }}, {{ q.is_public | tojson }}, {{ q.require_login_to_view | tojson }}, {{ q.members_only | tojson }}, {{ (q.image_url or '') | tojson }}, {{ q.image_zoom | tojson }}, {{ q.image_focus_x | tojson }}, {{ q.image_focus_y | tojson }})'>
                             <i class="fas fa-cog"></i>
                         </button>
                         <button class="pa-btn pa-btn-secondary" title="Duplicate quiz"
@@ -256,7 +256,9 @@
                 </div>
                 <div class="uw-field">
                     <label>Picture <span style="color:rgba(255,255,255,0.4);">(optional — shown beside the title)</span></label>
-                    {{ imgspot.image_spot('quizImage', 'Quiz picture') }}
+                    {{ imgspot.image_spot('quizImage', 'Quiz picture', kind='quiz',
+                          title_field='quizModalTitleInput',
+                          desc_field='quizModalDesc') }}
                 </div>
                 <div class="uw-field">
                     <label for="quizModalDesc">Description <span style="color:rgba(255,255,255,0.4);">(optional)</span></label>
@@ -511,11 +513,13 @@ function openQuizModal() {
     setTimeout(() => document.getElementById('quizModalTitleInput').focus(), 60);
 }
 
-function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin, membersOnly, imageUrl) {
+function openQuizEdit(id, title, desc, shuffle, passThreshold, categoryId, maxAttempts, cooldownMin, drawCount, isPublic, requireLogin, membersOnly, imageUrl,
+                      imageZoom, imageFocusX, imageFocusY) {
     document.getElementById('quizModalId').value = id;
     document.getElementById('quizModalTitleInput').value = title;
     document.getElementById('quizModalDesc').value = desc;
-    ImageSpot.set('quizImage', imageUrl || '');
+    ImageSpot.set('quizImage', imageUrl || '',
+                  { zoom: imageZoom, focus_x: imageFocusX, focus_y: imageFocusY });
     document.getElementById('quizModalShuffle').checked = !!shuffle;
     document.getElementById('quizModalPass').value = Math.round((passThreshold == null ? 0.9 : passThreshold) * 100);
     document.getElementById('quizModalCategory').value = categoryId ? String(categoryId) : '';
@@ -547,7 +551,10 @@ async function submitQuizModal(e) {
     const btn = document.getElementById('quizModalSubmitBtn');
     btn.disabled = true;
 
-    const body = { title, description: desc, image_url: ImageSpot.get('quizImage') };
+    const _qfit = ImageSpot.getFit('quizImage');
+    const body = { title, description: desc, image_url: ImageSpot.get('quizImage'),
+                   image_zoom: _qfit.zoom, image_focus_x: _qfit.focus_x,
+                   image_focus_y: _qfit.focus_y };
     const _catVal = document.getElementById('quizModalCategory');
     if (_catVal) body.category_id = _catVal.value || null;
     if (id) {
