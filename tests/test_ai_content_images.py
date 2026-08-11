@@ -298,7 +298,46 @@ def main_test():
     finally:
         _requests.post = real_post
 
-    print('\n[7] the button is on all three editors')
+    print('\n[7] you can choose which agent draws it')
+    # There is more than one image-capable agent by now, and they are not
+    # interchangeable — a local Stable Diffusion and a hosted model give very
+    # different results, so the choice has to be the author's.
+    second = add_agent(ids, 'Second painter', 'both')
+    _requests.post = fake_post
+    try:
+        CALLS.clear()
+        r = c.post(gen, json={'kind': 'quiz', 'title': 'Knots', 'agent_id': second})
+        d = r.get_json() or {}
+        check(f'the chosen agent is used, not the first one ({d.get("agent")})',
+              d.get('agent') == 'Second painter')
+        check(f'and it says which one ran ({d.get("agent_id")})',
+              d.get('agent_id') == second)
+
+        print('\n[8] the agent system prompt shapes the picture')
+        # An image API has no system-prompt channel, so it has to be folded
+        # into the prompt. Before this it was silently ignored on an image
+        # agent, which is not what setting it looks like it does.
+        with app.app_context():
+            a = db.session.get(main.AIAgent, second)
+            a.system_prompt = 'Everything in a flat 1970s poster palette'
+            db.session.commit()
+        CALLS.clear()
+        r = c.post(gen, json={'kind': 'quiz', 'title': 'Knots', 'agent_id': second})
+        sent = sent_prompt()
+        check(f'it reaches the provider ({sent[-60:]!r})',
+              '1970s poster palette' in sent)
+        check('as guidance rather than replacing the subject', 'Knots' in sent)
+        check('and the no-text rule is still in there',
+              'completely wordless' in sent)
+        # The other agent has none, so nothing should be appended for it.
+        CALLS.clear()
+        c.post(gen, json={'kind': 'quiz', 'title': 'Knots', 'agent_id': image_agent})
+        check('an agent with no system prompt adds nothing',
+              'Style guidance' not in sent_prompt())
+    finally:
+        _requests.post = real_post
+
+    print('\n[9] the button is on all three editors')
     # Parsed, not pattern-matched: the component's own script contains
     # querySelector('[data-spot-ai]'), so searching the raw page for that
     # string reports a button that may never have rendered.
@@ -333,7 +372,21 @@ def main_test():
           guides.find(id='guideModalTitleInput') is not None
           and guides.find(id='guideModalDesc') is not None)
 
-    print('\n[8] without the permission there is no button')
+    # The picker starts hidden and is filled in by script, because whether
+    # there is anything to choose between is not known until the list loads.
+    for label, path, sel in (('quizzes', '/admin/quizzes', 'select[data-spot-agent]'),
+                             ('resources', '/admin/resources', 'select[data-spot-agent]'),
+                             ('guides', '/admin/guides', 'select#gpCoverAgent')):
+        body = c.get(path).get_data(as_text=True)
+        soup = BeautifulSoup(body, 'html.parser')
+        picker = soup.select_one(sel)
+        check(f'{label}: an agent picker is on the page', picker is not None)
+        check(f'{label}: hidden until there is a choice to make',
+              picker is not None and picker.has_attr('hidden'))
+        check(f'{label}: filled from the agent list',
+              '/admin/ai-agents/list' in body)
+
+    print('\n[10] without the permission there is no button')
     with app.app_context():
         grp = main.PermissionGroup(owner_user_id=ids['owner'], name='Editors',
                                    # Everything they need to edit a quiz —

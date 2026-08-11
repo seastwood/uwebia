@@ -7248,6 +7248,12 @@ def _generate_image_asset(agent_id, prompt, size='1024x1024', model_ovr='',
             return None, _utf8_json({'success': False, 'error': 'API URL required for custom agents'}, 400)
         model = model_ovr or agent.model or 'dall-e-3'
 
+    # An image API has no system-prompt channel, so the agent's system prompt
+    # is folded into the prompt as house style. Without this it did nothing at
+    # all on an image agent, which is not what setting it looks like it does.
+    if agent.system_prompt and agent.system_prompt.strip():
+        prompt = f'{prompt} Style guidance: {agent.system_prompt.strip()}'
+
     valid_sizes = {'1024x1024', '1792x1024', '1024x1792', '512x512', '256x256'}
     if size not in valid_sizes:
         size = '1024x1024'
@@ -7471,7 +7477,7 @@ def ai_generate_content_image():
         return err
     return _utf8_json({'success': True, 'url': asset.url,
                        'asset': asset.to_dict(), 'prompt': prompt,
-                       'agent': agent.name,
+                       'agent': agent.name, 'agent_id': agent.id,
                        'folder': CONTENT_IMAGE_KINDS[kind]['folder']})
 
 
