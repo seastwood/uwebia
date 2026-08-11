@@ -232,7 +232,9 @@ def main_test():
                     if c.startswith('fa-')})
     check(f'and they are the real type icons, not one generic mark ({icons})',
           len(icons) >= 2)
-    index_css = open(os.path.join(_REPO, 'Templates', 'guides_index.html')).read()
+    # The row styles live in a shared stylesheet, so the same rows render
+    # identically on the Education index and on a single bundle's page.
+    index_css = open(os.path.join(_REPO, 'static', 'css', 'resource_rows.css')).read()
     check('the glyph is laid over the image rather than beside it',
           re.search(r'\.gi-rsc-pic-badge\s*\{[^}]*position:\s*absolute', index_css))
     check('on a scrim, so it reads on a light picture as well as a dark one',

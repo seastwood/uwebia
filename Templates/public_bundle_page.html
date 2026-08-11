@@ -1,0 +1,170 @@
+{% extends 'public_base.html' %}
+{% import 'components/resource_row.html' as rows with context %}
+{% import 'components/resource_body.html' as body with context %}
+
+{% block title %}{{ bundle.name }} — {{ website.name if website else 'Resources' }}{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resource_rows.css') }}">
+<style>
+.bp-wrap { max-width: 820px; margin: 0 auto; padding: 40px 20px 80px; }
+.bp-back {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 0.85rem; text-decoration: none; color: inherit;
+    opacity: 0.6; margin: 0 0 18px;
+}
+.bp-back:hover { opacity: 1; }
+.bp-head { display: flex; align-items: flex-start; gap: 14px; margin: 0 0 6px; }
+.bp-icon {
+    width: 48px; height: 48px; flex-shrink: 0; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.25rem;
+    background: rgba(94,238,200,0.14); color: #5eeec8;
+}
+.bp-title { font-size: 1.9rem; font-weight: 800; margin: 0; overflow-wrap: anywhere; }
+.bp-crumb { font-size: 0.8rem; opacity: 0.55; margin: 2px 0 0; }
+.bp-crumb a { color: inherit; }
+.bp-desc { opacity: 0.68; font-size: 0.98rem; line-height: 1.6; margin: 12px 0 0; }
+.bp-count {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.76rem; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.05em; opacity: 0.55; margin: 18px 0 10px;
+}
+.bp-rule { border: 0; border-top: 1px solid rgba(127,127,127,0.22); margin: 14px 0 0; }
+
+/* An inlined video or article: a list row that opens in place. */
+.bp-item { border-radius: 12px; scroll-margin-top: 80px; }
+.bp-item[open] { background: rgba(127,127,127,0.05); border: 1px solid rgba(127,127,127,0.2); }
+.bp-item-row {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 52px 12px 16px; border-radius: 12px; cursor: pointer;
+    border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05);
+    transition: background 0.15s, border-color 0.15s;
+    list-style: none;   /* Firefox */
+}
+.bp-item-row::-webkit-details-marker { display: none; }
+.bp-item-row:hover { background: rgba(127,127,127,0.11); border-color: rgba(127,127,127,0.4); }
+.bp-item[open] > .bp-item-row {
+    border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+    border-color: transparent; background: transparent;
+}
+.bp-caret { flex-shrink: 0; align-self: center; opacity: 0.45; font-size: 0.8rem; transition: transform 0.18s ease; }
+.bp-item[open] .bp-caret { transform: rotate(180deg); }
+.bp-item-body { padding: 4px 16px 18px; }
+.bp-item-open {
+    display: inline-flex; align-items: center; gap: 7px; margin-top: 16px;
+    font-size: 0.83rem; text-decoration: none; color: inherit; opacity: 0.6;
+}
+.bp-item-open:hover { opacity: 1; text-decoration: underline; }
+/* The shared star is positioned against a row; a drawer is taller, so pin it
+   to the row at the top of it rather than the middle of the whole thing. */
+.bp-fav-wrap { display: block; position: relative; }
+.bp-fav-wrap > .gi-fav { top: 21px; right: 12px; left: auto; transform: translateY(-50%); }
+.bp-fav-wrap > .gi-fav:hover { transform: translateY(-50%) scale(1.08); }
+@media (prefers-reduced-motion: reduce) { .bp-caret { transition: none; } }
+@media (max-width: 560px) {
+    .bp-title { font-size: 1.45rem; }
+    .bp-icon { width: 40px; height: 40px; font-size: 1.05rem; }
+}
+</style>
+
+{% set _base = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}
+<div class="bp-wrap">
+    <a class="bp-back" href="{{ _base }}#resources">
+        <i class="fas fa-arrow-left"></i> Back to resources
+    </a>
+
+    <div class="bp-head">
+        <span class="bp-icon" {% if bundle.color %}style="color:{{ bundle.color }};"{% endif %}>
+            <i class="fas {{ bundle.icon or 'fa-layer-group' }}" aria-hidden="true"></i>
+        </span>
+        <div style="min-width:0;">
+            <h1 class="bp-title">{{ bundle.name }}</h1>
+            {% if category %}
+            <p class="bp-crumb">
+                in <a href="{{ _base }}#resources">{{ category.name }}</a>
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if bundle.description %}<p class="bp-desc">{{ bundle.description }}</p>{% endif %}
+    <hr class="bp-rule">
+
+    <p class="bp-count">
+        <i class="fas fa-layer-group" aria-hidden="true"></i>
+        {{ resources|length }} item{{ '' if resources|length == 1 else 's' }}
+    </p>
+
+    {# Videos and articles open out in place, so the bundle reads as a list you
+       can expand rather than four pages to visit. <details> rather than a
+       hand-rolled accordion: it is keyboard-operable, findable by the
+       browser's own find-in-page, and works with no JavaScript at all. #}
+    <div class="gi-rsc-list">
+    {% for b in blocks %}
+    {% set r = b.resource %}
+    {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(r.resource_type, '') %}
+    {% if b.inline %}
+    <div class="gi-fav-wrap bp-fav-wrap" data-fav-item="resource-{{ r.id }}"
+         data-fav="{{ '1' if (favorites and r.id in favorites['resource']) else '0' }}">
+    {{ rows.fav_button('resource', r.id, favorites, favorites_enabled) }}
+    <details class="bp-item" id="resource-{{ r.id }}">
+        <summary class="bp-item-row">
+            {% if r.image_url %}
+            {# The frame clips: zooming scales the picture past its own box. #}
+            <span class="gi-rsc-ic gi-rsc-pic">
+                <img src="{{ r.image_url }}" alt="" loading="lazy" style="{{ image_fit(r) }}">
+                <i class="fas {{ 'fa-play' if r.resource_type == 'video' else 'fa-file-alt' }} gi-rsc-pic-badge" aria-hidden="true"></i>
+            </span>
+            {% else %}
+            <span class="gi-rsc-ic">
+                <i class="fas {{ r.icon or ('fa-play' if r.resource_type == 'video' else 'fa-file-alt') }}" aria-hidden="true"></i>
+            </span>
+            {% endif %}
+            <span class="gi-rsc-main">
+                <span class="gi-rsc-title">{{ r.title }}</span>
+                {% if r.description %}<span class="gi-rsc-desc">{{ r.description }}</span>{% endif %}
+            </span>
+            <span class="gi-rsc-tag">{{ _tlabel }}</span>
+            <i class="fas fa-chevron-down bp-caret" aria-hidden="true"></i>
+        </summary>
+        <div class="bp-item-body">
+            {{ body.resource_body(r, b.items, b.videos) }}
+            <a class="bp-item-open" href="{{ url_for('public_resource_page', rid=r.id) }}">
+                <i class="fas fa-external-link-alt" aria-hidden="true"></i>
+                Open on its own page
+            </a>
+        </div>
+    </details>
+    </div>
+    {% else %}
+    {{ rows.resource_row(r, favorites, favorites_enabled, category.name if category else '', bundle.name) }}
+    {% endif %}
+    {% endfor %}
+    </div>
+</div>
+
+<script>
+// A link to #resource-12 should show it, not scroll to a shut drawer.
+(function () {
+    function openTarget() {
+        if (!location.hash) return;
+        var el = document.getElementById(location.hash.slice(1));
+        if (el && el.tagName === 'DETAILS') {
+            el.open = true;
+            el.scrollIntoView({ block: 'start' });
+        }
+    }
+    window.addEventListener('hashchange', openTarget);
+    openTarget();
+})();
+</script>
+
+{{ body.resource_body_styles() }}
+
+{% if favorites_enabled %}
+{{ rows.fav_script(
+      url_for('public_favorite_toggle', prefix=website.url_prefix)
+          if website.url_prefix else url_for('public_favorite_toggle'),
+      url_for('public_login', website_prefix=website.url_prefix, next=request.path)) }}
+{% endif %}
+{% endblock %}

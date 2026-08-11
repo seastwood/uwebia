@@ -1,0 +1,67 @@
+/* Resource / quiz list rows and the favourite star that sits beside them.
+   Shared by the Education index and the single-bundle page so the same
+   resource looks the same wherever it is listed. Lifted out of
+   guides_index.html when the bundle page needed it too — a second copy would
+   have drifted the first time either was touched. */
+
+.gi-fav-wrap { position: relative; display: flex; }
+.gi-fav-wrap > .gi-card { flex: 1; }
+.gi-fav-wrap > .gi-rsc-row { flex: 1; padding-right: 52px; }
+.gi-fav {
+    position: absolute; z-index: 3;
+    top: 10px; right: 10px;
+    width: 32px; height: 32px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
+    color: rgba(255,255,255,0.55);
+    transition: color 0.15s, border-color 0.15s, transform 0.12s, background 0.15s;
+}
+.gi-fav:hover { color: #ffd166; border-color: rgba(255,209,102,0.55); transform: scale(1.08); }
+.gi-fav.is-on { color: #ffd166; border-color: rgba(255,209,102,0.6); background: rgba(255,209,102,0.14); }
+.gi-fav.is-busy { opacity: 0.5; pointer-events: none; }
+/* A completed guide already wears a badge at the top right, so the star moves
+   to the left on cards to avoid sitting on top of it. */
+.gi-fav-wrap > .gi-card ~ .gi-fav,
+.gi-fav-wrap:has(> .gi-card) > .gi-fav { left: 10px; right: auto; }
+/* Rows are a single line; centre the star on it rather than pinning it high. */
+.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav { top: 50%; right: 10px; left: auto; transform: translateY(-50%); }
+.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav:hover { transform: translateY(-50%) scale(1.08); }
+.gi-sr {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+/* "Favourites only" hides everything unstarred, and any section left empty. */
+.gi-tab-panel.favs-only .gi-fav-wrap[data-fav="0"] { display: none; }
+.gi-chip.gi-chip-fav.is-active { border-color: #ffd166; background: rgba(255,209,102,0.16); }
+.gi-chip.gi-chip-fav i { color: #ffd166; }
+
+.gi-rsc-list { display: flex; flex-direction: column; gap: 8px; }
+.gi-rsc-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05); text-decoration: none; color: inherit; transition: background 0.15s, border-color 0.15s; }
+.gi-rsc-row:hover { background: rgba(127,127,127,0.11); border-color: rgba(127,127,127,0.4); }
+.gi-rsc-ic { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(255,196,120,0.2), rgba(94,238,200,0.12)); font-size: 1.05rem; }
+.gi-rsc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.gi-rsc-title { font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
+.gi-rsc-desc { font-size: 0.85rem; opacity: 0.62; margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
+.gi-rsc-ic { align-self: flex-start; }
+/* A picture stands in for the glyph, filling the same tile so rows stay aligned
+   whether or not one has been set. */
+.gi-rsc-pic { padding: 0; overflow: hidden; background: rgba(255,255,255,0.06); position: relative; }
+.gi-rsc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* The type glyph still says what opening this will do — a video, a download, a
+   link — and a picture should not cost the reader that. It sits over the image
+   on a scrim so it stays legible on a light one as well as a dark one. */
+.gi-rsc-pic-badge {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1rem; color: #fff;
+    background: rgba(0,0,0,0.42);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+    opacity: 0.85;
+    transition: opacity 0.15s, background 0.15s;
+}
+/* Fades back on hover so the picture itself can be seen. */
+.gi-rsc-row:hover .gi-rsc-pic-badge { opacity: 0.35; background: rgba(0,0,0,0.18); }
+.gi-rsc-tag { flex-shrink: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(127,127,127,0.2); opacity: 0.85; white-space: nowrap; }
+.gi-rsc-lock { flex-shrink: 0; align-self: flex-start; opacity: 0.55; font-size: 0.82rem; margin-top: 2px; }
+.gi-rsc-go { flex-shrink: 0; align-self: center; opacity: 0.4; font-size: 0.8rem; }

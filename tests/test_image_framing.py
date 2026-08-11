@@ -282,8 +282,15 @@ console.log(JSON.stringify(cases.map(a => {
     # that can be zoomed needs an ancestor that clips — otherwise a zoomed
     # picture spills over the title next to it.
     gi = open(os.path.join(_REPO, 'Templates', 'guides_index.html')).read()
+    # The row styles moved to a shared stylesheet when the bundle page needed
+    # them too, so the clipping rule is checked where it now lives.
+    rowcss = open(os.path.join(_REPO, 'static', 'css', 'resource_rows.css')).read()
     check('the inline picture slot clips',
-          re.search(r'\.gi-rsc-pic\s*\{[^}]*overflow:\s*hidden', gi))
+          re.search(r'\.gi-rsc-pic\s*\{[^}]*overflow:\s*hidden', rowcss))
+    check('and every page showing those rows links that stylesheet',
+          all('css/resource_rows.css' in open(
+                  os.path.join(_REPO, 'Templates', t)).read()
+              for t in ('guides_index.html', 'public_bundle_page.html')))
     check('the guide card clips its cover',
           re.search(r'\.gi-card\s*\{[^}]*overflow:\s*hidden', gi))
     gv = open(os.path.join(_REPO, 'Templates', 'guide_view.html')).read()

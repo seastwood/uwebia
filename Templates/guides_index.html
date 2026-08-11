@@ -1,4 +1,5 @@
 {% extends 'public_base.html' %}
+{% import 'components/resource_row.html' as rows with context %}
 {% import 'components/content_dates.html' as dates with context %}
 
 {% set _learn_title = (website.guides_page_title or 'Education') if website else 'Education' %}
@@ -6,6 +7,7 @@
 
 {% block head %}
 {{ dates.freshness_styles() }}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/resource_rows.css') }}">
 <style>
 .gi-wrap { max-width: 960px; margin: 0 auto; padding: 40px 20px 80px; }
 /* Bottom spacing lives on the row (not the subtitle) so that when the action
@@ -68,37 +70,6 @@
 .gi-badge-lock { background: rgba(0,0,0,0.62); color: #fff; }
 /* Favourites. The star sits BESIDE the card, not inside it — every card is an
    <a>, and a button inside an anchor is invalid and swallows the click. */
-.gi-fav-wrap { position: relative; display: flex; }
-.gi-fav-wrap > .gi-card { flex: 1; }
-.gi-fav-wrap > .gi-rsc-row { flex: 1; padding-right: 52px; }
-.gi-fav {
-    position: absolute; z-index: 3;
-    top: 10px; right: 10px;
-    width: 32px; height: 32px; border-radius: 50%;
-    display: inline-flex; align-items: center; justify-content: center;
-    appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
-    background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.18);
-    color: rgba(255,255,255,0.55);
-    transition: color 0.15s, border-color 0.15s, transform 0.12s, background 0.15s;
-}
-.gi-fav:hover { color: #ffd166; border-color: rgba(255,209,102,0.55); transform: scale(1.08); }
-.gi-fav.is-on { color: #ffd166; border-color: rgba(255,209,102,0.6); background: rgba(255,209,102,0.14); }
-.gi-fav.is-busy { opacity: 0.5; pointer-events: none; }
-/* A completed guide already wears a badge at the top right, so the star moves
-   to the left on cards to avoid sitting on top of it. */
-.gi-fav-wrap > .gi-card ~ .gi-fav,
-.gi-fav-wrap:has(> .gi-card) > .gi-fav { left: 10px; right: auto; }
-/* Rows are a single line; centre the star on it rather than pinning it high. */
-.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav { top: 50%; right: 10px; left: auto; transform: translateY(-50%); }
-.gi-fav-wrap:has(> .gi-rsc-row) > .gi-fav:hover { transform: translateY(-50%) scale(1.08); }
-.gi-sr {
-    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
-}
-/* "Favourites only" hides everything unstarred, and any section left empty. */
-.gi-tab-panel.favs-only .gi-fav-wrap[data-fav="0"] { display: none; }
-.gi-chip.gi-chip-fav.is-active { border-color: #ffd166; background: rgba(255,209,102,0.16); }
-.gi-chip.gi-chip-fav i { color: #ffd166; }
 .gi-fav-empty {
     display: none; padding: 26px 4px; text-align: center;
     font-size: 0.9rem; opacity: 0.55;
@@ -120,35 +91,6 @@
 .gi-chip i { font-size: 0.78em; color: var(--chip, inherit); }
 .gi-section[hidden] { display: none; }
 /* Resources & Quizzes render as a compact list (not big cards) */
-.gi-rsc-list { display: flex; flex-direction: column; gap: 8px; }
-.gi-rsc-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.2); background: rgba(127,127,127,0.05); text-decoration: none; color: inherit; transition: background 0.15s, border-color 0.15s; }
-.gi-rsc-row:hover { background: rgba(127,127,127,0.11); border-color: rgba(127,127,127,0.4); }
-.gi-rsc-ic { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(255,196,120,0.2), rgba(94,238,200,0.12)); font-size: 1.05rem; }
-.gi-rsc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.gi-rsc-title { font-weight: 700; font-size: 1rem; overflow-wrap: anywhere; }
-.gi-rsc-desc { font-size: 0.85rem; opacity: 0.62; margin-top: 3px; line-height: 1.45; overflow-wrap: anywhere; }
-.gi-rsc-ic { align-self: flex-start; }
-/* A picture stands in for the glyph, filling the same tile so rows stay aligned
-   whether or not one has been set. */
-.gi-rsc-pic { padding: 0; overflow: hidden; background: rgba(255,255,255,0.06); position: relative; }
-.gi-rsc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
-/* The type glyph still says what opening this will do — a video, a download, a
-   link — and a picture should not cost the reader that. It sits over the image
-   on a scrim so it stays legible on a light one as well as a dark one. */
-.gi-rsc-pic-badge {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1rem; color: #fff;
-    background: rgba(0,0,0,0.42);
-    text-shadow: 0 1px 3px rgba(0,0,0,0.6);
-    opacity: 0.85;
-    transition: opacity 0.15s, background 0.15s;
-}
-/* Fades back on hover so the picture itself can be seen. */
-.gi-rsc-row:hover .gi-rsc-pic-badge { opacity: 0.35; background: rgba(0,0,0,0.18); }
-.gi-rsc-tag { flex-shrink: 0; align-self: flex-start; display: inline-flex; align-items: center; gap: 5px; font-size: 0.66rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 3px 9px; border-radius: 99px; background: rgba(127,127,127,0.2); opacity: 0.85; white-space: nowrap; }
-.gi-rsc-lock { flex-shrink: 0; align-self: flex-start; opacity: 0.55; font-size: 0.82rem; margin-top: 2px; }
-.gi-rsc-go { flex-shrink: 0; align-self: center; opacity: 0.4; font-size: 0.8rem; }
 /* Tab search box (guides / quizzes / resources) */
 .gi-search { display: flex; align-items: center; gap: 10px; margin: 0 0 20px; padding: 10px 14px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.28); background: rgba(127,127,127,0.06); }
 .gi-search i { opacity: 0.5; font-size: 0.9rem; }
@@ -157,6 +99,11 @@
 .gi-search-empty { text-align: center; opacity: 0.55; font-size: 0.92rem; padding: 24px 12px; }
 /* Bundle: a titled group box of related resources inside a category */
 .gi-bundle { border: 1px solid rgba(94,238,200,0.3); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; background: rgba(94,238,200,0.045); }
+a.gi-bundle-head { text-decoration: none; color: inherit; border-radius: 8px; margin: -4px -6px 6px; padding: 4px 6px; transition: background 0.15s; }
+a.gi-bundle-head:hover { background: rgba(94,238,200,0.12); }
+a.gi-bundle-head:hover .gi-bundle-title { text-decoration: underline; }
+.gi-bundle-go { margin-left: auto; opacity: 0.45; font-size: 0.82rem; }
+a.gi-bundle-head:hover .gi-bundle-go { opacity: 0.9; }
 .gi-bundle-head { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
 .gi-bundle-head > i { color: #5eeec8; font-size: 0.95rem; }
 .gi-bundle-title { font-weight: 800; font-size: 1.02rem; }
@@ -368,10 +315,10 @@
         {% if q.image_url %}
         <span class="gi-rsc-ic gi-rsc-pic">
             <img src="{{ q.image_url }}" alt="" loading="lazy" style="{{ image_fit(q) }}">
-            <i class="fas {{ 'fa-circle-check' if _status == 'passed' else 'fa-clipboard-check' }} gi-rsc-pic-badge" aria-hidden="true"></i>
+            <i class="fas {{ 'fa-check-circle' if _status == 'passed' else 'fa-clipboard-check' }} gi-rsc-pic-badge" aria-hidden="true"></i>
         </span>
         {% else %}
-        <span class="gi-rsc-ic gi-quiz-ic">{% if _status == 'passed' %}<i class="fas fa-circle-check"></i>{% else %}<i class="fas fa-clipboard-check"></i>{% endif %}</span>
+        <span class="gi-rsc-ic gi-quiz-ic">{% if _status == 'passed' %}<i class="fas fa-check-circle"></i>{% else %}<i class="fas fa-clipboard-check"></i>{% endif %}</span>
         {% endif %}
         <span class="gi-rsc-main">
             <span class="gi-rsc-title">{{ q.title }}</span>
@@ -391,34 +338,9 @@
     </div>
 {%- endmacro %}
 
-{% macro resource_card(r, cat_name='', bundle_name='') -%}
-    {% set _rt = r.resource_type %}
-    {% set _icon = r.icon or {'link': 'fa-link', 'file': 'fa-file-arrow-down', 'video': 'fa-play', 'page': 'fa-file-lines'}.get(_rt, 'fa-folder') %}
-    {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
-    {# Compact list row. All types route through /resource/<id> so the login gate
-       applies; links & files redirect (new tab), videos & pages render on-site. #}
-    <div class="gi-fav-wrap" data-fav-item="resource-{{ r.id }}"
-         data-fav="{{ '1' if (favorites and r.id in favorites['resource']) else '0' }}">
-    {{ fav_button('resource', r.id) }}
-    <a class="gi-rsc-row" data-search="{{ (r.title ~ ' ' ~ (r.description or '') ~ ' ' ~ cat_name ~ ' ' ~ bundle_name ~ ' ' ~ _tlabel) | lower }}" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
-        {% if r.image_url %}
-        <span class="gi-rsc-ic gi-rsc-pic">
-            <img src="{{ r.image_url }}" alt="" loading="lazy" style="{{ image_fit(r) }}">
-            <i class="fas {{ _icon }} gi-rsc-pic-badge" aria-hidden="true"></i>
-        </span>
-        {% else %}
-        <span class="gi-rsc-ic"><i class="fas {{ _icon }}"></i></span>
-        {% endif %}
-        <span class="gi-rsc-main">
-            <span class="gi-rsc-title">{{ r.title }}</span>
-            {% if r.description %}<span class="gi-rsc-desc">{{ r.description }}</span>{% endif %}
-        </span>
-        {% if r.require_login_to_view %}<span class="gi-rsc-lock" title="Login required"><i class="fas fa-lock"></i></span>{% endif %}
-        <span class="gi-rsc-tag">{{ _tlabel }}</span>
-        <i class="fas fa-chevron-right gi-rsc-go"></i>
-    </a>
-    </div>
-{%- endmacro %}
+{# The resource row lives in components/resource_row.html so the bundle
+   page renders the same resource identically. #}
+{% macro resource_card(r, cat_name='', bundle_name='') -%}{{ rows.resource_row(r, favorites, favorites_enabled, cat_name, bundle_name) }}{%- endmacro %}
 
 <div class="gi-wrap">
     <div class="gi-head-row">
@@ -610,7 +532,7 @@ function giRefreshFavCounts() {
 
     {% if guides %}
     <div class="gi-search">
-        <i class="fas fa-magnifying-glass"></i>
+        <i class="fas fa-search"></i>
         <input type="search" class="gi-search-input" placeholder="Search guides…" autocomplete="off" aria-label="Search guides">
     </div>
     <p class="gi-search-empty" hidden>No guides match your search.</p>
@@ -738,7 +660,7 @@ function giRefreshFavCounts() {
         <p class="gi-fav-empty">Nothing saved here yet — tap the <i class="far fa-star" aria-hidden="true"></i> on anything you want to find again.</p>
     {{ category_chips(grouped_quizzes, 'quizzes') }}
         <div class="gi-search">
-            <i class="fas fa-magnifying-glass"></i>
+            <i class="fas fa-search"></i>
             <input type="search" class="gi-search-input" placeholder="Search quizzes…" autocomplete="off" aria-label="Search quizzes">
         </div>
         <p class="gi-search-empty" hidden>No quizzes match your search.</p>
@@ -795,7 +717,7 @@ function giRefreshFavCounts() {
         <p class="gi-fav-empty">Nothing saved here yet — tap the <i class="far fa-star" aria-hidden="true"></i> on anything you want to find again.</p>
     {{ category_chips(grouped_resources, 'resources') }}
         <div class="gi-search">
-            <i class="fas fa-magnifying-glass"></i>
+            <i class="fas fa-search"></i>
             <input type="search" class="gi-search-input" placeholder="Search resources…" autocomplete="off" aria-label="Search resources">
         </div>
         <p class="gi-search-empty" hidden>No resources match your search.</p>
@@ -824,11 +746,14 @@ function giRefreshFavCounts() {
             {# Bundles first — each a titled group box — then the loose resources. #}
             {% for bg in grp.bundles %}
             <div class="gi-bundle" data-bundle="1">
-                <div class="gi-bundle-head">
+                {# The title opens the bundle on its own page; the contents stay
+                   listed here too, so searching still reaches inside them. #}
+                <a class="gi-bundle-head" href="{{ url_for('public_resource_bundle', bid=bg.bundle.id) }}">
                     {% if bg.bundle.icon %}<i class="fas {{ bg.bundle.icon }}" style="{% if bg.bundle.color %}color:{{ bg.bundle.color }};{% endif %}"></i>{% else %}<i class="fas fa-layer-group"></i>{% endif %}
                     <span class="gi-bundle-title">{{ bg.bundle.name }}</span>
                     <span class="gi-section-count">{{ bg.resources|length }}</span>
-                </div>
+                    <i class="fas fa-arrow-right gi-bundle-go" aria-hidden="true"></i>
+                </a>
                 {% if bg.bundle.description %}<p class="gi-bundle-desc">{{ bg.bundle.description }}</p>{% endif %}
                 <div class="gi-rsc-list">
                     {% for r in bg.resources %}{{ resource_card(r, _cat, bg.bundle.name) }}{% endfor %}
