@@ -46799,6 +46799,41 @@ def _resource_video_embed(url):
     return ('video', u)
 
 
+@app.route('/resources/bundle/<int:bid>')
+def public_resource_bundle(bid):
+    """Everything inside one bundle, on its own page.
+
+    Reached by clicking a bundle's title on the Resources tab, where the same
+    resources are also listed inline. Visibility repeats the index's rules
+    rather than trusting the id in the URL: an unlisted or members-only
+    resource must not become visible just because it sits in a bundle whose
+    id somebody guessed.
+    """
+    bundle = ResourceBundle.query.get_or_404(bid)
+    website = _live_website_for(bundle)
+    public_user = _public_user_for_website(website)
+    viewer_is_member = _viewer_is_org_member(website, public_user)
+
+    resources = Resource.query.filter_by(
+        website_id=website.id, bundle_id=bundle.id, is_public=True).order_by(
+        Resource.sort_order, Resource.created_at.desc()).all()
+    if not viewer_is_member:
+        resources = [r for r in resources if not r.members_only]
+
+    # A bundle with nothing a visitor may see is not a page — and saying "empty"
+    # rather than "not found" would confirm the hidden material is there.
+    if not resources:
+        abort(404)
+
+    category = (ResourceCategory.query.get(bundle.category_id)
+                if bundle.category_id else None)
+    return render_template('public_bundle_page.html', website=website,
+                           bundle=bundle, category=category, resources=resources,
+                           public_user=public_user,
+                           favorites=favorite_ids_for(public_user),
+                           favorites_enabled=bool(public_user))
+
+
 @app.route('/resource/<int:rid>')
 def public_resource_page(rid):
     """Public view for a resource. Links/files redirect to their target; videos

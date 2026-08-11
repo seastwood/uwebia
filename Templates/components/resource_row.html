@@ -1,0 +1,97 @@
+{# A resource as a list row, plus the favourite star that sits beside it.
+
+   Shared by the Education index and the single-bundle page: the same resource
+   has to look and behave the same in both, and a second copy of this markup
+   would have drifted the first time either page was touched.
+
+   Its styles live in static/css/resource_rows.css — link that on any page
+   using these macros.
+
+   Usage:
+     {% import 'components/resource_row.html' as rows with context %}
+     {{ rows.resource_row(r, favorites, favorites_enabled) }}
+#}
+
+{% macro fav_button(kind, item_id, favorites, favorites_enabled) -%}
+    {%- if favorites_enabled -%}
+    {%- set _on = item_id in (favorites[kind] if favorites else []) -%}
+    <button type="button" class="gi-fav{{ ' is-on' if _on }}"
+            data-fav-type="{{ kind }}" data-fav-id="{{ item_id }}"
+            aria-pressed="{{ 'true' if _on else 'false' }}"
+            title="{{ 'Remove from favourites' if _on else 'Save to favourites' }}"
+            onclick="giToggleFavorite(event, this)">
+        <i class="{{ 'fas' if _on else 'far' }} fa-star" aria-hidden="true"></i>
+        <span class="gi-sr">{{ 'Remove from favourites' if _on else 'Save to favourites' }}</span>
+    </button>
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro resource_row(r, favorites=None, favorites_enabled=False,
+                      cat_name='', bundle_name='') -%}
+    {% set _rt = r.resource_type %}
+    {% set _icon = r.icon or {'link': 'fa-link', 'file': 'fa-file-download', 'video': 'fa-play', 'page': 'fa-file-alt'}.get(_rt, 'fa-folder') %}
+    {% set _tlabel = {'link': 'Link', 'file': 'Download', 'video': 'Video', 'page': 'Article'}.get(_rt, '') %}
+    {# Compact list row. All types route through /resource/<id> so the login gate
+       applies; links & files redirect (new tab), videos & pages render on-site. #}
+    <div class="gi-fav-wrap" data-fav-item="resource-{{ r.id }}"
+         data-fav="{{ '1' if (favorites and r.id in favorites['resource']) else '0' }}">
+    {{ fav_button('resource', r.id, favorites, favorites_enabled) }}
+    <a class="gi-rsc-row" data-search="{{ (r.title ~ ' ' ~ (r.description or '') ~ ' ' ~ cat_name ~ ' ' ~ bundle_name ~ ' ' ~ _tlabel) | lower }}" href="{{ url_for('public_resource_page', rid=r.id) }}"{% if _rt in ['link', 'file'] %} target="_blank" rel="noopener"{% endif %}>
+        {% if r.image_url %}
+        <span class="gi-rsc-ic gi-rsc-pic">
+            <img src="{{ r.image_url }}" alt="" loading="lazy" style="{{ image_fit(r) }}">
+            <i class="fas {{ _icon }} gi-rsc-pic-badge" aria-hidden="true"></i>
+        </span>
+        {% else %}
+        <span class="gi-rsc-ic"><i class="fas {{ _icon }}"></i></span>
+        {% endif %}
+        <span class="gi-rsc-main">
+            <span class="gi-rsc-title">{{ r.title }}</span>
+            {% if r.description %}<span class="gi-rsc-desc">{{ r.description }}</span>{% endif %}
+        </span>
+        {% if r.require_login_to_view %}<span class="gi-rsc-lock" title="Login required"><i class="fas fa-lock"></i></span>{% endif %}
+        <span class="gi-rsc-tag">{{ _tlabel }}</span>
+        <i class="fas fa-chevron-right gi-rsc-go"></i>
+    </a>
+    </div>
+{%- endmacro %}
+
+{# The star's click handler, for pages that don't already have one (the index
+   carries its own, with filtering and live counts on top). #}
+{% macro fav_script(fav_url, login_url) -%}
+<script>
+async function giToggleFavorite(event, btn) {
+    // The star sits on top of a row that is itself a link.
+    event.preventDefault();
+    event.stopPropagation();
+    if (btn.classList.contains('is-busy')) return;
+    btn.classList.add('is-busy');
+    try {
+        const r = await fetch({{ fav_url | tojson }}, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: btn.dataset.favType,
+                                   id: parseInt(btn.dataset.favId, 10) })
+        });
+        const d = await r.json();
+        if (r.status === 401 && d.needs_login) {
+            window.location.href = {{ login_url | tojson }};
+            return;
+        }
+        if (!d.success) return;
+        const on = !!d.favorited;
+        btn.classList.toggle('is-on', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btn.title = on ? 'Remove from favourites' : 'Save to favourites';
+        const icon = btn.querySelector('i');
+        if (icon) icon.className = (on ? 'fas' : 'far') + ' fa-star';
+        const wrap = btn.closest('.gi-fav-wrap');
+        if (wrap) wrap.dataset.fav = on ? '1' : '0';
+    } catch (e) {
+        /* Leave the star as it was — better than showing a state we failed to save. */
+    } finally {
+        btn.classList.remove('is-busy');
+    }
+}
+</script>
+{%- endmacro %}
