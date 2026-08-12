@@ -634,3 +634,15 @@
     text-align: center;
     grid-column: 1 / -1;
 }
+/* Pasting / dropping an image into the picker: a screenshot is usually on the
+   clipboard rather than saved to disk, so this is the short path. */
+.modal-paste-status {
+    font-size: 0.8rem;
+    opacity: 0.75;
+    min-height: 16px;
+    margin: 6px 0 0;
+}
+.library-modal.is-drop-hot .library-modal-content {
+    outline: 2px dashed rgba(94, 238, 248, 0.75);
+    outline-offset: -8px;
+}

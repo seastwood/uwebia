@@ -19,6 +19,12 @@
                         <i class="fas fa-upload"></i>
                         Upload Images
                     </button>
+
+                    <button type="button" class="btn-secondary"
+                        onclick="PhotoLibraryModal.pasteFromClipboard()">
+                        <i class="fas fa-paste"></i>
+                        Paste Image
+                    </button>
                     {% endif %}
 
                     <button type="button" class="btn-secondary" onclick="PhotoLibraryModal.createFolder()">
@@ -40,7 +46,10 @@
                 {% if current_user.has_permission('assets.upload') %}
                 <div class="modal-upload-help">
                     These uploads go into your Asset Library under Images.
+                    You can also paste (Ctrl+V) or drag an image straight onto this window.
                 </div>
+
+                <div class="modal-paste-status" id="modalPasteStatus"></div>
 
                 <div class="upload-progress-wrapper" id="modalUploadProgressWrapper" style="display:none;">
                     <div class="upload-progress-bar">
