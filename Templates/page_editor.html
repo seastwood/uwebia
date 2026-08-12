@@ -48,6 +48,7 @@
 {% include 'components/navbar.html' %}
 
 {% include 'components/photo_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/clipboard_image.js') }}"></script>
 <script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
 
@@ -9387,6 +9388,12 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                     <button type="button" class="btn-secondary" onclick="openLibraryPicker('${section.id}')">
                         <i class="fas fa-th"></i> Pick from Library
                     </button>
+
+                    <button type="button" class="btn-secondary"
+                            data-paste-into-section="${section.id}"
+                            onclick="pasteImageIntoSection('${section.id}', this)">
+                        <i class="fas fa-paste"></i> Paste
+                    </button>
                 </div>
 
                 <div class="image-layout-panel">
@@ -13395,6 +13402,68 @@ setTimeout(() => {
         }
     </script>
     <script>
+        /* Paste an image straight into an image section: upload it, attach it,
+           refresh — the same three steps picking from the library performs,
+           without the round trip through the picker. */
+        async function pasteImageIntoSection(sectionId, btn) {
+            const res = await ClipboardImage.read();
+            if (!res.file) {
+                // No image, no permission, or no clipboard API at all (plain
+                // http) — say which, rather than appearing to do nothing.
+                alert(res.reason === 'empty'
+                    ? 'There is no image on the clipboard — copy one first.'
+                    : ClipboardImage.hint());
+                return;
+            }
+            await uploadImageIntoSection(sectionId, res.file, btn);
+        }
+
+        async function uploadImageIntoSection(sectionId, file, btn) {
+            const original = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pasting…';
+            }
+            try {
+                const fd = new FormData();
+                fd.append('asset', file, file.name || 'pasted.png');
+                const up = await fetch('/admin/assets/upload', { method: 'POST', body: fd });
+                const upd = await up.json();
+                if (upd.status !== 'success' || !(upd.assets || []).length) {
+                    alert(upd.error || 'Upload failed.');
+                    return;
+                }
+                // Attach it exactly the way the picker does.
+                const add = await fetch('/add_assets_to_section', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': typeof csrfToken !== 'undefined' ? csrfToken : ''
+                    },
+                    body: JSON.stringify({
+                        section_id: sectionId,
+                        asset_ids: upd.assets.map(function (a) { return a.id; }),
+                        usage_type: 'section-image'
+                    })
+                });
+                if (!add.ok) {
+                    alert('The image uploaded, but could not be added to the section.');
+                    return;
+                }
+                if (typeof loadUploadedImages === 'function') {
+                    await loadUploadedImages(sectionId);
+                }
+                if (typeof reloadIframe === 'function') reloadIframe();
+            } catch (e) {
+                alert('Paste failed: ' + e.message);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = original;
+                }
+            }
+        }
+
         function openLibraryPicker(sectionId) {
             if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
                 alert('Asset library modal is not loaded.');

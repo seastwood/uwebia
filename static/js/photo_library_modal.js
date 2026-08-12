@@ -280,10 +280,19 @@ window.PhotoLibraryModal = (function () {
     async function handleUpload(event) {
         const files = event.target.files;
         if (!files || !files.length) return;
+        uploadFiles(files, function () { event.target.value = ''; });
+    }
+
+    // Split out of handleUpload so a pasted or dropped image takes exactly the
+    // same route as a chosen file: same endpoint, same folder, same progress
+    // bar, same refresh afterwards.
+    function uploadFiles(files, onSettled) {
+        files = ClipboardImage.onlyImages(files);
+        if (!files.length) return;
 
         const formData = new FormData();
 
-        Array.from(files).forEach(file => {
+        files.forEach(file => {
             formData.append('asset', file);
         });
 
@@ -312,7 +321,7 @@ window.PhotoLibraryModal = (function () {
         });
 
         xhr.onload = function () {
-            event.target.value = '';
+            if (typeof onSettled === 'function') onSettled();
 
             if (xhr.status >= 200 && xhr.status < 300) {
                 if (progressFill) progressFill.style.width = '100%';
@@ -344,12 +353,83 @@ window.PhotoLibraryModal = (function () {
         };
 
         xhr.onerror = function () {
+            if (typeof onSettled === 'function') onSettled();
             alert('Upload failed.');
             if (progressWrapper) progressWrapper.style.display = 'none';
         };
 
         xhr.send(formData);
     }
+
+    function modalIsOpen() {
+        const modal = qs('libraryModal');
+        return !!modal && modal.style.display !== 'none';
+    }
+
+    function pasteStatus(text, isError) {
+        const el = qs('modalPasteStatus');
+        if (!el) return;
+        el.textContent = text || '';
+        el.style.color = isError ? '#ff8b8b' : '';
+    }
+
+    /* Ctrl+V anywhere while the modal is open. A screenshot is already on the
+       clipboard far more often than it is saved to disk, so this is the short
+       path — no Save As, no file browser, no stray file left behind. */
+    document.addEventListener('paste', function (e) {
+        if (!modalIsOpen()) return;
+        const t = e.target;
+        // Don't hijack pasting text into a field (the folder-name prompt).
+        if (ClipboardImage.isTextTarget(t)) return;
+        const file = ClipboardImage.fromEvent(e);
+        if (!file) return;
+        e.preventDefault();
+        pasteStatus('Uploading pasted image…');
+        uploadFiles([file], function () { pasteStatus(''); });
+    });
+
+    /* The button, for people who do not know the shortcut and for touch, where
+       there is no Ctrl+V at all. Reading the clipboard needs a secure context
+       and permission; over plain http the API is simply absent, so it always
+       falls back to naming the shortcut. */
+    async function pasteFromClipboard() {
+        pasteStatus('Reading the clipboard…');
+        const res = await ClipboardImage.read();
+        if (res.file) {
+            pasteStatus('Uploading pasted image…');
+            uploadFiles([res.file], function () { pasteStatus(''); });
+            return;
+        }
+        pasteStatus(res.reason === 'empty'
+            ? 'There is no image on the clipboard — copy one first.'
+            : ClipboardImage.hint(), true);
+    }
+
+    /* Dragging an image straight onto the modal is the same gesture again. */
+    (function () {
+        const dz = function () { return qs('libraryModal'); };
+        document.addEventListener('dragover', function (e) {
+            if (!modalIsOpen()) return;
+            const m = dz();
+            if (m && m.contains(e.target)) { e.preventDefault(); m.classList.add('is-drop-hot'); }
+        });
+        document.addEventListener('dragleave', function (e) {
+            const m = dz();
+            if (m && e.target === m) m.classList.remove('is-drop-hot');
+        });
+        document.addEventListener('drop', function (e) {
+            if (!modalIsOpen()) return;
+            const m = dz();
+            if (!m || !m.contains(e.target)) return;
+            e.preventDefault();
+            m.classList.remove('is-drop-hot');
+            const files = (e.dataTransfer || {}).files;
+            if (files && files.length) {
+                pasteStatus('Uploading dropped image…');
+                uploadFiles(files, function () { pasteStatus(''); });
+            }
+        });
+    })();
 
     async function createFolder() {
         const folderName = prompt('Folder name:');
@@ -391,6 +471,7 @@ window.PhotoLibraryModal = (function () {
         close,
         confirmSelection,
         handleUpload,
+        pasteFromClipboard,
         createFolder,
         loadRoot,
         loadFolder

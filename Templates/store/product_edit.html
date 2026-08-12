@@ -2,6 +2,7 @@
 {% block content %}
 {% include 'components/navbar.html' %}
 {% include 'components/photo_library_modal.html' %}
+<script src="{{ url_for('static', filename='js/clipboard_image.js') }}"></script>
 <script src="{{ url_for('static', filename='js/photo_library_modal.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/photo_library_modal.css') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/store.css') }}">

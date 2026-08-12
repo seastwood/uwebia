@@ -3,6 +3,13 @@
 {% include 'components/navbar.html' %}
 
 <style>
+/* Dragging an image anywhere onto the library uploads it. */
+body.lib-drop-hot::after {
+    content: '';
+    position: fixed; inset: 10px; z-index: 9998; pointer-events: none;
+    border: 2px dashed rgba(94,238,248,0.8); border-radius: 14px;
+}
+
     .library-container {
         padding: 20px;
         color: #fff;
@@ -1041,6 +1048,12 @@
         </button>
         {% endif %}
 
+        {% if user_has_perm('assets.upload') %}
+        <button onclick="pasteIntoLibrary()" id="libPasteBtn">
+            <i class="fas fa-paste"></i> Paste Image
+        </button>
+        {% endif %}
+
         {% if current_type == 'image' %}
         {% if user_has_perm('assets.ai_generate') %}
         <button onclick="openAiGenModal()" style="background:linear-gradient(135deg,#7b2ff7,#00c6ff); border-color:transparent;">
@@ -1283,6 +1296,7 @@
     </div>
 </div>
 
+<script src="{{ url_for('static', filename='js/clipboard_image.js') }}"></script>
 <script>
     // ── Folder tree data ──
     const FOLDERS_DATA = [
@@ -1695,6 +1709,17 @@
     async function handleUpload(event) {
         const files = event.target.files;
         if (!files || files.length === 0) return;
+        uploadAssetFiles(files);
+        event.target.value = '';
+    }
+
+    // Split out of handleUpload so a pasted or dropped image takes the same
+    // route as a chosen file — same folder, same progress bar, same reload,
+    // and above all the same error reporting, which is doing real work here
+    // (Brave shields, blocked requests, HTML error pages).
+    function uploadAssetFiles(files) {
+        files = ClipboardImage.onlyImages(files);
+        if (!files.length) return;
 
         const formData = new FormData();
 
@@ -1784,6 +1809,71 @@
 
         xhr.send(formData);
     }
+
+    /* ── Paste an image straight into the library ─────────────────────────
+       A screenshot lives on the clipboard, not on disk. Ctrl+V anywhere on
+       the page, a Paste Image button, or dragging onto the window — all three
+       hand off to uploadAssetFiles(), so the pasted image lands in whichever
+       folder is open, exactly like a chosen file. */
+    {% if user_has_perm('assets.upload') %}
+    function libPasteMsg(text, isError) {
+        const wrap = document.getElementById('uploadProgressWrapper');
+        const fill = document.getElementById('uploadProgressFill');
+        const txt = document.getElementById('uploadProgressText');
+        if (!wrap || !txt) return;
+        wrap.style.display = 'block';
+        if (fill) fill.style.width = '0%';
+        txt.style.color = isError ? '#ff8a8a' : '';
+        txt.textContent = text;
+        if (isError) {
+            clearTimeout(window._libPasteTimer);
+            window._libPasteTimer = setTimeout(function () {
+                wrap.style.display = 'none';
+                txt.style.color = '';
+            }, 6000);
+        }
+    }
+
+    async function pasteIntoLibrary() {
+        const res = await ClipboardImage.read();
+        if (res.file) { uploadAssetFiles([res.file]); return; }
+        // No image, no permission, or no clipboard API at all (plain http) —
+        // say which, rather than appearing to do nothing.
+        libPasteMsg(res.reason === 'empty'
+            ? 'There is no image on the clipboard — copy one first.'
+            : ClipboardImage.hint(), true);
+    }
+
+    document.addEventListener('paste', function (e) {
+        // The picker modal has its own handler; don't upload twice.
+        const modal = document.getElementById('libraryModal');
+        if (modal && modal.style.display !== 'none') return;
+        if (ClipboardImage.isTextTarget(e.target)) return;
+        const file = ClipboardImage.fromEvent(e);
+        if (!file) return;
+        e.preventDefault();
+        uploadAssetFiles([file]);
+    });
+
+    document.addEventListener('dragover', function (e) {
+        if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types || [], 'Files') >= 0) {
+            e.preventDefault();
+            document.body.classList.add('lib-drop-hot');
+        }
+    });
+    document.addEventListener('dragleave', function (e) {
+        if (!e.relatedTarget) document.body.classList.remove('lib-drop-hot');
+    });
+    document.addEventListener('drop', function (e) {
+        const modal = document.getElementById('libraryModal');
+        if (modal && modal.style.display !== 'none') return;
+        const files = (e.dataTransfer || {}).files;
+        if (!files || !files.length) return;
+        e.preventDefault();
+        document.body.classList.remove('lib-drop-hot');
+        uploadAssetFiles(files);
+    });
+    {% endif %}
 
     // Copy an asset's URL to the clipboard so the admin can paste it into
     // a button link, post body image src, section background, etc. Uses
