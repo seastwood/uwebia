@@ -47,6 +47,9 @@ assert os.path.dirname(os.path.abspath(main.__file__)) == _SCRATCH, \
 app, db = main.app, main.db
 FAILURES = []
 _JS = open(os.path.join(_REPO, 'static', 'js', 'photo_library_modal.js')).read()
+# The clipboard handling these depend on lives in its own file, shared with
+# the asset library page and the page editor.
+_CLIP = open(os.path.join(_REPO, 'static', 'js', 'clipboard_image.js')).read()
 
 
 def check(label, cond):
@@ -130,10 +133,11 @@ def main_test():
 
     print('\n[3] it only ever uploads images')
     check('non-images are dropped before anything is sent',
-          re.search(r'function uploadFiles[\s\S]{0,240}\/\^image\\\/\/\.test', _JS)
-          is not None)
+          'ClipboardImage.onlyImages' in _JS
+          and re.search(r'function onlyImages[\s\S]{0,200}image\\/', _CLIP) is not None)
     check('and pasting text is not hijacked',
-          "t.tagName === 'INPUT'" in _JS)
+          'ClipboardImage.isTextTarget' in _JS
+          and "tagName === 'INPUT'" in _CLIP)
     # Ctrl+V on any other page must not upload to a picker that is not showing.
     check('nor does a paste anywhere else on the page',
           'function modalIsOpen(' in _JS
@@ -143,11 +147,16 @@ def main_test():
     print('\n[4] the clipboard API is never assumed to be there')
     # Over plain http on a LAN — a self-hosted instance without TLS — the whole
     # API is absent, and a reader can always refuse.
-    check('the button checks before using it',
-          'navigator.clipboard || !navigator.clipboard.read' in _JS)
-    check('and falls back to naming the shortcut', 'Ctrl+V' in _JS)
+    check('it checks before using the API',
+          '!navigator.clipboard || !navigator.clipboard.read' in _CLIP)
+    check('and falls back to naming the shortcut',
+          'Ctrl+V' in _CLIP and 'ClipboardImage.hint()' in _JS)
     check('a clipboard with no image says so',
           'no image on the clipboard' in _JS)
+    # The keyboard path needs no permission at all, which is what makes it a
+    # real fallback rather than a second thing to be refused.
+    check('the fallback it names does not go through the API',
+          re.search(r'function fromEvent[\s\S]{0,400}clipboardData', _CLIP) is not None)
 
     print('\n[5] the upload endpoint accepts what the picker sends')
     # The picker posts multipart with the field name "asset"; the paste path
@@ -167,13 +176,68 @@ def main_test():
     with app.app_context():
         check('the asset really exists', main.Asset.query.count() == 1)
 
-    print('\n[6] the script still parses')
+    print('\n[6] the asset library page takes a paste too')
+    lib = c.get('/admin/dashboard/assets').get_data(as_text=True)
+    libsoup = BeautifulSoup(lib, 'html.parser')
+    check('a Paste Image button is in its toolbar',
+          libsoup.select_one('#libPasteBtn') is not None)
+    check('Ctrl+V anywhere on the page uploads',
+          "addEventListener('paste'" in lib and 'uploadAssetFiles' in lib)
+    check('so does dragging an image onto it',
+          "addEventListener('drop'" in lib)
+    check('all of them reuse the file input\'s upload, error banner and all',
+          'function uploadAssetFiles(' in lib
+          and re.search(r'function handleUpload[\s\S]{0,200}uploadAssetFiles\(', lib))
+    check('it does not upload behind the picker when that is open',
+          "getElementById('libraryModal')" in lib)
+    check('and pasting into a field is left alone', 'isTextTarget' in lib)
+
+    print('\n[7] the image section has a Paste button beside Pick from Library')
+    pe = open(os.path.join(_REPO, 'Templates', 'page_editor.html')).read()
+    head = pe[pe.index('<div class="image-editor-header">'):]
+    head = head[:head.index('</div>\n\n                <div class="image-layout-panel">')]
+    check('the picker button is there', 'openLibraryPicker' in head)
+    check('and a Paste button sits next to it, in the same header',
+          'pasteImageIntoSection' in head and 'data-paste-into-section' in head)
+    # Uploading is only half of it: the image has to end up IN the section.
+    check('pasting uploads the image', re.search(
+        r'function uploadImageIntoSection[\s\S]{0,700}/admin/assets/upload', pe) is not None)
+    check('then attaches it the way the picker does', re.search(
+        r'function uploadImageIntoSection[\s\S]{0,2000}/add_assets_to_section', pe) is not None)
+    check('with the CSRF token, or the attach is rejected',
+        re.search(r'function uploadImageIntoSection[\s\S]{0,2000}X-CSRFToken', pe) is not None)
+    check('and refreshes the section afterwards', re.search(
+        r'function uploadImageIntoSection[\s\S]{0,2600}loadUploadedImages', pe) is not None)
+
+    print('\n[8] one clipboard implementation, shared by all of them')
+    # Three copies of "read an image off the clipboard" would be three places
+    # for the permission handling and the fallbacks to drift.
+    shared = open(os.path.join(_REPO, 'static', 'js', 'clipboard_image.js')).read()
+    check('the helpers live in their own file', 'window.ClipboardImage' in shared)
+    check('read() reports why it failed rather than throwing',
+          "'unavailable'" in shared and "'denied'" in shared and "'empty'" in shared)
+    for label, path in (('the asset library', 'Templates/asset_library.html'),
+                        ('the page editor', 'Templates/page_editor.html'),
+                        ('the quiz editor', 'Templates/quizzes_admin.html'),
+                        ('the resource editor', 'Templates/resources_admin.html'),
+                        ('the product editor', 'Templates/store/product_edit.html'),
+                        ('the dashboard', 'Templates/dashboard.html')):
+        body = open(os.path.join(_REPO, path)).read()
+        check(f'{label} loads it', 'js/clipboard_image.js' in body)
+    check('the picker uses it rather than its own copy',
+          'ClipboardImage.fromEvent' in _JS and 'ClipboardImage.read()' in _JS)
+    check('and nobody re-implements the clipboard read',
+          _JS.count('navigator.clipboard.read') == 0)
+
+    print('\n[9] the scripts still parse')
     # It is served as a static file, so a syntax error would break the whole
     # picker rather than only the new part.
-    tmp = os.path.join(_SCRATCH, 'plm.js')
-    shutil.copy2(os.path.join(_REPO, 'static', 'js', 'photo_library_modal.js'), tmp)
-    p = subprocess.run(['node', '--check', tmp], capture_output=True, text=True)
-    check(f'node --check passes — {p.stderr.strip()[:80]}', p.returncode == 0)
+    for name in ('photo_library_modal.js', 'clipboard_image.js'):
+        tmp = os.path.join(_SCRATCH, name)
+        shutil.copy2(os.path.join(_REPO, 'static', 'js', name), tmp)
+        pr = subprocess.run(['node', '--check', tmp], capture_output=True, text=True)
+        check(f'{name}: node --check passes — {pr.stderr.strip()[:70]}',
+              pr.returncode == 0)
 
 
 if __name__ == '__main__':

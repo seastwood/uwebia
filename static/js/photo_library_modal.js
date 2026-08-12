@@ -287,9 +287,7 @@ window.PhotoLibraryModal = (function () {
     // same route as a chosen file: same endpoint, same folder, same progress
     // bar, same refresh afterwards.
     function uploadFiles(files, onSettled) {
-        files = Array.from(files || []).filter(function (f) {
-            return f && /^image\//.test(f.type || '');
-        });
+        files = ClipboardImage.onlyImages(files);
         if (!files.length) return;
 
         const formData = new FormData();
@@ -382,19 +380,12 @@ window.PhotoLibraryModal = (function () {
         if (!modalIsOpen()) return;
         const t = e.target;
         // Don't hijack pasting text into a field (the folder-name prompt).
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-        const items = (e.clipboardData || {}).items || [];
-        const files = [];
-        for (let i = 0; i < items.length; i++) {
-            if (items[i].kind === 'file' && /^image\//.test(items[i].type)) {
-                const f = items[i].getAsFile();
-                if (f) files.push(f);
-            }
-        }
-        if (!files.length) return;
+        if (ClipboardImage.isTextTarget(t)) return;
+        const file = ClipboardImage.fromEvent(e);
+        if (!file) return;
         e.preventDefault();
         pasteStatus('Uploading pasted image…');
-        uploadFiles(files, function () { pasteStatus(''); });
+        uploadFiles([file], function () { pasteStatus(''); });
     });
 
     /* The button, for people who do not know the shortcut and for touch, where
@@ -402,29 +393,16 @@ window.PhotoLibraryModal = (function () {
        and permission; over plain http the API is simply absent, so it always
        falls back to naming the shortcut. */
     async function pasteFromClipboard() {
-        const manual = function () {
-            const mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
-            pasteStatus('Press ' + (mac ? '\u2318V' : 'Ctrl+V') + ' to paste your image here.');
-        };
-        if (!navigator.clipboard || !navigator.clipboard.read) { manual(); return; }
         pasteStatus('Reading the clipboard…');
-        try {
-            const items = await navigator.clipboard.read();
-            for (const item of items) {
-                const type = (item.types || []).find(t => t.indexOf('image/') === 0);
-                if (type) {
-                    const blob = await item.getType(type);
-                    const ext = (type.split('/')[1] || 'png').split('+')[0];
-                    pasteStatus('Uploading pasted image…');
-                    uploadFiles([new File([blob], 'pasted.' + ext, { type: type })],
-                                function () { pasteStatus(''); });
-                    return;
-                }
-            }
-            pasteStatus('There is no image on the clipboard — copy one first.', true);
-        } catch (e) {
-            manual();
+        const res = await ClipboardImage.read();
+        if (res.file) {
+            pasteStatus('Uploading pasted image…');
+            uploadFiles([res.file], function () { pasteStatus(''); });
+            return;
         }
+        pasteStatus(res.reason === 'empty'
+            ? 'There is no image on the clipboard — copy one first.'
+            : ClipboardImage.hint(), true);
     }
 
     /* Dragging an image straight onto the modal is the same gesture again. */
