@@ -96,6 +96,21 @@
 .gi-search i { opacity: 0.5; font-size: 0.9rem; }
 .gi-search input { flex: 1; appearance: none; -webkit-appearance: none; background: none; border: none; color: inherit; font: inherit; font-size: 0.95rem; outline: none; min-width: 0; }
 .gi-search input::placeholder { color: inherit; opacity: 0.5; }
+/* -webkit-appearance:none above removes the native clear button, and mobile
+   browsers never draw one anyway — so the field gets a real one. Sized for a
+   fingertip rather than a cursor. */
+.gi-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.gi-search-clear {
+    flex-shrink: 0; width: 30px; height: 30px; margin: -6px -6px -6px 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    appearance: none; -webkit-appearance: none; font: inherit; cursor: pointer;
+    background: none; border: none; border-radius: 50%;
+    color: inherit; opacity: 0.5; font-size: 0.9rem;
+}
+.gi-search-clear:hover, .gi-search-clear:focus-visible {
+    opacity: 1; background: rgba(127,127,127,0.18);
+}
+.gi-search-clear[hidden] { display: none; }
 .gi-search-empty { text-align: center; opacity: 0.55; font-size: 0.92rem; padding: 24px 12px; }
 /* Bundle: a titled group box of related resources inside a category */
 .gi-bundle { border: 1px solid rgba(94,238,200,0.3); border-radius: 14px; padding: 14px 16px; margin: 0 0 14px; background: rgba(94,238,200,0.045); }
@@ -534,6 +549,8 @@ function giRefreshFavCounts() {
     <div class="gi-search">
         <i class="fas fa-search"></i>
         <input type="search" class="gi-search-input" placeholder="Search guides…" autocomplete="off" aria-label="Search guides">
+            <button type="button" class="gi-search-clear" hidden
+                    aria-label="Clear guides search"><i class="fas fa-times" aria-hidden="true"></i></button>
     </div>
     <p class="gi-search-empty" hidden>No guides match your search.</p>
     {% endif %}
@@ -662,6 +679,8 @@ function giRefreshFavCounts() {
         <div class="gi-search">
             <i class="fas fa-search"></i>
             <input type="search" class="gi-search-input" placeholder="Search quizzes…" autocomplete="off" aria-label="Search quizzes">
+            <button type="button" class="gi-search-clear" hidden
+                    aria-label="Clear quizzes search"><i class="fas fa-times" aria-hidden="true"></i></button>
         </div>
         <p class="gi-search-empty" hidden>No quizzes match your search.</p>
         {# Continue quizzes — in-progress (a saved draft) with one-click resume. #}
@@ -719,6 +738,8 @@ function giRefreshFavCounts() {
         <div class="gi-search">
             <i class="fas fa-search"></i>
             <input type="search" class="gi-search-input" placeholder="Search resources…" autocomplete="off" aria-label="Search resources">
+            <button type="button" class="gi-search-clear" hidden
+                    aria-label="Clear resources search"><i class="fas fa-times" aria-hidden="true"></i></button>
         </div>
         <p class="gi-search-empty" hidden>No resources match your search.</p>
         {% if grouped_resources|length == 1 and grouped_resources[0].category is none and not grouped_resources[0].bundles %}
@@ -800,6 +821,7 @@ function giRefreshFavCounts() {
         if (!panel) return;
         var input = panel.querySelector('.gi-search-input');
         if (!input) return;
+        var clear = panel.querySelector('.gi-search-clear');
         var empty = panel.querySelector('.gi-search-empty');
         var rows = Array.prototype.slice.call(panel.querySelectorAll(rowSelector));
         // Group containers that should collapse when they hold no visible rows:
@@ -830,7 +852,17 @@ function giRefreshFavCounts() {
             });
             aids.forEach(function (a) { a.style.display = searching ? 'none' : ''; });
             if (empty) empty.hidden = anyVisible || !searching;
+            if (clear) clear.hidden = !searching;
         });
+        if (clear) {
+            clear.addEventListener('click', function () {
+                input.value = '';
+                // Re-run the filter through the same path a keystroke takes,
+                // so there is only ever one place that decides what shows.
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.focus();
+            });
+        }
     }
     giSetupSearch('guides', '.gi-card, .gi-step');
     giSetupSearch('quizzes', '.gi-quiz-row');
