@@ -37,12 +37,15 @@
 .nf-btn-danger:hover { background: rgba(255,80,80,0.22); }
 
 .nf-channel { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
-.nf-channel-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* Name, meta and any warning sit on their own full-width row; the buttons go
+   underneath. Keeping the buttons in the same flex row squeezed the text into a
+   narrow column beside them as soon as the warning made the block tall. */
+.nf-channel-head { display: flex; align-items: flex-start; gap: 12px; }
 .nf-channel-icon { width: 36px; height: 36px; border-radius: 9px; background: rgba(123,47,247,0.15); color: #c79aff; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .nf-channel-info { flex: 1; min-width: 0; }
 .nf-channel-name { font-weight: 700; }
 .nf-channel-meta { font-size: 0.78rem; color: rgba(255,255,255,0.45); }
-.nf-channel-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.nf-channel-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 
 .nf-rule { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
 .nf-rule-head { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
@@ -55,6 +58,37 @@
 .nf-msg { font-size: 0.85rem; min-height: 18px; margin-left: auto; }
 
 .nf-empty { padding: 32px 16px; text-align: center; color: rgba(255,255,255,0.45); }
+.nf-warn { margin-top: 7px; font-size: 0.79rem; line-height: 1.45; color: #ffd982;
+           background: rgba(255,217,130,0.09); border: 1px solid rgba(255,217,130,0.22);
+           border-radius: 8px; padding: 7px 10px; }
+
+.nf-tabs { display: flex; gap: 4px; border-bottom: 1px solid rgba(255,255,255,0.09); margin: 18px 0 20px; }
+.nf-tab { appearance: none; background: none; border: none; border-bottom: 2px solid transparent;
+          color: rgba(255,255,255,0.5); font-size: 0.92rem; font-weight: 600; font-family: inherit;
+          padding: 9px 15px; cursor: pointer; margin-bottom: -1px; display: inline-flex; align-items: center; gap: 7px; }
+.nf-tab:hover { color: rgba(255,255,255,0.8); }
+.nf-tab.active { color: #fff; border-bottom-color: #5eeec8; }
+.nf-tab-count { font-size: 0.72rem; font-weight: 700; padding: 1px 7px; border-radius: 999px;
+                background: rgba(255,255,255,0.09); color: rgba(255,255,255,0.55); }
+.nf-tab.active .nf-tab-count { background: rgba(94,238,200,0.16); color: #8af5b0; }
+.nf-panel[hidden] { display: none; }
+
+.nf-section-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 34px 0 6px; }
+.nf-section-title { font-size: 1.15rem; font-weight: 800; margin: 0; }
+.nf-section-sub { color: rgba(255,255,255,0.5); font-size: 0.86rem; margin: 0 0 14px; line-height: 1.5; }
+
+.nf-feed { display: block; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 15px 18px; margin-bottom: 12px; color: inherit; text-decoration: none; }
+.nf-feed:hover { background: rgba(255,255,255,0.07); border-color: rgba(94,238,200,0.3); }
+.nf-feed-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.nf-feed-icon { width: 36px; height: 36px; border-radius: 9px; background: rgba(94,238,200,0.13); color: #8af5b0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.nf-feed-name { font-weight: 700; }
+.nf-feed-meta { font-size: 0.78rem; color: rgba(255,255,255,0.45); margin-top: 2px; }
+.nf-pill { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 9px; border-radius: 999px; }
+.nf-pill-on { background: rgba(94,238,200,0.15); color: #8af5b0; }
+.nf-pill-off { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.nf-pill-done { background: rgba(255,217,130,0.14); color: #ffd982; }
+.nf-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); margin-top: 11px; overflow: hidden; }
+.nf-bar span { display: block; height: 100%; background: linear-gradient(90deg,#5eeef8,#8af5b0); }
 
 /* Modal */
 .nf-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65); z-index: 9999; align-items: center; justify-content: center; padding: 18px; }
@@ -71,12 +105,33 @@
     <div class="nf-header">
         <p class="nf-kicker">Admin</p>
         <h1 class="nf-title">Notifications</h1>
-        <p class="nf-help">Push activity to external destinations like Discord. Each channel can have one or more rules tied to events (post published, newsletter sent, calendar event upcoming).</p>
+        <p class="nf-help">Push activity to external destinations like Discord.</p>
     </div>
 
+    <div class="nf-tabs" role="tablist">
+        <button class="nf-tab active" id="tabBtn-channels" role="tab" aria-selected="true"
+                aria-controls="tab-channels" onclick="showTab('channels')">
+            <i class="fab fa-discord"></i> Channels
+            <span class="nf-tab-count">{{ channels | length }}</span>
+        </button>
+        <button class="nf-tab" id="tabBtn-feeds" role="tab" aria-selected="false"
+                aria-controls="tab-feeds" onclick="showTab('feeds')">
+            <i class="fas fa-layer-group"></i> Feeds
+            <span class="nf-tab-count">{{ feeds | length }}</span>
+        </button>
+    </div>
+
+    <div class="nf-panel" id="tab-channels" role="tabpanel" aria-labelledby="tabBtn-channels">
+    <p class="nf-section-sub">
+        A channel is a Discord webhook. Each one can carry rules that fire on an event — a post published,
+        a newsletter sent, a calendar event coming up.
+    </p>
+
+    {% if can_add_channels %}
     <div class="nf-toolbar" style="margin-bottom:16px;">
         <button class="nf-btn nf-btn-primary" onclick="openChannelModal()"><i class="fas fa-plus"></i> New Channel</button>
     </div>
+    {% endif %}
 
     {% if channels %}
         {% for ch in channels %}
@@ -89,14 +144,17 @@
                         Discord webhook
                         {% if ch.last_used_at %} · last used {{ ch.last_used_at.strftime('%b %-d, %Y') }}{% endif %}
                     </div>
+                    {% if channel_broken.get(ch.id) %}
+                    <div class="nf-warn"><i class="fas fa-triangle-exclamation"></i> {{ channel_broken_help }}</div>
+                    {% endif %}
                 </div>
-                <div class="nf-channel-actions">
-                    <button class="nf-btn nf-btn-secondary" onclick="testChannel({{ ch.id }})"><i class="fas fa-paper-plane"></i> Test</button>
-                    <button class="nf-btn nf-btn-secondary" onclick='editChannel({{ ch.id }}, {{ ch.label | tojson }}, {{ (ch.config.get("bot_username") or "") | tojson }}, {{ (ch.config.get("bot_avatar_url") or "") | tojson }}, {{ ch.is_active | tojson }})'>
-                        <i class="fas fa-pen"></i> Edit
-                    </button>
-                    <button class="nf-btn nf-btn-danger" onclick="deleteChannel({{ ch.id }}, '{{ ch.label | replace("'", "\\'") }}')"><i class="fas fa-trash"></i></button>
-                </div>
+            </div>
+            <div class="nf-channel-actions">
+                <button class="nf-btn nf-btn-secondary" onclick="testChannel({{ ch.id }})"><i class="fas fa-paper-plane"></i> Test</button>
+                <button class="nf-btn nf-btn-secondary" onclick='editChannel({{ ch.id }}, {{ ch.label | tojson }}, {{ (ch.config.get("bot_username") or "") | tojson }}, {{ (ch.config.get("bot_avatar_url") or "") | tojson }}, {{ ch.is_active | tojson }})'>
+                    <i class="fas fa-pen"></i> Edit
+                </button>
+                <button class="nf-btn nf-btn-danger" onclick="deleteChannel({{ ch.id }}, '{{ ch.label | replace("'", "\\'") }}')"><i class="fas fa-trash"></i></button>
             </div>
 
             <div style="margin-top:12px;padding-top:12px;border-top:1px dashed rgba(255,255,255,0.08);">
@@ -141,9 +199,94 @@
         {% endfor %}
     {% else %}
         <div class="nf-card nf-empty">
-            No notification channels yet. Add one above to start routing activity to Discord.
+            {% if can_add_channels %}No notification channels yet. Add one above to start routing activity to Discord.
+            {% else %}No channels have been assigned to you.{% endif %}
         </div>
     {% endif %}
+    </div><!-- /tab-channels -->
+
+    <div class="nf-panel" id="tab-feeds" role="tabpanel" aria-labelledby="tabBtn-feeds" hidden>
+    <p class="nf-section-sub">
+        A feed is a hopper you fill with guides, quizzes, resources, links or plain messages. On the days and time you
+        pick, the next item drops into its channel — one per session. Feeds keep their contents, so you can rewind one
+        to the top and run it again next year.
+    </p>
+    {% if can_add_feeds %}
+    <div class="nf-toolbar" style="margin-bottom:16px;">
+        <button class="nf-btn nf-btn-primary" onclick="openFeedModal()"><i class="fas fa-plus"></i> New Feed</button>
+    </div>
+    {% endif %}
+
+    {% if feeds %}
+        {% for f in feeds %}
+        {% set ov = feed_overviews[f.id] %}
+        <a class="nf-feed" href="/admin/notifications/feeds/{{ f.id }}">
+            <div class="nf-feed-top">
+                <div class="nf-feed-icon"><i class="fas fa-layer-group"></i></div>
+                <div style="flex:1;min-width:0;">
+                    <div class="nf-feed-name">{{ f.name }}</div>
+                    <div class="nf-feed-meta">
+                        {% if f.days_of_week %}
+                            {% for d in f.days_of_week %}{{ weekday_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            at {{ f.send_time }}
+                        {% else %}No days picked yet{% endif %}
+                        · {{ ov.queue_len }} item{{ '' if ov.queue_len == 1 else 's' }}
+                        {% if f.channel %} · {{ f.channel.label }}{% else %} · <span style="color:#ffd982;">no channel</span>{% endif %}
+                        {% if f.is_active and ov.next_slot %} · next {{ ov.next_slot }}{% endif %}
+                    </div>
+                </div>
+                {% if ov.exhausted and f.is_active %}
+                    <span class="nf-pill nf-pill-done">Out of items</span>
+                {% elif f.is_active %}
+                    <span class="nf-pill nf-pill-on">Running</span>
+                {% else %}
+                    <span class="nf-pill nf-pill-off">Paused</span>
+                {% endif %}
+            </div>
+            {% if ov.queue_len %}
+            <div class="nf-bar"><span style="width: {{ (ov.cursor / ov.queue_len * 100) | round | int if ov.cursor < ov.queue_len else 100 }}%;"></span></div>
+            <div class="nf-feed-meta" style="margin-top:6px;">
+                {% if ov.exhausted %}
+                    All sent — add more items and it continues from here.
+                {% else %}
+                    Up next: <strong style="color:rgba(255,255,255,0.75);">{{ ov.next_title }}</strong>
+                    ({{ ov.next_position }} of {{ ov.queue_len }})
+                {% endif %}
+            </div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    {% else %}
+        <div class="nf-card nf-empty">
+            {% if can_add_feeds %}No feeds yet. Create one to schedule a run of training, reading, or links.
+            {% else %}No feeds have been assigned to you.{% endif %}
+        </div>
+    {% endif %}
+    </div><!-- /tab-feeds -->
+</div>
+
+<!-- Feed modal -->
+<div class="nf-overlay" id="feedOverlay" onclick="if(event.target===this)closeFeedModal()">
+    <div class="nf-modal">
+        <div class="nf-modal-head">
+            <div class="nf-modal-title">New Feed</div>
+            <button class="nf-close" onclick="closeFeedModal()">&times;</button>
+        </div>
+        <div class="nf-modal-body">
+            <div class="nf-field">
+                <label class="nf-label">Feed name</label>
+                <input class="nf-input" id="feedName" placeholder="e.g. 2026 Weekly Training" onkeydown="if(event.key==='Enter')submitFeed()">
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                    You'll pick the channel, schedule and items on the next screen.
+                </p>
+            </div>
+        </div>
+        <div class="nf-modal-foot">
+            <span class="nf-msg" id="feedMsg" style="margin-right:auto;"></span>
+            <button class="nf-btn nf-btn-secondary" onclick="closeFeedModal()">Cancel</button>
+            <button class="nf-btn nf-btn-primary" onclick="submitFeed()">Create</button>
+        </div>
+    </div>
 </div>
 
 <!-- Channel modal -->
@@ -361,6 +504,49 @@ async function toggleRule(id, enable) {
     const j = await r.json();
     if (!j.success) { alert(j.error || 'Update failed.'); return; }
     location.reload();
+}
+
+// Which tab is open survives a reload (every mutation here reloads the page),
+// and is shareable as /admin/notifications#feeds.
+function showTab(name) {
+    ['channels', 'feeds'].forEach(t => {
+        const on = t === name;
+        document.getElementById(`tab-${t}`).hidden = !on;
+        const btn = document.getElementById(`tabBtn-${t}`);
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    try { sessionStorage.setItem('nfTab', name); } catch (e) {}
+    if (history.replaceState) history.replaceState(null, '', `#${name}`);
+}
+
+(function initTab() {
+    const fromHash = (location.hash || '').replace('#', '');
+    let want = fromHash;
+    if (want !== 'channels' && want !== 'feeds') {
+        try { want = sessionStorage.getItem('nfTab') || 'channels'; } catch (e) { want = 'channels'; }
+    }
+    showTab(want === 'feeds' ? 'feeds' : 'channels');
+})();
+
+function openFeedModal() {
+    document.getElementById('feedName').value = '';
+    document.getElementById('feedMsg').textContent = '';
+    document.getElementById('feedOverlay').classList.add('open');
+    setTimeout(() => document.getElementById('feedName').focus(), 40);
+}
+function closeFeedModal() { document.getElementById('feedOverlay').classList.remove('open'); }
+
+async function submitFeed() {
+    const msg = document.getElementById('feedMsg');
+    const name = document.getElementById('feedName').value.trim();
+    if (!name) { msg.style.color = '#ff8a8a'; msg.textContent = 'Give the feed a name.'; return; }
+    msg.style.color = 'rgba(255,255,255,0.6)';
+    msg.textContent = 'Creating…';
+    const r = await fetch('/admin/notifications/feeds/create', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name})});
+    const j = await r.json();
+    if (!j.success) { msg.style.color = '#ff8a8a'; msg.textContent = j.error || 'Create failed.'; return; }
+    location.href = `/admin/notifications/feeds/${j.id}`;
 }
 
 async function deleteRule(id) {

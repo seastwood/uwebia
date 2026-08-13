@@ -1079,6 +1079,14 @@ class User(UserMixin, db.Model):
     # default "uwebia" name / icon. Shown on the admin navbar & admin login page.
     admin_brand_name = db.Column(db.String(80), nullable=True)
     admin_brand_icon_url = db.Column(db.String(500), nullable=True)
+    # Org-wide public address of this instance, e.g. 'https://team.example.org'
+    # (lives on the anchor). Anything that has to name the site from OUTSIDE it
+    # — notification links, Open Graph tags — uses this. Without it the only
+    # source is the incoming request's Host header, which is whatever the
+    # browser happened to connect to: behind a proxy, or when the admin browses
+    # the bind address, that produces links like http://0.0.0.0:5772/… that
+    # work for nobody. NULL falls back to the request host.
+    public_base_url = db.Column(db.String(300), nullable=True)
     admin_chat_last_read = db.Column(db.DateTime, nullable=True)
     website_permissions = db.Column(db.JSON, nullable=True, default=dict)
     # Per-external-drive access toggle. Keys are str(StorageConnection.id),
@@ -1809,6 +1817,60 @@ def can_access_quiz_category(category_id):
     if cats is None and quizzes is None:
         return True
     return cats is not None and category_id is not None and category_id in cats
+
+
+def _notification_restrictions():
+    """(allowed_channel_ids, allowed_feed_ids) governing the current sub-admin.
+
+    Unlike the guide/quiz pattern — where the two lists are two ways of naming
+    the same objects — channels and feeds are different things, so the two lists
+    are INDEPENDENT. None means "no restriction → all of that kind", which is
+    what lets an admin be scoped to feeds-in-general while still being pinned to
+    one channel (or the reverse)."""
+    perms = _effective_perms()
+    return (perms.get('notifications.allowed_channel_ids'),
+            perms.get('notifications.allowed_feed_ids'))
+
+
+def can_access_notification_channel(channel_or_id):
+    """True if the current sub-admin may see/act on this Discord channel.
+    The action itself (view vs manage) is still gated by require_perm."""
+    if not current_user.is_sub_admin:
+        return True
+    allowed, _feeds = _notification_restrictions()
+    if allowed is None:
+        return True
+    cid = (channel_or_id.id if isinstance(channel_or_id, NotificationChannel)
+           else channel_or_id)
+    return cid is not None and cid in allowed
+
+
+def can_access_notification_feed(feed_or_id):
+    """True if the current sub-admin may see/act on this feed."""
+    if not current_user.is_sub_admin:
+        return True
+    _channels, allowed = _notification_restrictions()
+    if allowed is None:
+        return True
+    fid = feed_or_id.id if isinstance(feed_or_id, NotificationFeed) else feed_or_id
+    return fid is not None and fid in allowed
+
+
+def can_create_notification_feeds():
+    """Creating a feed makes an object nobody has been granted yet, so it is
+    only allowed when the admin isn't pinned to a specific set of feeds."""
+    if not current_user.is_sub_admin:
+        return True
+    _channels, allowed = _notification_restrictions()
+    return allowed is None
+
+
+def can_create_notification_channels():
+    """Same reasoning as feeds — see can_create_notification_feeds."""
+    if not current_user.is_sub_admin:
+        return True
+    allowed, _feeds = _notification_restrictions()
+    return allowed is None
 
 
 def _division_restriction():
@@ -5933,6 +5995,137 @@ class NotificationDelivery(db.Model):
     )
 
 
+class NotificationFeed(db.Model):
+    """A queue ("hopper") of items released one at a time on a weekly schedule.
+
+    Where NotificationRule reacts to something happening, a feed is the
+    opposite: the admin fills it with whatever they want announced — a guide, a
+    quiz, a resource, a bare link, or just a message — and the scheduler drips
+    one item out per scheduled slot (e.g. every Tuesday at 18:00).
+
+    The item list is ordered and re-orderable, and `position` is a plain cursor
+    into it, so a finished feed can be replayed next year by resetting the
+    cursor (or duplicated) without touching the contents."""
+    __tablename__ = 'notification_feed'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    # Which site's guides/quizzes/resources this feed draws from, and whose URL
+    # prefix its links use. None = the admin's primary live site.
+    website_id = db.Column(db.Integer, db.ForeignKey('website.id', ondelete='SET NULL'),
+                           nullable=True, index=True)
+    # Destination. SET NULL rather than CASCADE so deleting a Discord channel
+    # doesn't take the whole hopper of content with it — the feed just goes
+    # quiet until a new channel is picked.
+    channel_id = db.Column(db.Integer,
+                           db.ForeignKey('notification_channel.id', ondelete='SET NULL'),
+                           nullable=True, index=True)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+
+    # ── Schedule (interpreted in the owning admin's timezone) ────────────────
+    # Weekdays this feed releases on, Python weekday numbering (0=Mon … 6=Sun).
+    days_of_week = db.Column(db.JSON, nullable=False, default=list)
+    # Local wall-clock time of day, 'HH:MM'.
+    send_time = db.Column(db.String(5), nullable=False, default='09:00',
+                          server_default="'09:00'")
+    # Optional embargo — nothing is released before this local date.
+    start_date = db.Column(db.Date, nullable=True)
+    # Paused feeds keep their contents and cursor but release nothing.
+    is_active = db.Column(db.Boolean, nullable=False, default=False,
+                          server_default=_sa_false())
+    # When the cursor runs off the end: wrap back to the start and run the whole
+    # thing again ("auto restart"), or sit idle. Idle is NOT the same as off —
+    # the feed stays active and picks straight up from the cursor as soon as
+    # more items are added, so a feed never has to be restarted by hand.
+    loop_when_finished = db.Column(db.Boolean, nullable=False, default=False,
+                                   server_default=_sa_false())
+
+    # ── Content ─────────────────────────────────────────────────────────────
+    # Cursor: 0-based index into the enabled items, in sort order. This is what
+    # "start at a specific point in the feed" sets.
+    position = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    # Fallback message used for items with no custom message of their own.
+    # Supports the placeholders listed in FEED_MESSAGE_PLACEHOLDERS.
+    default_message = db.Column(db.Text, nullable=True)
+    # Free-form text sent before the embed — commonly a Discord role ping.
+    prepend_text = db.Column(db.String(500), nullable=True)
+
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    last_sent_at = db.Column(db.DateTime, nullable=True)
+
+    channel = db.relationship('NotificationChannel')
+    items = db.relationship('NotificationFeedItem', backref='feed',
+                            lazy='dynamic', cascade='all, delete-orphan',
+                            order_by='NotificationFeedItem.sort_order')
+    runs = db.relationship('NotificationFeedRun', backref='feed',
+                           lazy='dynamic', cascade='all, delete-orphan')
+
+
+class NotificationFeedItem(db.Model):
+    """One thing waiting in a feed's hopper.
+
+    `item_type` picks where the title/link come from: 'guide' | 'quiz' |
+    'resource' resolve live from the referenced record (so a renamed guide
+    announces itself correctly), 'link' is any pasted URL (YouTube, docs…),
+    and 'message' is text only with no link at all."""
+    __tablename__ = 'notification_feed_item'
+    id = db.Column(db.Integer, primary_key=True)
+    feed_id = db.Column(db.Integer,
+                        db.ForeignKey('notification_feed.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    sort_order = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    item_type = db.Column(db.String(20), nullable=False, default='message',
+                          server_default="'message'")
+    # guide/quiz/resource → the referenced row's id.
+    ref_id = db.Column(db.Integer, nullable=True)
+    # link → the pasted URL.
+    url = db.Column(db.String(1000), nullable=True)
+    # Optional title override. Blank means "use the referenced item's title".
+    title = db.Column(db.String(300), nullable=True)
+    # Per-item message. Blank falls back to the feed's default_message.
+    message = db.Column(db.Text, nullable=True)
+    # Disabled items stay in the list (and keep their place for next year) but
+    # are skipped when the cursor walks the hopper.
+    is_enabled = db.Column(db.Boolean, nullable=False, default=True,
+                           server_default=_sa_true())
+    sent_count = db.Column(db.Integer, nullable=False, default=0, server_default='0')
+    last_sent_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
+class NotificationFeedRun(db.Model):
+    """History of one release slot, and the idempotency record that stops the
+    2-minute scheduler from firing the same slot twice.
+
+    `slot_key` is the local scheduled moment ('2026-08-18 18:00'); manual
+    "send now" releases use a 'manual:<timestamp>' key so they never collide
+    with a scheduled slot."""
+    __tablename__ = 'notification_feed_run'
+    id = db.Column(db.Integer, primary_key=True)
+    feed_id = db.Column(db.Integer,
+                        db.ForeignKey('notification_feed.id', ondelete='CASCADE'),
+                        nullable=False, index=True)
+    item_id = db.Column(db.Integer,
+                        db.ForeignKey('notification_feed_item.id', ondelete='SET NULL'),
+                        nullable=True)
+    slot_key = db.Column(db.String(60), nullable=False, index=True)
+    # 'sent'  — an item went out.
+    # 'empty' — the slot came due with nothing queued. Recorded rather than
+    #           ignored so the slot is spent: without it the 24h catch-up window
+    #           would fire the moment new items were added, posting at whatever
+    #           random hour that happened to be instead of on schedule.
+    status = db.Column(db.String(16), nullable=False, default='sent',
+                       server_default="'sent'")
+    # Snapshot of what went out, so history survives the item being edited.
+    item_title = db.Column(db.String(300), nullable=True)
+    sent_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+    success = db.Column(db.Boolean, nullable=False, default=True, server_default=_sa_true())
+    error = db.Column(db.Text, nullable=True)
+    __table_args__ = (
+        db.UniqueConstraint('feed_id', 'slot_key', name='uq_notification_feed_run_slot'),
+    )
+
+
 class StripeSettings(db.Model):
     """Per-admin Stripe configuration. Secrets are encrypted with the existing
     Fernet helper so they're never stored in plaintext.
@@ -9304,6 +9497,23 @@ def enforce_maintenance_mode():
         return
 
     return _maintenance_response()
+
+
+# Last host a real request arrived on. Background senders with no request
+# context (notification schedulers) use it to build absolute links — see
+# _site_external_base.
+_LAST_KNOWN_HOST = ''
+
+
+@app.before_request
+def remember_request_host():
+    """Record the public host so background jobs can build absolute URLs."""
+    global _LAST_KNOWN_HOST
+    try:
+        if request.endpoint != 'static':
+            _LAST_KNOWN_HOST = request.host_url
+    except Exception:
+        pass
 
 
 @app.before_request
@@ -17716,6 +17926,8 @@ def settings_page():
         anchor_navbar_order=_anchor.admin_navbar_order or [],
         admin_brand_name_raw=_anchor.admin_brand_name or '',
         admin_brand_has_custom_icon=bool(_anchor.admin_brand_icon_url),
+        public_base_url_raw=_anchor.public_base_url or '',
+        detected_host=request.host_url.rstrip('/'),
         email_settings=get_email_settings(),
         account_username=current_user.username,
         account_email=current_user.email,
@@ -18035,6 +18247,18 @@ def _serialize_backup(uid):
         NotificationDelivery.query.filter(NotificationDelivery.rule_id.in_(_rule_ids)).all()
         if _rule_ids else []
     )
+    notification_feeds = NotificationFeed.query.filter_by(user_id=uid).all()
+    _feed_ids = [f.id for f in notification_feeds]
+    notification_feed_items = (
+        NotificationFeedItem.query.filter(
+            NotificationFeedItem.feed_id.in_(_feed_ids)).all()
+        if _feed_ids else []
+    )
+    notification_feed_runs = (
+        NotificationFeedRun.query.filter(
+            NotificationFeedRun.feed_id.in_(_feed_ids)).all()
+        if _feed_ids else []
+    )
 
     # SMS (encrypted secrets in config are stripped on serialize).
     sms_provider_settings_row = SmsProviderSettings.query.filter_by(user_id=uid).first()
@@ -18095,6 +18319,7 @@ def _serialize_backup(uid):
             'org_2fa_needs_attention': bool(_owner.org_2fa_needs_attention),
             'admin_brand_name': _owner.admin_brand_name,
             'admin_brand_icon_url': _owner.admin_brand_icon_url,
+            'public_base_url': _owner.public_base_url,
             'ip_retention_days': _owner.ip_retention_days,
             'store_visitor_ips': bool(_owner.store_visitor_ips),
         } if _owner else {},
@@ -18659,6 +18884,34 @@ def _serialize_backup(uid):
                                      'sent_at': d.sent_at.isoformat() if d.sent_at else None,
                                      'success': d.success, 'error': d.error,
                                      } for d in notification_deliveries],
+        'notification_feeds': [{'id': f.id, 'website_id': f.website_id,
+                                'channel_id': f.channel_id, 'name': f.name,
+                                'description': f.description,
+                                'days_of_week': f.days_of_week or [],
+                                'send_time': f.send_time,
+                                'start_date': f.start_date.isoformat() if f.start_date else None,
+                                'is_active': f.is_active,
+                                'loop_when_finished': f.loop_when_finished,
+                                'position': f.position,
+                                'default_message': f.default_message,
+                                'prepend_text': f.prepend_text,
+                                'created_at': f.created_at.isoformat() if f.created_at else None,
+                                'last_sent_at': f.last_sent_at.isoformat() if f.last_sent_at else None,
+                                } for f in notification_feeds],
+        'notification_feed_items': [{'id': i.id, 'feed_id': i.feed_id,
+                                     'sort_order': i.sort_order, 'item_type': i.item_type,
+                                     'ref_id': i.ref_id, 'url': i.url, 'title': i.title,
+                                     'message': i.message, 'is_enabled': i.is_enabled,
+                                     'sent_count': i.sent_count,
+                                     'last_sent_at': i.last_sent_at.isoformat() if i.last_sent_at else None,
+                                     'created_at': i.created_at.isoformat() if i.created_at else None,
+                                     } for i in notification_feed_items],
+        'notification_feed_runs': [{'id': r.id, 'feed_id': r.feed_id, 'item_id': r.item_id,
+                                    'slot_key': r.slot_key, 'item_title': r.item_title,
+                                    'status': r.status,
+                                    'sent_at': r.sent_at.isoformat() if r.sent_at else None,
+                                    'success': r.success, 'error': r.error,
+                                    } for r in notification_feed_runs],
         # SMS provider config: secrets in `config` are encrypted with the source's
         # Fernet key — strip on serialize. Non-secret operational settings ride along.
         'sms_provider_settings': ({
@@ -19533,6 +19786,10 @@ def import_backup():
             # recreates them — without this wipe each import ADDS another full
             # set of (webhook-less) channel shells, which then spam the event
             # scheduler with "no decryptable webhook URL" every scan.
+            # Feeds are user-scoped too, and they reference channels — delete
+            # them (cascading to items/runs) before the channels go.
+            for _feed in NotificationFeed.query.filter_by(user_id=uid).all():
+                db.session.delete(_feed)
             _nc_ids = [c.id for c in NotificationChannel.query.filter_by(user_id=uid).all()]
             if _nc_ids:
                 _nr_ids = [r.id for r in NotificationRule.query.filter(
@@ -20014,6 +20271,11 @@ def import_backup():
                     _owner.org_2fa_email_settings_version = _owner_settings.get('org_2fa_email_settings_version')
                     _owner.org_2fa_needs_attention = bool(_owner_settings.get('org_2fa_needs_attention'))
                     _owner.admin_brand_name = _owner_settings.get('admin_brand_name')
+                    # Deliberately restored as-is: a backup moved to a new host
+                    # would otherwise keep pointing links at the old one, but
+                    # guessing the new address is worse — the admin sets it in
+                    # Settings once and every link follows.
+                    _owner.public_base_url = _owner_settings.get('public_base_url')
                     # The brand icon url embeds the owner uid (either an uploaded
                     # admin-brand/ icon or a picked assets/ image); remap the uid
                     # segment so the restored path points at this owner.
@@ -20393,6 +20655,10 @@ def import_backup():
                 db.session.add(r)
                 db.session.flush()
                 resource_map[rd['id']] = r.id
+            # `resource_map` is reused further down for KSA resources, so keep a
+            # stable alias for anything restored later that points at Resource
+            # rows (notification feed items).
+            resource_row_map = dict(resource_map)
 
             # Track old→new question ids: attempt/draft `answers` JSON is keyed
             # by question id, so those keys must be rewritten after restore or
@@ -20982,6 +21248,10 @@ def import_backup():
                 'quizzes.allowed_category_ids':   quiz_cat_map,
                 'quizzes.allowed_quiz_ids':       quiz_map,
                 'divisions.allowed_division_ids': division_map,
+                # NOTE: notifications.allowed_channel_ids / allowed_feed_ids are
+                # NOT remapped here — channels and feeds are restored further
+                # down, so their maps don't exist yet. They get their own pass
+                # right after that restore; see _remap_notification_scope.
             }
             def _remap_late_dict(perms):
                 """Return (new_perms, changed) with the late id-scoped lists remapped."""
@@ -21511,6 +21781,125 @@ def import_backup():
                     success=bool(dd.get('success', True)),
                     error=dd.get('error'),
                 ))
+
+            # ── Notification feeds ────────────────────────────────────────────
+            # Restored paused regardless of their saved state: the channels come
+            # back without their webhook secrets, so a feed that resumed on its
+            # own would just log failures until the admin re-enters them.
+            feed_map = {}
+            for fd in data.get('notification_feeds', []):
+                nf = NotificationFeed(
+                    user_id=uid,
+                    website_id=website_map.get(fd.get('website_id')) if fd.get('website_id') else None,
+                    channel_id=channel_map.get(fd.get('channel_id')) if fd.get('channel_id') else None,
+                    name=fd.get('name') or 'Feed',
+                    description=fd.get('description'),
+                    days_of_week=fd.get('days_of_week') or [],
+                    send_time=fd.get('send_time') or '09:00',
+                    start_date=date.fromisoformat(fd['start_date']) if fd.get('start_date') else None,
+                    is_active=False,
+                    loop_when_finished=bool(fd.get('loop_when_finished')),
+                    position=fd.get('position') or 0,
+                    default_message=fd.get('default_message'),
+                    prepend_text=fd.get('prepend_text'),
+                    created_at=datetime.fromisoformat(fd['created_at']) if fd.get('created_at') else None,
+                    last_sent_at=datetime.fromisoformat(fd['last_sent_at']) if fd.get('last_sent_at') else None,
+                )
+                db.session.add(nf)
+                db.session.flush()
+                if fd.get('id'):
+                    feed_map[fd['id']] = nf.id
+            feed_item_map = {}
+            _feed_ref_maps = {'guide': guide_map, 'quiz': quiz_map,
+                              'resource': resource_row_map,
+                              'bundle': resource_bundle_map}
+            for idd in data.get('notification_feed_items', []):
+                new_f = feed_map.get(idd.get('feed_id'))
+                if not new_f:
+                    continue
+                # Point guide/quiz/resource items at the restored rows. A
+                # reference that didn't survive is kept as a dead ref so the
+                # item still holds its place (and its custom message) in the
+                # running order rather than silently disappearing.
+                ref_id = idd.get('ref_id')
+                ref_map = _feed_ref_maps.get(idd.get('item_type'))
+                if ref_map is not None and ref_id:
+                    ref_id = ref_map.get(ref_id, ref_id)
+                nfi = NotificationFeedItem(
+                    feed_id=new_f,
+                    sort_order=idd.get('sort_order', 0),
+                    item_type=idd.get('item_type') or 'message',
+                    ref_id=ref_id, url=idd.get('url'), title=idd.get('title'),
+                    message=idd.get('message'),
+                    is_enabled=bool(idd.get('is_enabled', True)),
+                    sent_count=idd.get('sent_count') or 0,
+                    last_sent_at=datetime.fromisoformat(idd['last_sent_at']) if idd.get('last_sent_at') else None,
+                    created_at=datetime.fromisoformat(idd['created_at']) if idd.get('created_at') else None,
+                )
+                db.session.add(nfi)
+                db.session.flush()
+                if idd.get('id'):
+                    feed_item_map[idd['id']] = nfi.id
+            for rd in data.get('notification_feed_runs', []):
+                new_f = feed_map.get(rd.get('feed_id'))
+                if not new_f:
+                    continue
+                db.session.add(NotificationFeedRun(
+                    feed_id=new_f,
+                    item_id=feed_item_map.get(rd.get('item_id')) if rd.get('item_id') else None,
+                    slot_key=rd.get('slot_key') or 'unknown',
+                    item_title=rd.get('item_title'),
+                    status=rd.get('status') or 'sent',
+                    sent_at=datetime.fromisoformat(rd['sent_at']) if rd.get('sent_at') else None,
+                    success=bool(rd.get('success', True)),
+                    error=rd.get('error'),
+                ))
+            db.session.flush()
+
+            # Per-channel / per-feed permission grants hold the OLD ids until
+            # now, because channels and feeds are restored after the sub-admins
+            # that reference them. Own pass rather than the _late_scope_maps
+            # block above, which already ran (re-running it would push the
+            # guide/quiz lists through their maps a second time and drop them).
+            # A list that remaps to empty stays [] — see the note up there.
+            _notif_scope_maps = {
+                'notifications.allowed_channel_ids': channel_map,
+                'notifications.allowed_feed_ids':    feed_map,
+            }
+
+            def _remap_notif_dict(perms):
+                if not perms:
+                    return perms, False
+                out = None
+                for key, id_map in _notif_scope_maps.items():
+                    lst = perms.get(key)
+                    if isinstance(lst, list):
+                        if out is None:
+                            out = dict(perms)
+                        out[key] = [id_map[i] for i in lst if i in id_map]
+                return (out, True) if out is not None else (perms, False)
+
+            def _remap_notification_scope(holder):
+                new_perms, changed = _remap_notif_dict(holder.permissions)
+                if changed:
+                    holder.permissions = new_perms
+                    _flag_mod(holder, 'permissions')
+                wp = holder.website_permissions or {}
+                if wp:
+                    new_wp, wp_changed = {}, False
+                    for wid, inner in wp.items():
+                        ni, ic = _remap_notif_dict(inner)
+                        new_wp[wid] = ni
+                        wp_changed = wp_changed or ic
+                    if wp_changed:
+                        holder.website_permissions = new_wp
+                        _flag_mod(holder, 'website_permissions')
+
+            for _pg in PermissionGroup.query.filter(
+                    PermissionGroup.id.in_(list(pg_map.values()))).all():
+                _remap_notification_scope(_pg)
+            for _sub in User.query.filter(User.id.in_(list(sa_map.values()))).all():
+                _remap_notification_scope(_sub)
 
             # ── SMS ───────────────────────────────────────────────────────────
             sps = data.get('sms_provider_settings')
@@ -23856,6 +24245,41 @@ def save_admin_brand():
     return _utf8_json({'success': True, 'admin_brand_name': anchor.admin_brand_name or 'uwebia'})
 
 
+@app.route('/admin/settings/public-base-url', methods=['POST'])
+@login_required
+@require_perm('settings.edit')
+def save_public_base_url():
+    """Save the org-wide public address used for outbound links & OG tags."""
+    from urllib.parse import urlparse as _urlparse
+    data = request.get_json(silent=True) or request.form
+    raw = (data.get('public_base_url') or '').strip()
+    anchor = db.session.get(User, current_user.root_user_id)
+    if not anchor:
+        return _utf8_json({'success': False, 'error': 'Owner not found'}, 400)
+
+    if not raw:
+        anchor.public_base_url = None
+        db.session.commit()
+        return _utf8_json({'success': True, 'public_base_url': ''})
+
+    if not raw.startswith(('http://', 'https://')):
+        raw = 'https://' + raw
+    # Keep scheme + host only: a path here would be prefixed onto every link.
+    parsed = _urlparse(raw)
+    if not parsed.hostname:
+        return _utf8_json({'success': False,
+                           'error': 'That does not look like a web address.'}, 400)
+    if _is_unreachable_host(raw):
+        return _utf8_json({'success': False,
+                           'error': "0.0.0.0 is the address the server listens on, not one "
+                                    "anyone can visit. Use the domain or IP people type "
+                                    "into their browser."}, 400)
+    normalised = f'{parsed.scheme}://{parsed.netloc}'
+    anchor.public_base_url = normalised[:300]
+    db.session.commit()
+    return _utf8_json({'success': True, 'public_base_url': anchor.public_base_url})
+
+
 @app.route('/admin/settings/admin-brand/icon', methods=['POST'])
 @login_required
 @require_perm('settings.edit')
@@ -25272,10 +25696,14 @@ _notif_scheduler_started = False
 
 
 def _start_notification_event_scheduler():
-    """Background daemon that fires notifications for upcoming calendar events.
-    For each enabled `calendar.event_upcoming` rule, it looks for events whose
-    start is within the rule's `minutes_before` window and that haven't been
-    fired yet (idempotency via NotificationDelivery)."""
+    """Background daemon that drives both scheduled notification paths.
+
+    1. Upcoming calendar events: for each enabled `calendar.event_upcoming`
+       rule, look for events whose start is within the rule's `minutes_before`
+       window and that haven't been fired yet (idempotency via
+       NotificationDelivery).
+    2. Notification feeds: release the next hopper item for any feed whose
+       weekly slot has come due (idempotency via NotificationFeedRun)."""
     import threading
     import time
 
@@ -25291,6 +25719,7 @@ def _start_notification_event_scheduler():
             try:
                 with app.app_context():
                     _run_upcoming_event_scan()
+                    _run_feed_scan()
             except Exception as loop_err:
                 print(f"[notifications] scheduler error: {loop_err}")
             time.sleep(120)  # 2 minutes
@@ -26047,8 +26476,8 @@ ADMIN_PERMISSIONS = {
         'import': 'Import files from connected drives into the asset library',
     }},
     'notifications': {'label': 'Notifications', 'actions': {
-        'view': 'View notification channels & rules and run test sends',
-        'manage': 'Create / edit / delete channels and rules',
+        'view': 'View notification channels, rules & feeds and run test sends',
+        'manage': 'Create / edit / delete channels, rules and feeds',
     }},
     'payments': {'label': 'Payments', 'actions': {
         'view': 'View payment history and Stripe connection',
@@ -26254,6 +26683,26 @@ def admin_users_page():
                 'categories': cat_entries, 'uncategorized': uncategorized,
             })
 
+    # Channels + feeds for the "Notification Access" picker. The two lists are
+    # independent (see _notification_restrictions): leaving one side unchecked
+    # means "all of that kind", so an admin can be pinned to one feed while
+    # still reaching every channel, or the reverse.
+    notification_catalog = {
+        'channels': [
+            {'id': c.id, 'label': c.label or '(unnamed)',
+             'is_active': bool(c.is_active)}
+            for c in NotificationChannel.query.filter_by(user_id=root_user_id)
+            .order_by(NotificationChannel.label).all()
+        ],
+        'feeds': [
+            {'id': f.id, 'name': f.name or '(unnamed)',
+             'channel': (f.channel.label if f.channel else ''),
+             'is_active': bool(f.is_active)}
+            for f in NotificationFeed.query.filter_by(user_id=root_user_id)
+            .order_by(NotificationFeed.name).all()
+        ],
+    }
+
     # Accounts an org-wide 2FA requirement currently does nothing for: they hold
     # no second factor, so whoever has the password can enrol one mid-login. The
     # owner closes that by handing them a setup code out of band.
@@ -26298,6 +26747,7 @@ def admin_users_page():
                            guide_catalog=guide_catalog,
                            quiz_catalog=quiz_catalog,
                            division_catalog=division_catalog,
+                           notification_catalog=notification_catalog,
                            now=datetime.now(timezone.utc).replace(tzinfo=None))
 
 
@@ -34790,6 +35240,96 @@ def navbar_entry_target(item, website):
 app.jinja_env.globals['navbar_entry_target'] = navbar_entry_target
 
 
+def _is_unreachable_host(url):
+    """True when this URL's host is a wildcard bind address.
+
+    These are addresses a server LISTENS on, not ones anyone can browse to, so
+    a link built from one is broken for every recipient — worse than no link,
+    because it looks like it should work."""
+    from urllib.parse import urlparse as _urlparse
+    if not url:
+        return True
+    try:
+        host = _urlparse(url).hostname or ''
+    except Exception:
+        return True
+    return host.strip('[]') in ('0.0.0.0', '::', '0', '::0')
+
+
+def configured_public_base():
+    """The admin-set public address of this instance, normalised, or ''.
+
+    Set in Settings → Site settings. This is the authority whenever something
+    has to name the site from outside it, because the request Host header can't
+    be trusted for that: behind a proxy it may be internal, and when the admin
+    browses the bind address it is literally '0.0.0.0'."""
+    try:
+        anchor = get_main_admin()
+    except Exception:
+        return ''
+    raw = (getattr(anchor, 'public_base_url', None) or '').strip() if anchor else ''
+    if not raw:
+        return ''
+    if not raw.startswith(('http://', 'https://')):
+        raw = 'https://' + raw
+    return raw.rstrip('/')
+
+
+def absolute_url(path):
+    """Turn a site-relative path into a full URL for social-preview tags.
+
+    Open Graph consumers (Discord, Slack, iMessage) fetch og:image from their
+    own servers, so a relative path is simply ignored — the preview arrives
+    with no picture. Anything that can't be made absolute returns '' so the tag
+    is omitted rather than emitted broken."""
+    p = (path or '').strip()
+    if not p:
+        return ''
+    if p.startswith(('http://', 'https://')):
+        return p
+    if not p.startswith('/'):
+        return ''
+    base = _site_external_base(None)
+    return (base + p) if base else ''
+
+
+app.jinja_env.globals['absolute_url'] = absolute_url
+
+
+def social_preview_text(html, limit=200):
+    """Plain-text blurb for og:description, collapsed to a single line."""
+    text = _html_to_plain(html or '')
+    text = ' '.join(text.split())
+    return text[:limit - 1] + '…' if len(text) > limit else text
+
+
+app.jinja_env.globals['social_preview_text'] = social_preview_text
+
+
+def page_social_image(page):
+    """A representative picture for a public page's link preview.
+
+    Pages have no cover field of their own, so use the first image any of their
+    sections shows. Returns '' when the page is all text — the caller falls
+    back to the site icon."""
+    if page is None:
+        return ''
+    try:
+        row = (db.session.query(Asset.url)
+               .join(SectionAsset, Asset.id == SectionAsset.asset_id)
+               .join(PageSection, PageSection.id == SectionAsset.section_id)
+               .filter(PageSection.page_content_id == page.id,
+                       Asset.asset_type == 'image')
+               .order_by(PageSection.order, SectionAsset.order)
+               .first())
+    except Exception:
+        return ''
+    return (row[0] if row else '') or ''
+
+
+app.jinja_env.globals['page_social_image'] = page_social_image
+
+
 def _get_site_icon_url(website):
     """Return the favicon URL for a website, or None to use the template default."""
     return (website.public_navbar_style or {}).get('icon_url') if website else None
@@ -41902,6 +42442,50 @@ def admin_guides_reorder():
     return _utf8_json({'success': True})
 
 
+def _is_embedded_pane():
+    """True when this page is being rendered inside a pane of /admin/education.
+
+    The shell passes ?embed=1 so the page drops its own navbar — the shell
+    already draws one, and two stacked bars would eat the top of the pane."""
+    return request.args.get('embed') == '1'
+
+
+# The three Education pages, in tab order. Each is its own page (and stays
+# directly reachable / bookmarkable); the shell just shows them side by side so
+# working across them doesn't mean a page load each time.
+EDUCATION_TABS = (
+    {'key': 'guides',    'label': 'Guides',    'icon': 'fa-book',
+     'perm': 'guides.view',    'path': '/admin/guides'},
+    {'key': 'quizzes',   'label': 'Quizzes',   'icon': 'fa-clipboard-check',
+     'perm': 'quizzes.view',   'path': '/admin/quizzes'},
+    {'key': 'resources', 'label': 'Resources', 'icon': 'fa-folder-open',
+     'perm': 'resources.view', 'path': '/admin/resources'},
+)
+
+
+@app.route('/admin/education')
+@app.route('/admin/education/<string:tab>')
+@login_required
+def admin_education_page(tab=None):
+    """Guides, quizzes and resources as tabs of one page.
+
+    Each pane hosts the existing admin page unchanged. They share a category
+    model and are constantly used together, so paying a full page load to move
+    between them made closely-related work feel like three separate jobs."""
+    tabs = [t for t in EDUCATION_TABS if current_user.has_permission(t['perm'])]
+    if not tabs:
+        abort(403)
+    keys = [t['key'] for t in tabs]
+    active = tab if tab in keys else keys[0]
+    website = get_admin_website()
+    return render_template(
+        'education_admin.html',
+        tabs=tabs, active_tab=active,
+        website=website, current_website=website,
+        current_website_pages=[], page_id=None,
+    )
+
+
 @app.route('/admin/guides')
 @login_required
 @require_perm('guides.view')
@@ -41948,6 +42532,7 @@ def admin_guides_page():
         current_website=current_website,
         current_website_pages=current_website_pages,
         page_id=None,
+        embed=_is_embedded_pane(),
     )
 
 
@@ -43472,7 +44057,8 @@ def admin_resources_page():
     return render_template('resources_admin.html', website=website,
                            categories=categories, bundles=bundles, grouped=grouped,
                            bundles_dicts=[b.to_dict() for b in bundles],
-                           resource_count=len(resources))
+                           resource_count=len(resources),
+                           embed=_is_embedded_pane())
 
 
 @app.route('/admin/resources/list')
@@ -45711,7 +46297,8 @@ def admin_quizzes_page():
                            code_runner_default=_PISTON_DEFAULT_URL,
                            can_edit_code_runner=current_user.has_permission('quizzes.code_runner'),
                            current_website=website,
-                           current_website_pages=current_website_pages, page_id=None)
+                           current_website_pages=current_website_pages, page_id=None,
+                           embed=_is_embedded_pane())
 
 
 @app.route('/admin/quizzes/list')
@@ -52301,13 +52888,23 @@ _NOTIFICATION_COLORS = {
 
 
 def _site_external_base(website):
-    """Best-effort absolute URL prefix for links in notifications.
-    Uses request context when available (preferred so we use the actual host),
-    falling back to '' so links remain relative if no context."""
+    """Absolute URL prefix for links that leave the site (notifications, OG).
+
+    Order: the configured public base URL, then the current request's host,
+    then the last host a request came in on (for background senders, which have
+    no request at all). Wildcard bind addresses are refused at every step —
+    '0.0.0.0' is what the server listens on, never an address anyone can visit,
+    so a link built from it is broken for every recipient including the admin.
+    """
+    configured = configured_public_base()
+    if configured:
+        return configured
     try:
-        return request.host_url.rstrip('/')
+        host = request.host_url
     except Exception:
-        return ''
+        host = _LAST_KNOWN_HOST or ''
+    host = (host or '').rstrip('/')
+    return '' if _is_unreachable_host(host) else host
 
 
 def _site_link_for_post(post, website):
@@ -52400,21 +52997,68 @@ def _strip_html_basic(s):
     return _html_to_plain(s)
 
 
-def _send_to_discord_webhook(webhook_url, payload):
-    """POST a Discord webhook payload. Raises on non-2xx."""
+def _send_to_discord_webhook(webhook_url, payload, wait=False):
+    """POST a Discord webhook payload. Raises on non-2xx.
+
+    `wait=True` adds Discord's ?wait=true, which makes it create the message and
+    return it rather than acknowledging and finishing the job afterwards. That
+    is the only way to guarantee ORDER across two posts: without it Discord may
+    finish a plain follow-up before a message whose embed image it still has to
+    fetch, and the two arrive swapped."""
     import requests as _req
-    r = _req.post(webhook_url, json=payload, timeout=15)
+    url = webhook_url
+    if wait:
+        url += ('&' if '?' in url else '?') + 'wait=true'
+    r = _req.post(url, json=payload, timeout=15)
     if r.status_code >= 300:
         raise RuntimeError(f'Discord webhook returned {r.status_code}: {r.text[:200]}')
 
 
-def _build_discord_payload(channel, embed, prepend_text=None):
+# Shown wherever a channel's stored webhook can no longer be read back.
+CHANNEL_WEBHOOK_UNREADABLE = (
+    "This channel's webhook URL can't be decrypted — the app's secret key has "
+    "changed since it was saved, or it came from a backup that stripped it. "
+    "Edit the channel and paste the webhook URL again."
+)
+
+
+def channel_webhook_url(channel):
+    """The channel's usable webhook URL, or '' if there isn't one.
+
+    Uses the STRICT decrypt on purpose. `decrypt_api_key` hands back the
+    ciphertext unchanged when it can't decrypt, which is right for values that
+    might predate encryption but wrong here: the caller gets a plausible-looking
+    string, the "is it missing?" guard passes, and we POST to a URL that is
+    literally a Fernet token. That produced `Invalid URL 'gAAAA…'` failures that
+    also wrote the ciphertext into the delivery log.
+
+    A stored value that fails to decrypt but still looks like a Discord webhook
+    is treated as legacy plaintext, which is the one case the loose fallback
+    was actually there for.
+    """
+    stored = ((channel.config or {}).get('webhook_url') or '').strip()
+    if not stored:
+        return ''
+    plain = decrypt_api_key_strict(stored)
+    if plain:
+        return plain
+    if stored.startswith(('https://discord.com/api/webhooks/',
+                          'https://discordapp.com/api/webhooks/')):
+        return stored          # saved before secrets were encrypted
+    return ''
+
+
+def _build_discord_payload(channel, embed, prepend_text=None, content=None):
     """Wrap an embed dict in the Discord webhook envelope, honouring per-channel
-    bot username/avatar overrides if present."""
+    bot username/avatar overrides if present.
+
+    Pass embed=None with `content` to send a plain message instead — see
+    _feed_payload_for, which needs that for videos."""
     cfg = channel.config or {}
-    out = {'embeds': [embed]}
-    if prepend_text:
-        out['content'] = prepend_text
+    out = {'embeds': [embed] if embed else []}
+    text = '\n'.join(p for p in (prepend_text, content) if p)
+    if text:
+        out['content'] = text
     if cfg.get('bot_username'):
         out['username'] = cfg['bot_username']
     if cfg.get('bot_avatar_url'):
@@ -52426,6 +53070,9 @@ def _build_discord_payload(channel, embed, prepend_text=None):
 
 def _embed_for_post_published(post, website):
     url = _site_link_for_post(post, website)
+    # Covers are stored site-relative; Discord fetches embed images from its own
+    # servers, so a relative path silently renders as a broken embed.
+    cover = _absolute_media_url(post.cover_image_url, website)
     return {
         'title': _truncate(f'New post: {post.title}', 256),
         'description': _truncate(_strip_html_basic(post.excerpt or post.content or ''), 4096),
@@ -52433,7 +53080,7 @@ def _embed_for_post_published(post, website):
         'color': _NOTIFICATION_COLORS['post.published'],
         'timestamp': (post.published_at or datetime.now(timezone.utc).replace(tzinfo=None)).isoformat(),
         'footer': {'text': website.name if website else 'New post'},
-        **({'image': {'url': post.cover_image_url}} if post.cover_image_url else {}),
+        **({'image': {'url': cover}} if cover else {}),
     }
 
 
@@ -52522,8 +53169,7 @@ def _fire_rule(rule, embed, subject_key):
         app.logger.debug(
             f'[notifications] rule {rule.id} channel={channel.id} is inactive; skipping')
         return
-    cfg = channel.config or {}
-    webhook_url = decrypt_api_key(cfg.get('webhook_url') or '')
+    webhook_url = channel_webhook_url(channel)
     if not webhook_url:
         # Persistent config state (e.g. a channel restored from a backup that
         # stripped its secret) — debug, not a per-scan warning, or the event
@@ -52657,12 +53303,679 @@ def dispatch_notification(event_type, **ctx):
         app.logger.exception(f'dispatch_notification({event_type}) failed: {e}')
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Notification feeds — a scheduled "hopper" that drips one item per slot
+# ════════════════════════════════════════════════════════════════════════════
+
+FEED_ITEM_TYPES = ('guide', 'quiz', 'resource', 'bundle', 'link', 'message')
+
+# Python weekday numbering (0=Mon … 6=Sun) — matches date.weekday().
+FEED_WEEKDAY_LABELS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+FEED_ITEM_TYPE_LABELS = {
+    'guide':    'Guide',
+    'quiz':     'Quiz',
+    'resource': 'Resource',
+    'bundle':   'Bundle',
+    'link':     'Link',
+    'message':  'Message',
+}
+
+# "Resource" says nothing about what is actually being handed over, so name the
+# real thing. (singular, plural) — a resource can hold several links/files/videos.
+RESOURCE_KIND_LABELS = {
+    'video': ('Video', 'videos'),
+    'file':  ('File', 'files'),
+    'link':  ('Link', 'links'),
+    'page':  ('Page', 'pages'),
+}
+
+
+def _bundle_public_resources(bundle):
+    """What a bundle shows to someone who isn't logged in, in page order.
+
+    Deliberately the same filter the public bundle page applies. A release goes
+    out to a channel we can't vet, so listing an unlisted or members-only
+    resource would announce material the page itself withholds — and would
+    advertise titles that the link then refuses to show."""
+    if bundle is None:
+        return []
+    return (Resource.query
+            .filter_by(website_id=bundle.website_id, bundle_id=bundle.id,
+                       is_public=True, members_only=False)
+            .order_by(Resource.sort_order, Resource.created_at.desc())
+            .all())
+
+
+def _resource_kind_label(resource):
+    """'Video', '3 videos', 'File' … — what this resource actually is.
+
+    A 'page' resource is a single written page however you count it; the other
+    kinds hold a list, so say how many when there is more than one."""
+    singular, plural = RESOURCE_KIND_LABELS.get(
+        resource.resource_type or 'link', ('Resource', 'resources'))
+    if resource.resource_type == 'page':
+        return singular
+    count = len(resource.item_list())
+    return f'{count} {plural}' if count > 1 else singular
+
+# The message written when the admin hasn't customised one. Mirrors the
+# placeholders below so a brand-new feed already reads like a real announcement.
+DEFAULT_FEED_MESSAGE = "Here is {day}'s training! Please complete it by {next_date}."
+
+# (placeholder, what it expands to) — rendered as a cheat-sheet in the editor.
+FEED_MESSAGE_PLACEHOLDERS = (
+    ('{title}',     "The item's title"),
+    ('{link}',      'Link to the item (empty for message-only items)'),
+    ('{day}',       "Today's weekday, e.g. Tuesday"),
+    ('{date}',      "Today's date, e.g. Aug 18"),
+    ('{next_day}',  'The next release weekday'),
+    ('{next_date}', 'The next release date, e.g. Tuesday, Aug 25'),
+    ('{position}',  'Which item this is, e.g. 3'),
+    ('{total}',     'How many items are in the feed'),
+    ('{feed}',      "The feed's name"),
+)
+
+_FEED_EMBED_COLOR = 0x8AF5B0   # mint — distinct from the event colours above
+
+# Wording for the explicit "way in" link added to each embed. Discord gives an
+# embed exactly one clickable target (the title); the image is never a link, so
+# this spells the destination out in the body as well.
+FEED_OPEN_LABELS = {
+    'guide':    'Open the guide',
+    'quiz':     'Take the quiz',
+    'resource': 'Open the resource',
+    'bundle':   'Open the bundle',
+    'link':     'Open the link',
+    'message':  'Open it',
+}
+
+# How late a missed slot may still fire. Covers a short outage/restart without
+# dumping a week of backlog into the channel when a server has been down.
+FEED_CATCHUP_HOURS = 24
+
+
+def _primary_live_website(user_id):
+    """The admin's canonical public site: the no-prefix live one if it exists,
+    otherwise their oldest live site."""
+    if not user_id:
+        return None
+    primary = (Website.query
+               .filter_by(user_id=user_id, is_draft=False, url_prefix=None)
+               .first())
+    if primary:
+        return primary
+    return (Website.query
+            .filter_by(user_id=user_id, is_draft=False)
+            .order_by(Website.id.asc()).first())
+
+
+def _feed_website(feed):
+    """The site whose content this feed draws from and links into."""
+    if feed.website_id:
+        w = db.session.get(Website, feed.website_id)
+        if w:
+            return w
+    return _primary_live_website(feed.user_id)
+
+
+def _feed_public_url(website, path):
+    """Absolute public URL for a path on `website` (empty host → relative)."""
+    base = _site_external_base(website)
+    prefix = ('/' + website.url_prefix) if website and website.url_prefix else ''
+    return f'{base}{prefix}{path}'
+
+
+def _feed_owner_timezone(feed):
+    """Schedules are wall-clock in the owning admin's timezone, so "Tuesday at
+    6pm" keeps meaning 6pm across DST changes."""
+    owner = db.session.get(User, feed.user_id)
+    return get_user_timezone(owner) if owner else pytz.timezone('America/Chicago')
+
+
+def _parse_send_time(value):
+    """'HH:MM' → (hour, minute), clamped. Bad input falls back to 09:00."""
+    try:
+        hh, mm = str(value or '').split(':')[:2]
+        return max(0, min(23, int(hh))), max(0, min(59, int(mm)))
+    except (ValueError, TypeError):
+        return 9, 0
+
+
+def _feed_days(feed):
+    """Sanitised, ascending weekday list (0=Mon … 6=Sun)."""
+    out = set()
+    for d in (feed.days_of_week or []):
+        try:
+            d = int(d)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= d <= 6:
+            out.add(d)
+    return sorted(out)
+
+
+def _feed_slot_on(feed, day, tz=None):
+    """The scheduled local datetime for a given date."""
+    tz = tz or _feed_owner_timezone(feed)
+    hh, mm = _parse_send_time(feed.send_time)
+    return tz.localize(datetime(day.year, day.month, day.day, hh, mm))
+
+
+def _feed_next_slot(feed, after=None):
+    """The next release moment strictly after `after` (default: now). None when
+    the feed has no scheduled days at all."""
+    days = _feed_days(feed)
+    if not days:
+        return None
+    tz = _feed_owner_timezone(feed)
+    after = after or datetime.now(tz)
+    for i in range(0, 15):
+        day = (after + timedelta(days=i)).date()
+        if day.weekday() not in days:
+            continue
+        if feed.start_date and day < feed.start_date:
+            continue
+        slot = _feed_slot_on(feed, day, tz)
+        if slot > after:
+            return slot
+    return None
+
+
+def _feed_due_slot(feed, now_local=None):
+    """The most recent slot that has come due, or None if the next one is still
+    in the future (or the missed one is too old to be worth catching up on)."""
+    days = _feed_days(feed)
+    if not days:
+        return None
+    tz = _feed_owner_timezone(feed)
+    now_local = now_local or datetime.now(tz)
+    for i in range(0, 8):
+        day = (now_local - timedelta(days=i)).date()
+        if day.weekday() not in days:
+            continue
+        if feed.start_date and day < feed.start_date:
+            continue
+        slot = _feed_slot_on(feed, day, tz)
+        if slot <= now_local:
+            if (now_local - slot) > timedelta(hours=FEED_CATCHUP_HOURS):
+                return None
+            return slot
+    return None
+
+
+def _feed_slot_key(slot_local):
+    return slot_local.strftime('%Y-%m-%d %H:%M')
+
+
+def _feed_queue(feed):
+    """The items the cursor actually walks: enabled ones, in sort order."""
+    return [it for it in feed.items.order_by(NotificationFeedItem.sort_order,
+                                             NotificationFeedItem.id).all()
+            if it.is_enabled]
+
+
+def _feed_clamp_cursor(feed, queue=None):
+    """Pull a cursor that has drifted past the end back to exactly the end.
+
+    Parking one-past-the-end is how an exhausted feed waits for more items — but
+    if items are then deleted or disabled the cursor can end up further out than
+    that, and adding one item back would no longer reach it. Clamping keeps
+    "add one more item and it resumes" true no matter what happened in between.
+    Caller commits."""
+    queue = _feed_queue(feed) if queue is None else queue
+    if (feed.position or 0) > len(queue):
+        feed.position = len(queue)
+
+
+def _feed_next_item(feed, queue=None):
+    """(item, index) the cursor points at, or (None, index) when the hopper is
+    spent. Wraps to the start when the feed is set to loop."""
+    queue = _feed_queue(feed) if queue is None else queue
+    if not queue:
+        return None, 0
+    pos = feed.position or 0
+    if pos < 0:
+        pos = 0
+    if pos >= len(queue):
+        if not feed.loop_when_finished:
+            return None, pos
+        pos = 0
+    return queue[pos], pos
+
+
+def _feed_item_target(feed, item, website=None):
+    """Resolve an item to what actually gets announced.
+
+    Returns (title, url, kind_label, blurb). Guides/quizzes/resources resolve
+    live from their row so a renamed or re-slugged item still announces itself
+    correctly; a reference whose row has been deleted degrades to the stored
+    title rather than blowing up the release."""
+    website = website or _feed_website(feed)
+    kind = FEED_ITEM_TYPE_LABELS.get(item.item_type, 'Item')
+    title = (item.title or '').strip()
+    url, blurb = '', ''
+
+    if item.item_type == 'guide':
+        g = db.session.get(Guide, item.ref_id) if item.ref_id else None
+        if g:
+            title = title or g.title
+            blurb = _truncate(_strip_html_basic(g.description or ''), 600)
+            url = _feed_public_url(website, f'/guides/{g.slug}')
+        else:
+            title = title or 'Guide (deleted)'
+    elif item.item_type == 'quiz':
+        q = db.session.get(Quiz, item.ref_id) if item.ref_id else None
+        if q:
+            title = title or q.title
+            blurb = _truncate(_strip_html_basic(q.description or ''), 600)
+            url = _feed_public_url(website, f'/quiz/{q.id}')
+        else:
+            title = title or 'Quiz (deleted)'
+    elif item.item_type == 'resource':
+        r = db.session.get(Resource, item.ref_id) if item.ref_id else None
+        if r:
+            title = title or r.title
+            blurb = _truncate(_strip_html_basic(r.description or ''), 600)
+            url = _feed_public_url(website, f'/resource/{r.id}')
+            # Say what it actually is — 'Video', '3 videos', 'File' — rather
+            # than the useless catch-all "Resource".
+            kind = _resource_kind_label(r)
+        else:
+            title = title or 'Resource (deleted)'
+    elif item.item_type == 'bundle':
+        b = db.session.get(ResourceBundle, item.ref_id) if item.ref_id else None
+        if b:
+            title = title or b.name
+            url = _feed_public_url(website, f'/resources/bundle/{b.id}')
+            contents = _bundle_public_resources(b)
+            kind = (f'{len(contents)} resources' if len(contents) != 1
+                    else 'Bundle')
+            parts = []
+            if b.description:
+                parts.append(_truncate(_strip_html_basic(b.description), 400))
+            if contents:
+                # The point of sending a bundle is what is IN it, so list it.
+                shown = contents[:8]
+                lines = [f'• {_truncate(r.title, 90)}'
+                         f'{" · " + _resource_kind_label(r) if r.resource_type != "page" else ""}'
+                         for r in shown]
+                if len(contents) > len(shown):
+                    lines.append(f'• …and {len(contents) - len(shown)} more')
+                parts.append('\n'.join(lines))
+            blurb = '\n\n'.join(parts)
+        else:
+            title = title or 'Bundle (deleted)'
+    elif item.item_type == 'link':
+        url = (item.url or '').strip()
+        title = title or url or 'Link'
+    else:  # 'message'
+        title = title or (feed.name or 'Update')
+
+    return title, url, kind, blurb
+
+
+# Links Discord turns into a player when the bare URL appears in the message
+# content. A webhook CANNOT set an embed's `video` field — Discord ignores it
+# and populates that itself by unfurling — so a playable video has to ride in
+# `content`, not in the embed we build.
+_VIDEO_HOST_RE = re.compile(
+    r'(youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/'
+    r'|vimeo\.com/|twitch\.tv/|streamable\.com/)', re.I)
+# Direct media files Discord renders inline from the URL alone.
+_VIDEO_FILE_RE = re.compile(r'\.(mp4|webm|mov|m4v)(\?|#|$)', re.I)
+_IMAGE_FILE_RE = re.compile(r'\.(png|jpe?g|gif|webp|avif|bmp)(\?|#|$)', re.I)
+
+
+def _is_video_url(url):
+    u = (url or '').strip()
+    return bool(u) and bool(_VIDEO_HOST_RE.search(u) or _VIDEO_FILE_RE.search(u))
+
+
+def _absolute_media_url(url, website):
+    """Make a stored media URL absolute so Discord can fetch it.
+
+    Assets are stored site-relative ('/static/uploads/…'). Discord pulls embed
+    images from its own servers, so a relative path — or one pointing at a host
+    it can't reach — renders as a broken embed. Anything we can't make properly
+    absolute is dropped rather than sent half-formed."""
+    u = (url or '').strip()
+    if not u:
+        return ''
+    if u.startswith(('http://', 'https://')):
+        return u
+    if not u.startswith('/'):
+        return ''
+    base = _site_external_base(website)
+    if not base.startswith(('http://', 'https://')):
+        return ''
+    return f'{base}{u}'
+
+
+def _feed_item_media(feed, item, website=None):
+    """(image_url, [video_url, …]) for a feed item — either may be empty.
+
+    The image is whatever picture the item already carries in the admin (a
+    guide cover, a quiz or resource picture), so a release looks like the thing
+    it points at without anyone re-uploading anything.
+
+    Videos come back as a LIST because one resource can hold several. Sending
+    only the first while the card announces "3 videos" would be a lie, so every
+    one of them goes out."""
+    website = website or _feed_website(feed)
+    image, videos = '', []
+
+    if item.item_type == 'guide':
+        g = db.session.get(Guide, item.ref_id) if item.ref_id else None
+        if g:
+            image = g.cover_image_url or ''
+    elif item.item_type == 'quiz':
+        q = db.session.get(Quiz, item.ref_id) if item.ref_id else None
+        if q:
+            image = q.image_url or ''
+    elif item.item_type == 'resource':
+        r = db.session.get(Resource, item.ref_id) if item.ref_id else None
+        if r:
+            image = r.image_url or ''
+            # item_list() already normalises `items` and falls back to the
+            # legacy single `url` column, so it is the one thing to ask.
+            urls = [(e.get('url') or '').strip() for e in r.item_list()]
+            if r.resource_type == 'video':
+                videos = [u for u in urls if u]
+            else:
+                # A 'link' or 'file' resource that happens to point at videos.
+                videos = [u for u in urls if _is_video_url(u)]
+    elif item.item_type == 'bundle':
+        b = db.session.get(ResourceBundle, item.ref_id) if item.ref_id else None
+        if b:
+            # A bundle carries no picture of its own, so borrow the first one
+            # inside it. Videos are deliberately NOT unfurled: a bundle can
+            # hold a dozen, and the card already lists what is in it.
+            image = next((r.image_url for r in _bundle_public_resources(b)
+                          if r.image_url), '')
+    elif item.item_type == 'link':
+        u = (item.url or '').strip()
+        if _is_video_url(u):
+            videos = [u]
+        elif _IMAGE_FILE_RE.search(u):
+            image = u
+
+    return _absolute_media_url(image, website), videos
+
+
+def _render_feed_message(feed, item, target, slot_local=None, position=0, total=0):
+    """Fill the per-item message (or the feed's default) with its placeholders.
+
+    Uses plain replacement rather than str.format so a stray brace in the
+    admin's text can never raise mid-release."""
+    title, url, _kind, _blurb = target
+    text = (item.message or '').strip() \
+        or (feed.default_message or '').strip() \
+        or DEFAULT_FEED_MESSAGE
+
+    tz = _feed_owner_timezone(feed)
+    slot_local = slot_local or datetime.now(tz)
+    nxt = _feed_next_slot(feed, after=slot_local)
+
+    values = {
+        '{title}':     title or '',
+        '{link}':      url or '',
+        '{day}':       slot_local.strftime('%A'),
+        '{date}':      slot_local.strftime('%b %-d'),
+        '{next_day}':  nxt.strftime('%A') if nxt else 'the next session',
+        '{next_date}': nxt.strftime('%A, %b %-d') if nxt else 'the next session',
+        '{position}':  str(position + 1),
+        '{total}':     str(total),
+        '{feed}':      feed.name or '',
+    }
+    for key, val in values.items():
+        text = text.replace(key, val)
+    return text
+
+
+def _feed_build_embed(feed, item, position, total, slot_local=None, website=None):
+    """(embed, target, [video_url, …]) for one release.
+
+    The videos are handed back rather than folded into the embed because an
+    embed's video field is Discord's to fill, not ours — the caller puts the
+    bare URL in the message content so Discord unfurls a player."""
+    website = website or _feed_website(feed)
+    target = _feed_item_target(feed, item, website)
+    title, url, kind, blurb = target
+    image_url, video_urls = _feed_item_media(feed, item, website)
+    message = _render_feed_message(feed, item, target, slot_local, position, total)
+
+    description = message
+    if blurb and blurb not in message:
+        description = f'{message}\n\n{blurb}'
+    # A relative URL (no known public host yet) would make Discord reject the
+    # whole embed, so only attach genuinely absolute links.
+    absolute = url if url.startswith(('http://', 'https://')) else ''
+    if url and not absolute:
+        description = f'{description}\n{url}'
+    elif absolute:
+        # Discord embeds have exactly one clickable target — the title, via
+        # embed.url. The image is NOT a link: clicking it opens the picture,
+        # and there is no field to point it anywhere else. So spell the way in
+        # out as a markdown link too, rather than hoping people try the title.
+        description = f'{description}\n\n[{FEED_OPEN_LABELS.get(item.item_type, "Open it")} →]({absolute})'
+
+    embed = {
+        'title': _truncate(title or feed.name or 'Update', 256),
+        'description': _truncate(description, 4096),
+        'color': _FEED_EMBED_COLOR,
+        'timestamp': datetime.now(timezone.utc).replace(tzinfo=None).isoformat(),
+        'footer': {'text': f'{feed.name} · {position + 1} of {total} · {kind}'},
+    }
+    if absolute:
+        embed['url'] = absolute
+    if image_url:
+        # Slot matters, because it decides whether the picture is CLICKABLE.
+        # `thumbnail` (small, top-right, beside the title) inherits the embed's
+        # url, so tapping it opens the page — this is the shape Jellyseerr and
+        # friends use. `image` (large, bottom) does not: clicking it only opens
+        # the picture. So use the thumbnail whenever there is somewhere to go,
+        # and fall back to the big image when there isn't anything to click.
+        # Never both: the same URL in both slots renders the picture twice.
+        embed['thumbnail' if absolute else 'image'] = {'url': image_url}
+    return embed, target, video_urls
+
+
+def _feed_payload_for(feed, channel, item, position, total, slot_local=None,
+                      website=None):
+    """([payload, …], target) — the webhook messages one release sends.
+
+    Usually one message. Discord will not build a link preview for a message
+    that already carries an embed of its own, so anything that needs unfurling
+    can't share a message with our card. Rather than give one up:
+
+      * a VIDEO sends two — the styled card first (picture, description, link),
+        then a follow-up carrying only the video URL, which Discord expands
+        into a player. Reads as one announcement with the video under it.
+      * a bare WEB LINK sends one plain message. We know nothing about the far
+        end, so our card would just repeat the URL; letting Discord read the
+        page's Open Graph tags gives a far better result.
+      * everything else sends one rich embed.
+
+    The role ping rides on the first message only — pinging twice for one
+    release is just noise.
+    """
+    website = website or _feed_website(feed)
+    embed, target, video_urls = _feed_build_embed(
+        feed, item, position, total, slot_local, website)
+    title, link, _kind, _blurb = target
+
+    if video_urls:
+        # All of them in ONE follow-up, each on its own line: Discord builds a
+        # player per link, and a single message keeps them together under the
+        # card rather than scattering separate posts down the channel.
+        return [
+            _build_discord_payload(channel, embed, prepend_text=feed.prepend_text),
+            _build_discord_payload(channel, None, content='\n'.join(video_urls)),
+        ], target
+
+    if item.item_type == 'link' and link.startswith(('http://', 'https://')):
+        message = _render_feed_message(feed, item, target, slot_local, position, total)
+        lines = []
+        # For a link the title is usually just the URL, which would read as
+        # noise directly above the same URL.
+        if title and title not in (message, link):
+            lines.append(f'**{title}**')
+        if message:
+            lines.append(message)
+        lines.append(link)
+        return [_build_discord_payload(channel, None, prepend_text=feed.prepend_text,
+                                       content='\n'.join(lines))], target
+
+    return [_build_discord_payload(channel, embed,
+                                   prepend_text=feed.prepend_text)], target
+
+
+def _feed_advance(feed, position, queue_len):
+    """Move the cursor past the item just released.
+
+    With auto-restart on, the cursor wraps and the whole feed runs again. With
+    it off the cursor is left sitting one past the end and the feed stays
+    ACTIVE — so appending items later simply resumes from there. The feed is
+    never switched off automatically; running dry is a pause, not an ending."""
+    nxt = position + 1
+    if nxt >= queue_len and feed.loop_when_finished:
+        nxt = 0
+    feed.position = nxt
+
+
+def _feed_release(feed, slot_key, slot_local=None, queue=None):
+    """Release the item the cursor points at. Idempotent per (feed, slot_key).
+
+    Returns (ok, message). Failures are logged as a run row and leave the cursor
+    alone so the same item goes out at the next slot."""
+    existing = NotificationFeedRun.query.filter_by(
+        feed_id=feed.id, slot_key=slot_key).first()
+    if existing and existing.success:
+        return False, 'Already sent for this slot.'
+
+    queue = _feed_queue(feed) if queue is None else queue
+    item, position = _feed_next_item(feed, queue)
+    if item is None:
+        return False, 'The feed has no items left to send.'
+
+    channel = feed.channel
+    if not channel or not channel.is_active:
+        return False, 'This feed has no active channel.'
+    webhook_url = channel_webhook_url(channel)
+    if not webhook_url:
+        return False, CHANNEL_WEBHOOK_UNREADABLE
+
+    payloads, target = _feed_payload_for(feed, channel, item, position, len(queue),
+                                         slot_local)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    run = existing or NotificationFeedRun(feed_id=feed.id, slot_key=slot_key)
+    run.item_id = item.id
+    run.item_title = _truncate(target[0], 300)
+    run.status = 'sent'
+    run.sent_at = now
+    follow_up_error = None
+    try:
+        # The FIRST message is the release. Any follow-up (the bare video URL
+        # Discord turns into a player) is an extra: if it fails the item has
+        # still gone out, so it is logged rather than raised — failing here
+        # would leave the cursor put and re-send the whole thing next slot.
+        #
+        # When there IS a follow-up, wait for the card to be created before
+        # posting it. Discord does not promise to create two rapid webhook
+        # messages in the order they arrive, and the card is the slower of the
+        # two (it has an embed image to fetch), so without this the video can
+        # land above the card it belongs to.
+        _send_to_discord_webhook(webhook_url, payloads[0],
+                                 wait=len(payloads) > 1)
+        for extra in payloads[1:]:
+            try:
+                _send_to_discord_webhook(webhook_url, extra)
+            except Exception as follow_err:
+                follow_up_error = str(follow_err)[:500]
+                app.logger.warning(
+                    f'[feeds] feed {feed.id} follow-up message failed: {follow_err}')
+    except Exception as e:
+        db.session.rollback()
+        run = NotificationFeedRun.query.filter_by(
+            feed_id=feed.id, slot_key=slot_key).first() or NotificationFeedRun(
+                feed_id=feed.id, slot_key=slot_key)
+        run.item_id = item.id
+        run.item_title = _truncate(target[0], 300)
+        run.status = 'sent'
+        run.sent_at = now
+        run.success = False
+        run.error = str(e)[:1000]
+        db.session.add(run)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+        app.logger.warning(f'[feeds] feed {feed.id} release failed: {e}')
+        return False, str(e)
+
+    run.success = True
+    run.error = (f'Sent, but the follow-up video link failed: {follow_up_error}'
+                 if follow_up_error else None)
+    db.session.add(run)
+    channel.last_used_at = now
+    item.last_sent_at = now
+    item.sent_count = (item.sent_count or 0) + 1
+    feed.last_sent_at = now
+    _feed_advance(feed, position, len(queue))
+    db.session.commit()
+    app.logger.info(
+        f'[feeds] feed {feed.id} released item {item.id} ({target[0]!r}) slot={slot_key}')
+    return True, f'Sent “{target[0]}”.'
+
+
+def _run_feed_scan():
+    """One pass of the feed scheduler: release anything that has come due.
+    Extracted from the daemon loop so it can be triggered by hand in testing."""
+    feeds = NotificationFeed.query.filter(NotificationFeed.is_active.is_(True)).all()
+    for feed in feeds:
+        try:
+            if not feed.channel_id:
+                continue
+            slot = _feed_due_slot(feed)
+            if slot is None:
+                continue
+            slot_key = _feed_slot_key(slot)
+            if NotificationFeedRun.query.filter_by(
+                    feed_id=feed.id, slot_key=slot_key).first():
+                continue
+            queue = _feed_queue(feed)
+            item, _pos = _feed_next_item(feed, queue)
+            if item is None:
+                # Nothing queued. Burn the slot so this doesn't re-check every
+                # two minutes, and so adding items later resumes on the NEXT
+                # scheduled slot rather than firing instantly off the back of
+                # this one. The feed stays active throughout.
+                db.session.add(NotificationFeedRun(
+                    feed_id=feed.id, slot_key=slot_key, status='empty',
+                    success=True))
+                db.session.commit()
+                app.logger.info(
+                    f'[feeds] feed {feed.id} had nothing queued for {slot_key}; '
+                    f'still active, waiting for more items')
+                continue
+            _feed_release(feed, slot_key, slot_local=slot, queue=queue)
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception(f'[feeds] feed {getattr(feed, "id", "?")} scan failed: {e}')
+
+
 # ── Notifications admin routes ──────────────────────────────────────────────
 
 def _get_channel_for_admin(cid):
-    return NotificationChannel.query.filter_by(
+    """Owned by this admin AND within their per-channel grant, if any."""
+    ch = NotificationChannel.query.filter_by(
         id=cid, user_id=current_user.root_user_id
     ).first()
+    if ch and not can_access_notification_channel(ch):
+        return None
+    return ch
 
 
 def _get_rule_for_admin(rid):
@@ -52675,14 +53988,30 @@ def _get_rule_for_admin(rid):
     return rule
 
 
+def _visible_channels_for_admin():
+    """Channels this admin owns and is allowed to see, newest first."""
+    q = NotificationChannel.query.filter_by(user_id=current_user.root_user_id)
+    allowed, _feeds = _notification_restrictions()
+    if current_user.is_sub_admin and allowed is not None:
+        q = q.filter(NotificationChannel.id.in_(allowed or [-1]))
+    return q.order_by(NotificationChannel.created_at.desc()).all()
+
+
+def _visible_feeds_for_admin():
+    """Feeds this admin owns and is allowed to see, by name."""
+    q = NotificationFeed.query.filter_by(user_id=current_user.root_user_id)
+    _channels, allowed = _notification_restrictions()
+    if current_user.is_sub_admin and allowed is not None:
+        q = q.filter(NotificationFeed.id.in_(allowed or [-1]))
+    return q.order_by(NotificationFeed.name).all()
+
+
 @app.route('/admin/notifications')
 @login_required
 @require_perm('notifications.view')
 def admin_notifications_page():
     website = get_admin_website()
-    channels = NotificationChannel.query.filter_by(
-        user_id=current_user.root_user_id
-    ).order_by(NotificationChannel.created_at.desc()).all()
+    channels = _visible_channels_for_admin()
     rules_by_channel = {}
     for ch in channels:
         rules_by_channel[ch.id] = ch.rules.order_by(NotificationRule.id.desc()).all()
@@ -52697,10 +54026,22 @@ def admin_notifications_page():
     current_website_pages = PublicPageContent.query.filter_by(website_id=website.id).order_by(
         PublicPageContent.sort_order, PublicPageContent.id
     ).all() if website else []
+    # A channel whose stored webhook can't be read back can never send. That
+    # used to be invisible (it just failed at dispatch time), so flag it here.
+    channel_broken = {ch.id: not channel_webhook_url(ch) for ch in channels}
+    feeds = _visible_feeds_for_admin()
+    feed_overviews = {f.id: _feed_overview(f) for f in feeds}
     return render_template(
         'notifications_admin.html',
         channels=channels,
         rules_by_channel=rules_by_channel,
+        channel_broken=channel_broken,
+        channel_broken_help=CHANNEL_WEBHOOK_UNREADABLE,
+        can_add_channels=can_create_notification_channels(),
+        can_add_feeds=can_create_notification_feeds(),
+        feeds=feeds,
+        feed_overviews=feed_overviews,
+        weekday_labels=FEED_WEEKDAY_LABELS,
         live_websites=live_websites,
         calendars=calendars,
         post_collections=post_collections,
@@ -52716,6 +54057,9 @@ def admin_notifications_page():
 @login_required
 @require_perm('notifications.manage')
 def admin_notification_channel_create():
+    if not can_create_notification_channels():
+        return _utf8_json({'success': False,
+                           'error': 'You can only edit the channels assigned to you.'}, 403)
     data = request.get_json() or {}
     label = (data.get('label') or '').strip()
     webhook_url = (data.get('webhook_url') or '').strip()
@@ -52794,10 +54138,9 @@ def admin_notification_channel_test(cid):
     ch = _get_channel_for_admin(cid)
     if not ch:
         return _utf8_json({'success': False, 'error': 'Not found'}, 404)
-    cfg = ch.config or {}
-    webhook_url = decrypt_api_key(cfg.get('webhook_url') or '')
+    webhook_url = channel_webhook_url(ch)
     if not webhook_url:
-        return _utf8_json({'success': False, 'error': 'Channel has no webhook URL.'}, 400)
+        return _utf8_json({'success': False, 'error': CHANNEL_WEBHOOK_UNREADABLE}, 400)
     embed = {
         'title': 'Test notification',
         'description': (f"This is a test message from your Uwebia notifications system.\n"
@@ -52893,6 +54236,613 @@ def admin_notification_rule_delete(rid):
     db.session.delete(rule)
     db.session.commit()
     return _utf8_json({'success': True})
+
+
+# ── Notification feed admin routes ──────────────────────────────────────────
+
+def _get_feed_for_admin(fid):
+    """Owned by this admin AND within their per-feed grant, if any."""
+    feed = NotificationFeed.query.filter_by(
+        id=fid, user_id=current_user.root_user_id).first()
+    if feed and not can_access_notification_feed(feed):
+        return None
+    return feed
+
+
+def _get_feed_item_for_admin(iid):
+    """Item scoped to a feed the current admin owns."""
+    item = db.session.get(NotificationFeedItem, iid)
+    if not item or not _get_feed_for_admin(item.feed_id):
+        return None
+    return item
+
+
+def _admin_website_ids():
+    return [w.id for w in Website.query.filter_by(
+        user_id=current_user.root_user_id).all()]
+
+
+def _feed_item_payload(feed, item, website, index, cursor):
+    """One row for the editor UI — resolved live so a renamed guide shows its
+    current title and a deleted one is flagged instead of vanishing."""
+    title, url, kind, _blurb = _feed_item_target(feed, item, website)
+    _ref_models = {'guide': Guide, 'quiz': Quiz, 'resource': Resource,
+                   'bundle': ResourceBundle}
+    missing = bool(item.item_type in _ref_models and item.ref_id
+                   and db.session.get(_ref_models[item.item_type],
+                                      item.ref_id) is None)
+    return {
+        'id': item.id,
+        'sort_order': item.sort_order,
+        'item_type': item.item_type,
+        'kind': kind,
+        'ref_id': item.ref_id,
+        'url': item.url or '',
+        'raw_title': item.title or '',
+        'title': title,
+        'link': url,
+        'message': item.message or '',
+        'is_enabled': item.is_enabled,
+        'sent_count': item.sent_count or 0,
+        'last_sent_at': item.last_sent_at.strftime('%b %-d, %Y') if item.last_sent_at else '',
+        'missing': missing,
+        # Position among enabled items (the cursor's frame of reference).
+        'queue_index': index,
+        'is_next': index is not None and index == cursor,
+        'is_done': index is not None and cursor is not None and index < cursor,
+    }
+
+
+def _feed_picker_catalog(site_id):
+    """Everything addable to a feed on this website, grouped by category.
+
+    Shape: {'guide': [{'cat_id', 'category', 'items': [{'id','title','sub'}]}], …}
+    Categories keep their configured order and "Uncategorized" (cat_id 0, which
+    no real row uses) sorts last, so the side panel reads the same way the
+    Education tabs do. Guides and quizzes honour the per-object grants a
+    sub-admin may be under — you cannot feed out something you aren't allowed
+    to manage."""
+    empty = {'guide': [], 'quiz': [], 'resource': [], 'bundle': []}
+    if not site_id:
+        return empty
+
+    def grouped(cat_rows, item_rows, cat_of, label_of, sub_of, allowed):
+        buckets, out = {}, []
+        for c in cat_rows:
+            buckets[c.id] = []
+        loose = []
+        for it in item_rows:
+            if allowed is not None and not allowed(it):
+                continue
+            entry = {'id': it.id, 'title': label_of(it), 'sub': sub_of(it)}
+            cid = cat_of(it)
+            (buckets[cid] if cid in buckets else loose).append(entry)
+        for c in cat_rows:
+            if buckets[c.id]:
+                out.append({'cat_id': c.id, 'category': c.name, 'items': buckets[c.id]})
+        if loose:
+            out.append({'cat_id': 0, 'category': 'Uncategorized', 'items': loose})
+        return out
+
+    g_cats = GuideCategory.query.filter_by(website_id=site_id).order_by(
+        GuideCategory.sort_order, GuideCategory.name).all()
+    guides = Guide.query.filter_by(website_id=site_id).order_by(
+        Guide.sort_order, Guide.title).all()
+
+    q_cats = QuizCategory.query.filter_by(website_id=site_id).order_by(
+        QuizCategory.sort_order, QuizCategory.name).all()
+    quizzes = Quiz.query.filter_by(website_id=site_id).order_by(Quiz.title).all()
+
+    r_cats = ResourceCategory.query.filter_by(website_id=site_id).order_by(
+        ResourceCategory.sort_order, ResourceCategory.name).all()
+    resources = Resource.query.filter_by(website_id=site_id).order_by(
+        Resource.sort_order, Resource.title).all()
+
+    bundles = ResourceBundle.query.filter_by(website_id=site_id).order_by(
+        ResourceBundle.sort_order, ResourceBundle.name).all()
+    # One query for every bundle's size rather than one per bundle in the loop.
+    _sizes = dict(db.session.query(Resource.bundle_id, db.func.count(Resource.id))
+                  .filter(Resource.website_id == site_id,
+                          Resource.bundle_id.isnot(None))
+                  .group_by(Resource.bundle_id).all())
+
+    def _bundle_size_hint(b):
+        n = _sizes.get(b.id, 0)
+        return f'{n} item{"" if n == 1 else "s"}' if n else 'empty'
+
+    return {
+        'guide': grouped(
+            g_cats, guides, lambda g: g.category_id, lambda g: g.title,
+            lambda g: '' if g.status == 'published' else 'draft',
+            (lambda g: can_access_guide(g)) if current_user.is_sub_admin else None),
+        'quiz': grouped(
+            q_cats, quizzes, lambda q: q.category_id, lambda q: q.title,
+            lambda q: '' if q.is_public else 'not listed',
+            (lambda q: can_access_quiz(q)) if current_user.is_sub_admin else None),
+        'resource': grouped(
+            r_cats, resources, lambda r: r.category_id, lambda r: r.title,
+            lambda r: r.resource_type or '', None),
+        'bundle': grouped(
+            r_cats, bundles, lambda b: b.category_id, lambda b: b.name,
+            lambda b: _bundle_size_hint(b), None),
+    }
+
+
+def _feed_overview(feed):
+    """Schedule/progress summary shared by the list page and the editor."""
+    queue = _feed_queue(feed)
+    total_items = feed.items.count()
+    cursor = feed.position or 0
+    next_slot = _feed_next_slot(feed) if feed.is_active else None
+    item, pos = _feed_next_item(feed, queue)
+    next_title = ''
+    if item is not None:
+        next_title = _feed_item_target(feed, item)[0]
+    return {
+        'queue_len': len(queue),
+        'total_items': total_items,
+        'cursor': cursor,
+        'remaining': max(0, len(queue) - cursor),
+        # Out of items, but still running: it releases nothing until more are
+        # added, then picks up from the cursor. Not an ending.
+        'exhausted': item is None and len(queue) > 0,
+        'next_slot': next_slot.strftime('%a, %b %-d at %-I:%M %p') if next_slot else '',
+        'next_title': next_title,
+        'next_position': pos + 1 if item is not None else 0,
+    }
+
+
+@app.route('/admin/notifications/feeds/create', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_create():
+    if not can_create_notification_feeds():
+        return _utf8_json({'success': False,
+                           'error': 'You can only edit the feeds assigned to you.'}, 403)
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    if not name:
+        return _utf8_json({'success': False, 'error': 'Give the feed a name.'}, 400)
+    website = get_admin_website()
+    feed = NotificationFeed(
+        user_id=current_user.root_user_id,
+        website_id=website.id if website else None,
+        name=name[:200],
+        days_of_week=[],
+        send_time='09:00',
+        default_message=DEFAULT_FEED_MESSAGE,
+        is_active=False,
+    )
+    db.session.add(feed)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': feed.id})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>')
+@login_required
+@require_perm('notifications.view')
+def admin_notification_feed_editor(fid):
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        abort(404)
+    website = get_admin_website()
+    feed_site = _feed_website(feed)
+
+    all_items = feed.items.order_by(NotificationFeedItem.sort_order,
+                                    NotificationFeedItem.id).all()
+    queue_index = {}
+    n = 0
+    for it in all_items:
+        if it.is_enabled:
+            queue_index[it.id] = n
+            n += 1
+    cursor = feed.position or 0
+    items = [_feed_item_payload(feed, it, feed_site, queue_index.get(it.id), cursor)
+             for it in all_items]
+
+    # Channels this admin may pick, plus whatever the feed already points at —
+    # a restricted admin must be able to see where their feed posts even when
+    # they aren't allowed to manage that channel.
+    channels = sorted(_visible_channels_for_admin(), key=lambda c: (c.label or ''))
+    locked_channel = None
+    if feed.channel_id and not any(c.id == feed.channel_id for c in channels):
+        locked_channel = feed.channel
+    live_websites = Website.query.filter_by(
+        user_id=current_user.root_user_id, is_draft=False).order_by(Website.id).all()
+
+    # Pickable content, scoped to the site this feed points at.
+    site_id = feed_site.id if feed_site else None
+    picker_catalog = _feed_picker_catalog(site_id)
+
+    runs = (feed.runs.order_by(NotificationFeedRun.sent_at.desc())
+            .limit(25).all())
+
+    return render_template(
+        'notification_feed_editor.html',
+        feed=feed,
+        items=items,
+        overview=_feed_overview(feed),
+        channels=channels,
+        locked_channel=locked_channel,
+        live_websites=live_websites,
+        picker_catalog=picker_catalog,
+        runs=runs,
+        placeholders=FEED_MESSAGE_PLACEHOLDERS,
+        default_feed_message=DEFAULT_FEED_MESSAGE,
+        feed_timezone=str(_feed_owner_timezone(feed)),
+        website=website,
+        current_website=website,
+        current_website_pages=[],
+        page_id=None,
+    )
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/update', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_update(fid):
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+
+    if 'name' in data:
+        name = (data.get('name') or '').strip()
+        if not name:
+            return _utf8_json({'success': False, 'error': 'Name required.'}, 400)
+        feed.name = name[:200]
+    if 'description' in data:
+        feed.description = (data.get('description') or '').strip() or None
+    if 'channel_id' in data:
+        cid = int(data['channel_id']) if data.get('channel_id') else None
+        # Only validate on an actual change. An admin granted this feed but not
+        # its channel must still be able to save the schedule and items; the
+        # editor sends the whole settings block on every save, so re-checking an
+        # unchanged value would lock them out of their own feed.
+        if cid != feed.channel_id:
+            if cid is not None and not _get_channel_for_admin(cid):
+                return _utf8_json({'success': False, 'error': 'Channel not found.'}, 404)
+            feed.channel_id = cid
+    if 'website_id' in data:
+        wid = data.get('website_id')
+        if wid:
+            if int(wid) not in _admin_website_ids():
+                return _utf8_json({'success': False, 'error': 'Website not found.'}, 404)
+            feed.website_id = int(wid)
+        else:
+            feed.website_id = None
+    if 'days_of_week' in data:
+        days = []
+        for d in (data.get('days_of_week') or []):
+            try:
+                d = int(d)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= d <= 6 and d not in days:
+                days.append(d)
+        feed.days_of_week = sorted(days)
+    if 'send_time' in data:
+        hh, mm = _parse_send_time(data.get('send_time'))
+        feed.send_time = f'{hh:02d}:{mm:02d}'
+    if 'start_date' in data:
+        raw = (data.get('start_date') or '').strip()
+        if raw:
+            try:
+                feed.start_date = date.fromisoformat(raw)
+            except ValueError:
+                return _utf8_json({'success': False, 'error': 'Invalid start date.'}, 400)
+        else:
+            feed.start_date = None
+    if 'default_message' in data:
+        feed.default_message = (data.get('default_message') or '').strip() or None
+    if 'prepend_text' in data:
+        feed.prepend_text = (data.get('prepend_text') or '').strip()[:500] or None
+    if 'loop_when_finished' in data:
+        feed.loop_when_finished = bool(data.get('loop_when_finished'))
+    if 'is_active' in data:
+        want_active = bool(data.get('is_active'))
+        if want_active:
+            if not feed.channel_id:
+                return _utf8_json({'success': False,
+                                   'error': 'Pick a channel before starting the feed.'}, 400)
+            if not _feed_days(feed):
+                return _utf8_json({'success': False,
+                                   'error': 'Pick at least one day of the week.'}, 400)
+            if not _feed_queue(feed):
+                return _utf8_json({'success': False,
+                                   'error': 'Add at least one item to the feed.'}, 400)
+            # An exhausted feed is NOT rewound here. It stays where the cursor
+            # sits and resumes as soon as more items are added — rewinding
+            # silently would re-send everything the admin already sent out.
+            # "Rewind to top" is the explicit way to ask for that.
+        feed.is_active = want_active
+
+    db.session.commit()
+    return _utf8_json({'success': True, 'overview': _feed_overview(feed)})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/position', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_position(fid):
+    """Move the cursor — 'start at a specific point in the feed'."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    try:
+        pos = int(data.get('position'))
+    except (TypeError, ValueError):
+        return _utf8_json({'success': False, 'error': 'Invalid position.'}, 400)
+    feed.position = max(0, min(pos, len(_feed_queue(feed))))
+    db.session.commit()
+    return _utf8_json({'success': True, 'overview': _feed_overview(feed)})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/reset', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_reset(fid):
+    """Rewind to the top so the same feed can be run again next year. Optionally
+    clears the send history too (`clear_history`)."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    feed.position = 0
+    if data.get('clear_history'):
+        feed.runs.delete(synchronize_session=False)
+        for it in feed.items.all():
+            it.sent_count = 0
+            it.last_sent_at = None
+        feed.last_sent_at = None
+    db.session.commit()
+    return _utf8_json({'success': True, 'overview': _feed_overview(feed)})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/duplicate', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_duplicate(fid):
+    """Copy a feed and its items with a fresh cursor and no history — the
+    "run last year's schedule again" path that keeps the original intact."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    copy = NotificationFeed(
+        user_id=feed.user_id, website_id=feed.website_id, channel_id=feed.channel_id,
+        name=f'{feed.name} (copy)'[:200], description=feed.description,
+        days_of_week=list(feed.days_of_week or []), send_time=feed.send_time,
+        start_date=None, is_active=False,
+        loop_when_finished=feed.loop_when_finished, position=0,
+        default_message=feed.default_message, prepend_text=feed.prepend_text,
+    )
+    db.session.add(copy)
+    db.session.flush()
+    for it in feed.items.order_by(NotificationFeedItem.sort_order,
+                                  NotificationFeedItem.id).all():
+        db.session.add(NotificationFeedItem(
+            feed_id=copy.id, sort_order=it.sort_order, item_type=it.item_type,
+            ref_id=it.ref_id, url=it.url, title=it.title, message=it.message,
+            is_enabled=it.is_enabled,
+        ))
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': copy.id})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/delete', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_delete(fid):
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    db.session.delete(feed)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/preview', methods=['GET'])
+@login_required
+@require_perm('notifications.view')
+def admin_notification_feed_preview(fid):
+    """Render the next item's message exactly as it would go out."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    queue = _feed_queue(feed)
+    item, pos = _feed_next_item(feed, queue)
+    if item is None:
+        return _utf8_json({'success': False,
+                           'error': 'Nothing queued — add more items and the feed '
+                                    'picks up from here on its next slot.'}, 400)
+    slot = _feed_next_slot(feed) or datetime.now(_feed_owner_timezone(feed))
+    embed, target, video_urls = _feed_build_embed(feed, item, pos, len(queue), slot)
+    channel = feed.channel
+    # Ask the real payload builder what shape this release takes, rather than
+    # re-deriving it here and risking the preview drifting from the send.
+    payloads = (_feed_payload_for(feed, channel, item, pos, len(queue), slot)[0]
+                if channel else [])
+    sent_plain = bool(payloads) and not payloads[0]['embeds']
+    follow_ups = max(0, len(payloads) - 1)
+    return _utf8_json({
+        'success': True,
+        'title': embed.get('title', ''),
+        'body': embed.get('description', ''),
+        'link': embed.get('url', '') or target[1],
+        'footer': embed.get('footer', {}).get('text', ''),
+        'prepend': feed.prepend_text or '',
+        # Either slot — the preview shows whichever one the release will use,
+        # and `image_is_link` says whether it doubles as a way into the page.
+        'image': (embed.get('thumbnail') or embed.get('image') or {}).get('url', ''),
+        'image_is_link': bool(embed.get('thumbnail')),
+        'video': '\n'.join(video_urls),
+        'video_count': len(video_urls),
+        # Bare links are sent as a plain message so Discord builds the preview
+        # itself; show that, not an embed that won't be used. Videos get the
+        # card AND a follow-up message carrying just the URL.
+        'plain': sent_plain,
+        'follow_ups': follow_ups,
+        'unfurl': ('\n'.join(video_urls)
+                   or (target[1] if item.item_type == 'link' else '')),
+        'when': slot.strftime('%A, %b %-d at %-I:%M %p'),
+    })
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/send-now', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_send_now(fid):
+    """Release the next item immediately and advance the cursor. Uses a manual
+    slot key so it can never collide with (or consume) a scheduled slot."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    slot_key = 'manual:' + datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')
+    ok, message = _feed_release(feed, slot_key,
+                                slot_local=datetime.now(_feed_owner_timezone(feed)))
+    if not ok:
+        return _utf8_json({'success': False, 'error': message}, 400)
+    return _utf8_json({'success': True, 'message': message,
+                       'overview': _feed_overview(feed)})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/items/create', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_item_create(fid):
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    item_type = (data.get('item_type') or 'message').strip()
+    if item_type not in FEED_ITEM_TYPES:
+        return _utf8_json({'success': False, 'error': 'Unknown item type.'}, 400)
+
+    ref_id, url = None, None
+    if item_type in ('guide', 'quiz', 'resource', 'bundle'):
+        try:
+            ref_id = int(data.get('ref_id'))
+        except (TypeError, ValueError):
+            return _utf8_json({'success': False,
+                               'error': f'Pick a {item_type} to add.'}, 400)
+        model = {'guide': Guide, 'quiz': Quiz, 'resource': Resource,
+                 'bundle': ResourceBundle}[item_type]
+        row = db.session.get(model, ref_id)
+        if not row or row.website_id not in _admin_website_ids():
+            return _utf8_json({'success': False, 'error': 'That item was not found.'}, 404)
+        # A sub-admin restricted to certain guides/quizzes can't smuggle one
+        # they don't manage into a feed.
+        if item_type == 'guide' and not can_access_guide(row):
+            return _utf8_json({'success': False,
+                               'error': "You don't have access to that guide."}, 403)
+        if item_type == 'quiz' and not can_access_quiz(row):
+            return _utf8_json({'success': False,
+                               'error': "You don't have access to that quiz."}, 403)
+    elif item_type == 'link':
+        url = (data.get('url') or '').strip()
+        if not url:
+            return _utf8_json({'success': False, 'error': 'Paste a link.'}, 400)
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        url = url[:1000]
+    else:  # message
+        if not (data.get('title') or '').strip() and not (data.get('message') or '').strip():
+            return _utf8_json({'success': False,
+                               'error': 'Add a title or a message.'}, 400)
+
+    last = (feed.items.order_by(NotificationFeedItem.sort_order.desc()).first())
+    item = NotificationFeedItem(
+        feed_id=feed.id,
+        sort_order=(last.sort_order + 1) if last else 0,
+        item_type=item_type, ref_id=ref_id, url=url,
+        title=(data.get('title') or '').strip()[:300] or None,
+        message=(data.get('message') or '').strip() or None,
+        is_enabled=True,
+    )
+    db.session.add(item)
+    db.session.commit()
+    return _utf8_json({'success': True, 'id': item.id})
+
+
+@app.route('/admin/notifications/feed-items/<int:iid>/update', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_item_update(iid):
+    item = _get_feed_item_for_admin(iid)
+    if not item:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    data = request.get_json() or {}
+    if 'title' in data:
+        item.title = (data.get('title') or '').strip()[:300] or None
+    if 'message' in data:
+        item.message = (data.get('message') or '').strip() or None
+    if 'url' in data and item.item_type == 'link':
+        url = (data.get('url') or '').strip()
+        if url and not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        item.url = url[:1000] or None
+    if 'is_enabled' in data:
+        item.is_enabled = bool(data.get('is_enabled'))
+        db.session.flush()
+        _feed_clamp_cursor(db.session.get(NotificationFeed, item.feed_id))
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/feed-items/<int:iid>/delete', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_item_delete(iid):
+    item = _get_feed_item_for_admin(iid)
+    if not item:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    feed = db.session.get(NotificationFeed, item.feed_id)
+    db.session.delete(item)
+    db.session.flush()
+    _feed_clamp_cursor(feed)
+    db.session.commit()
+    return _utf8_json({'success': True})
+
+
+@app.route('/admin/notifications/feeds/<int:fid>/items/reorder', methods=['POST'])
+@login_required
+@require_perm('notifications.manage')
+def admin_notification_feed_items_reorder(fid):
+    """Persist a drag-sort. The cursor is kept pointing at the same *item* it
+    pointed at before, so re-sorting a running feed doesn't accidentally re-send
+    something or skip ahead."""
+    feed = _get_feed_for_admin(fid)
+    if not feed:
+        return _utf8_json({'success': False, 'error': 'Not found'}, 404)
+    order = (request.get_json() or {}).get('order') or []
+    owned = {it.id: it for it in feed.items.all()}
+
+    before = _feed_queue(feed)
+    cursor_item_id = None
+    if before and 0 <= (feed.position or 0) < len(before):
+        cursor_item_id = before[feed.position].id
+
+    n = 0
+    for raw_id in order:
+        try:
+            it = owned.get(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+        if it is None:
+            continue
+        it.sort_order = n
+        n += 1
+    db.session.flush()
+
+    if cursor_item_id is not None:
+        after = _feed_queue(feed)
+        for idx, it in enumerate(after):
+            if it.id == cursor_item_id:
+                feed.position = idx
+                break
+    db.session.commit()
+    return _utf8_json({'success': True, 'overview': _feed_overview(feed)})
 
 
 # ════════════════════════════════════════════════════════════════════════════

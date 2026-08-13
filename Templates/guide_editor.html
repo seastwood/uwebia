@@ -149,7 +149,7 @@
 
 <div class="ge-page">
     <div class="ge-subnav">
-        <a href="{{ url_for('admin_guides_page') }}" class="ge-back"><i class="fas fa-arrow-left"></i> Guides</a>
+        <a href="{{ url_for('admin_education_page', tab='guides') }}" class="ge-back"><i class="fas fa-arrow-left"></i> Guides</a>
         <h1 class="ge-title">{{ guide.title }}</h1>
         <a class="ge-view-link" href="{{ url_for('public_guide_view', guide_slug=guide.slug) }}" target="_blank">
             <i class="fas fa-external-link-alt"></i> View public page

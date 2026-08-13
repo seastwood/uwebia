@@ -1032,6 +1032,33 @@
     </div>
     {% endif %}
 
+    <!-- Public address (org-wide; needs settings.edit) -->
+    {% if can_edit_settings %}
+    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+        <h2 class="settings-section-title">Public address</h2>
+        <p class="settings-subtitle" style="margin-bottom:16px;">
+            Org-wide — the address visitors use to reach this site. Anything that has to link to your site
+            from <strong>outside</strong> it uses this: Discord notification links, and the link previews
+            other apps build when someone shares a page.
+        </p>
+
+        <div class="settings-field">
+            <label for="publicBaseUrl">Site URL</label>
+            <input type="url" id="publicBaseUrl" maxlength="300" placeholder="https://yourteam.example.org"
+                   value="{{ public_base_url_raw }}">
+            <p class="settings-help">
+                Leave blank to use whatever address the browser connected on. That guesses wrong behind a
+                reverse proxy, and produces links like <code>http://0.0.0.0:5772/…</code> — the address the
+                server listens on, which nobody can actually open — when you browse the bind address.
+                {% if detected_host %}<br>This request arrived on <code>{{ detected_host }}</code>.{% endif %}
+            </p>
+        </div>
+
+        <button type="button" class="settings-button" onclick="savePublicBaseUrl()">Save Public Address</button>
+        <div id="publicBaseUrlStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
+    </div>
+    {% endif %}
+
     <!-- Admin Branding (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
     <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
@@ -1081,6 +1108,27 @@
         s.textContent = msg;
         s.style.color = (ok === undefined) ? 'rgba(255,255,255,0.6)' : (ok ? '#5eeec8' : '#f88');
     }
+    function _pbStatus(msg, ok) {
+        const el = document.getElementById('publicBaseUrlStatus');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.color = ok === true ? '#8af5b0' : ok === false ? '#ff8a8a' : 'rgba(255,255,255,0.6)';
+    }
+    function savePublicBaseUrl() {
+        const form = new FormData();
+        form.append('public_base_url', document.getElementById('publicBaseUrl').value);
+        _pbStatus('Saving…');
+        fetch('/admin/settings/public-base-url', { method: 'POST', body: form })
+            .then(r => r.json()).then(d => {
+                if (d.success) {
+                    document.getElementById('publicBaseUrl').value = d.public_base_url || '';
+                    _pbStatus(d.public_base_url
+                        ? 'Saved. Links will use ' + d.public_base_url
+                        : 'Cleared — links fall back to the browser address.', true);
+                } else { _pbStatus('Error: ' + (d.error || 'Could not save.'), false); }
+            }).catch(() => _pbStatus('Network error.', false));
+    }
+
     function saveAdminBrand() {
         const form = new FormData();
         form.append('admin_brand_name', document.getElementById('adminBrandName').value);

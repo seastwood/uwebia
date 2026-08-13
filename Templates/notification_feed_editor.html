@@ -1,0 +1,828 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+
+<style>
+.fd-page { max-width: 1040px; margin: 30px auto 70px; padding: 0 20px; color: #fff; }
+.fd-back { display: inline-flex; align-items: center; gap: 7px; font-size: 0.84rem; color: rgba(255,255,255,0.5); text-decoration: none; margin-bottom: 12px; }
+.fd-back:hover { color: rgba(255,255,255,0.85); }
+
+.fd-head { display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+.fd-title-input { font-size: 1.7rem; font-weight: 800; background: transparent; border: none; border-bottom: 1px dashed rgba(255,255,255,0.15); color: #fff; padding: 2px 2px 5px; font-family: inherit; min-width: 260px; flex: 1; }
+.fd-title-input:focus { outline: none; border-bottom-color: #5eeec8; }
+.fd-status { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.fd-pill { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 4px 10px; border-radius: 999px; }
+.fd-pill-on { background: rgba(94,238,200,0.15); color: #8af5b0; }
+.fd-pill-off { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+.fd-pill-done { background: rgba(255,217,130,0.14); color: #ffd982; }
+
+.fd-grid { display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; align-items: start; }
+@media (max-width: 900px) { .fd-grid { grid-template-columns: 1fr; } }
+
+.fd-card { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.09); border-radius: 14px; padding: 18px; margin-bottom: 16px; }
+.fd-card h2 { margin: 0 0 4px; font-size: 1rem; }
+.fd-card-sub { font-size: 0.8rem; color: rgba(255,255,255,0.45); margin: 0 0 14px; line-height: 1.5; }
+.fd-card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fd-count { margin-left: auto; font-size: 0.73rem; font-weight: 700; letter-spacing: 0.03em;
+            padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+            background: rgba(94,238,200,0.13); color: #8af5b0; }
+
+/* Long lists scroll inside their card instead of pushing the page down. The
+   cap is in vh so a tall screen shows more, with a px floor so a short one
+   still shows a few rows. Scroll-padding keeps a dragged row clear of the
+   fading edges. */
+.fd-scroll { max-height: clamp(240px, 46vh, 620px); overflow-y: auto; overscroll-behavior: contain;
+             scroll-padding: 8px 0; padding-right: 4px; margin-right: -4px; }
+.fd-scroll::-webkit-scrollbar { width: 8px; }
+.fd-scroll::-webkit-scrollbar-track { background: transparent; }
+.fd-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 999px; }
+.fd-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.24); }
+
+.fd-field { margin-bottom: 12px; }
+.fd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 560px) { .fd-row { grid-template-columns: 1fr; } }
+.fd-label { display: block; font-size: 0.78rem; color: rgba(255,255,255,0.55); margin-bottom: 5px; font-weight: 600; }
+.fd-input, .fd-select, .fd-textarea {
+    width: 100%; padding: 9px 12px; border-radius: 8px;
+    background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.13);
+    color: #fff; box-sizing: border-box; font-size: 0.9rem; font-family: inherit;
+}
+.fd-textarea { min-height: 66px; resize: vertical; line-height: 1.5; }
+.fd-check { display: flex; align-items: center; gap: 8px; font-size: 0.87rem; margin-top: 4px; }
+
+.fd-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.fd-day { padding: 7px 0; width: 46px; text-align: center; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+          background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.6); cursor: pointer; }
+.fd-day.on { background: rgba(94,238,200,0.16); border-color: rgba(94,238,200,0.45); color: #8af5b0; }
+
+.fd-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;
+          font-size: 0.86rem; font-weight: 600; border: none; cursor: pointer; text-decoration: none; }
+.fd-btn-primary { background: linear-gradient(135deg,#5eeef8,#5eeec8); color: #111; }
+.fd-btn-primary:hover { opacity: 0.88; }
+.fd-btn-secondary { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.78); border: 1px solid rgba(255,255,255,0.12); }
+.fd-btn-secondary:hover { background: rgba(255,255,255,0.14); }
+.fd-btn-danger { background: rgba(255,80,80,0.12); color: #ff8a8a; border: 1px solid rgba(255,80,80,0.25); }
+.fd-btn-danger:hover { background: rgba(255,80,80,0.22); }
+.fd-btn-sm { padding: 5px 9px; font-size: 0.78rem; }
+.fd-toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fd-msg { font-size: 0.84rem; min-height: 18px; }
+
+.fd-ph { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.fd-ph code { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 5px;
+              padding: 2px 6px; font-size: 0.74rem; color: #9fe8ff; cursor: pointer; }
+.fd-ph code:hover { background: rgba(94,238,248,0.16); }
+
+/* Items. The title/meta block spans the full width and the buttons sit on
+   their own row underneath — putting them side by side squeezed long titles
+   into a narrow column beside the buttons. */
+.fd-item { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+           border-radius: 10px; padding: 11px 13px; margin-bottom: 8px; }
+.fd-item-top { display: flex; align-items: flex-start; gap: 11px; }
+.fd-item.is-next { border-color: rgba(94,238,200,0.45); background: rgba(94,238,200,0.06); }
+.fd-item.is-done { opacity: 0.5; }
+.fd-item.is-off { opacity: 0.4; }
+.fd-grip { cursor: grab; color: rgba(255,255,255,0.3); padding-top: 2px; }
+.fd-grip:active { cursor: grabbing; }
+.fd-item-body { flex: 1; min-width: 0; }
+.fd-item-title { font-weight: 650; font-size: 0.92rem; word-break: break-word; }
+.fd-item-meta { font-size: 0.75rem; color: rgba(255,255,255,0.45); margin-top: 3px; word-break: break-all; }
+.fd-kind { font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+           padding: 2px 7px; border-radius: 999px; background: rgba(199,154,255,0.15); color: #c79aff; margin-right: 6px; }
+.fd-item-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 10px; padding-left: 27px; }
+.fd-sortable-ghost { opacity: 0.35; }
+
+/* Catalog drawer — pick guides/quizzes/resources without leaving the editor.
+   The admin navbar is fixed at 52px tall with z-index 100000, so anything
+   starting at top:0 has its header hidden underneath it. Start below the bar
+   instead of out-stacking it, matching the asset library and page editor. */
+.fd-drawer-scrim { position: fixed; inset: 52px 0 0 0; background: rgba(0,0,0,0.5); z-index: 9998; display: none; }
+.fd-drawer-scrim.open { display: block; }
+.fd-drawer { position: fixed; top: 52px; right: 0; bottom: 0; width: min(420px, 100%); z-index: 9999;
+             background: #16161d; border-left: 1px solid rgba(255,255,255,0.1);
+             transform: translateX(100%); transition: transform 0.18s ease;
+             display: flex; flex-direction: column; }
+.fd-drawer.open { transform: translateX(0); }
+.fd-drawer-head { padding: 14px 16px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.fd-drawer-title { font-weight: 700; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.fd-drawer-body { flex: 1; overflow-y: auto; padding: 12px 16px 24px; }
+.fd-seg { display: flex; gap: 4px; margin: 12px 0 10px; background: rgba(255,255,255,0.05);
+          border-radius: 9px; padding: 3px; }
+.fd-seg button { flex: 1; appearance: none; border: none; background: none; color: rgba(255,255,255,0.55);
+                 font-family: inherit; font-size: 0.78rem; font-weight: 600; padding: 7px 2px;
+                 border-radius: 7px; cursor: pointer; white-space: nowrap; }
+.fd-seg button.on { background: rgba(94,238,200,0.16); color: #8af5b0; }
+.fd-drawer-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.fd-drawer-filters .fd-select { padding: 7px 9px; font-size: 0.8rem; }
+.fd-drawer-count { font-size: 0.73rem; color: rgba(255,255,255,0.35); margin-top: 8px; min-height: 14px; }
+.fd-cat { font-size: 0.71rem; text-transform: uppercase; letter-spacing: 0.06em;
+          color: rgba(255,255,255,0.35); margin: 14px 0 6px; font-weight: 700; }
+.fd-pick { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+           background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
+           border-radius: 9px; padding: 9px 11px; margin-bottom: 5px; cursor: pointer;
+           color: inherit; font-family: inherit; }
+.fd-pick:hover { background: rgba(94,238,200,0.09); border-color: rgba(94,238,200,0.3); }
+.fd-pick-title { font-size: 0.85rem; flex: 1; min-width: 0; }
+.fd-pick-sub { font-size: 0.7rem; color: rgba(255,255,255,0.35); flex-shrink: 0; }
+.fd-pick-added { font-size: 0.68rem; color: #8af5b0; flex-shrink: 0; }
+.fd-drawer-empty { color: rgba(255,255,255,0.35); font-size: 0.85rem; padding: 20px 4px; text-align: center; }
+
+.fd-empty { padding: 26px 14px; text-align: center; color: rgba(255,255,255,0.42); font-size: 0.88rem; }
+.fd-runs { font-size: 0.82rem; color: rgba(255,255,255,0.55); }
+.fd-runs div { padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.fd-runs div:last-child { border-bottom: none; }
+
+/* Same navbar clearance as the drawer: centring inside the full viewport put
+   the top of a tall modal behind the fixed bar on short screens. */
+.fd-overlay { display: none; position: fixed; inset: 52px 0 0 0; background: rgba(0,0,0,0.65); z-index: 9999; align-items: center; justify-content: center; padding: 18px; }
+.fd-overlay.open { display: flex; }
+.fd-modal { background: #181820; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; width: min(560px, 100%); max-height: calc(100vh - 88px); overflow: auto; }
+.fd-modal-head { padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.07); display: flex; justify-content: space-between; align-items: center; }
+.fd-modal-body { padding: 16px 18px; }
+.fd-modal-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,0.07); display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+.fd-close { background: none; border: none; color: rgba(255,255,255,0.5); font-size: 1.4rem; cursor: pointer; }
+.fd-preview { background: rgba(0,0,0,0.3); border-left: 3px solid #8af5b0; border-radius: 6px; padding: 12px 14px; white-space: pre-wrap; font-size: 0.88rem; line-height: 1.55; }
+</style>
+
+<div class="fd-page">
+    <a class="fd-back" href="/admin/notifications"><i class="fas fa-arrow-left"></i> Notifications</a>
+
+    <div class="fd-head">
+        <input class="fd-title-input" id="feedName" value="{{ feed.name }}" onchange="saveSettings()">
+        <div class="fd-status">
+            <span class="fd-pill {% if overview.exhausted and feed.is_active %}fd-pill-done{% elif feed.is_active %}fd-pill-on{% else %}fd-pill-off{% endif %}" id="statusPill">
+                {% if overview.exhausted and feed.is_active %}Out of items{% elif feed.is_active %}Running{% else %}Paused{% endif %}
+            </span>
+            <button class="fd-btn {% if feed.is_active %}fd-btn-secondary{% else %}fd-btn-primary{% endif %}" id="activeBtn" onclick="toggleActive()">
+                {% if feed.is_active %}<i class="fas fa-pause"></i> Pause{% else %}<i class="fas fa-play"></i> Start{% endif %}
+            </button>
+        </div>
+    </div>
+    <p class="fd-card-sub" id="nextLine">
+        {% if feed.is_active and overview.exhausted %}
+            Everything in the hopper has gone out. The feed is still running — add more items and it
+            carries on from here at the next slot{% if overview.next_slot %} ({{ overview.next_slot }}){% endif %},
+            or turn on auto-restart to run the whole thing again.
+        {% elif feed.is_active and overview.next_slot %}
+            Next release {{ overview.next_slot }} ({{ feed_timezone }}) — “{{ overview.next_title }}”, item {{ overview.next_position }} of {{ overview.queue_len }}.
+        {% else %}
+            Paused — nothing will be released until you start the feed.
+        {% endif %}
+    </p>
+
+    <div class="fd-grid">
+        <div>
+            <!-- Items -->
+            <div class="fd-card">
+                <div class="fd-card-head">
+                    <h2>The hopper</h2>
+                    {% if overview.queue_len %}
+                    <span class="fd-count" title="Where the marker sits in the running order">
+                        {% if overview.exhausted %}
+                            all {{ overview.queue_len }} sent
+                        {% else %}
+                            on {{ overview.next_position }} of {{ overview.queue_len }}
+                        {% endif %}
+                    </span>
+                    {% endif %}
+                </div>
+                <p class="fd-card-sub">
+                    Drag to re-sort. The highlighted item goes out next; use <em>Start here</em> to move the marker
+                    anywhere in the list.
+                </p>
+                <div id="itemList" class="fd-scroll">
+                    {% for it in items %}
+                    <div class="fd-item{% if it.is_next %} is-next{% elif it.is_done %} is-done{% endif %}{% if not it.is_enabled %} is-off{% endif %}"
+                         data-id="{{ it.id }}" id="fdItem-{{ it.id }}">
+                        <div class="fd-item-top">
+                            <div class="fd-grip"><i class="fas fa-grip-vertical"></i></div>
+                            <div class="fd-item-body">
+                                <div class="fd-item-title">
+                                    <span class="fd-kind">{{ it.kind }}</span>{{ it.title }}
+                                    {% if it.missing %}<span style="color:#ff8a8a;font-size:0.75rem;"> · source deleted</span>{% endif %}
+                                    {% if it.is_next %}<span style="color:#8af5b0;font-size:0.74rem;font-weight:600;"> · up next</span>{% endif %}
+                                </div>
+                                <div class="fd-item-meta">
+                                    {% if it.link %}{{ it.link }}{% endif %}
+                                    {% if it.message %}{% if it.link %} · {% endif %}custom message{% endif %}
+                                    {% if not it.is_enabled %} · skipped{% endif %}
+                                    {% if it.sent_count %} · sent {{ it.sent_count }}× (last {{ it.last_sent_at }}){% endif %}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="fd-item-actions">
+                            {% if it.queue_index is not none and not it.is_next %}
+                            <button class="fd-btn fd-btn-secondary fd-btn-sm" onclick="startHere({{ it.queue_index }})" title="Send this one next">Start here</button>
+                            {% endif %}
+                            <button class="fd-btn fd-btn-secondary fd-btn-sm" onclick="toggleItem({{ it.id }}, {{ (not it.is_enabled) | tojson }})" title="{{ 'Include' if not it.is_enabled else 'Skip' }}">
+                                <i class="fas {{ 'fa-eye-slash' if it.is_enabled else 'fa-eye' }}"></i>
+                                {{ 'Skip' if it.is_enabled else 'Include' }}
+                            </button>
+                            <button class="fd-btn fd-btn-secondary fd-btn-sm" onclick="editItem({{ it.id }})"><i class="fas fa-pen"></i> Edit</button>
+                            <button class="fd-btn fd-btn-danger fd-btn-sm" onclick="deleteItem({{ it.id }})"><i class="fas fa-trash"></i></button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% if not items %}
+                <div class="fd-empty" id="itemsEmpty">Nothing in the hopper yet — add the first item below.</div>
+                {% endif %}
+                <div class="fd-toolbar" style="margin-top:12px;">
+                    <button class="fd-btn fd-btn-primary" onclick="openDrawer()"><i class="fas fa-plus"></i> Add from library</button>
+                    <button class="fd-btn fd-btn-secondary" onclick="openItemModal('link')"><i class="fas fa-link"></i> Add a link</button>
+                    <button class="fd-btn fd-btn-secondary" onclick="openItemModal('message')"><i class="fas fa-comment"></i> Add a message</button>
+                    <span class="fd-msg" id="itemsMsg"></span>
+                </div>
+            </div>
+
+            <!-- History -->
+            <div class="fd-card">
+                <div class="fd-card-head">
+                    <h2>Recent releases</h2>
+                    {% if runs %}<span class="fd-count">{{ runs | length }} shown</span>{% endif %}
+                </div>
+                <p class="fd-card-sub">The last 25 slots this feed fired.</p>
+                {% if runs %}
+                <div class="fd-runs fd-scroll">
+                    {% for r in runs %}
+                    <div>
+                        {% if r.status == 'empty' %}<i class="fas fa-minus" style="color:rgba(255,255,255,0.35);"></i>
+                        {% elif r.success %}<i class="fas fa-check" style="color:#8af5b0;"></i>
+                        {% else %}<i class="fas fa-xmark" style="color:#ff8a8a;"></i>{% endif %}
+                        <strong style="color:rgba(255,255,255,0.8);">
+                            {% if r.status == 'empty' %}Nothing queued{% else %}{{ r.item_title or '(item removed)' }}{% endif %}
+                        </strong>
+                        · {{ r.sent_at.strftime('%b %-d, %Y %-I:%M %p') if r.sent_at else '' }} UTC
+                        {% if r.slot_key.startswith('manual:') %} · sent by hand{% endif %}
+                        {% if r.error %}<div style="color:#ff8a8a;font-size:0.78rem;">{{ r.error }}</div>{% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="fd-empty">Nothing sent yet.</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div>
+            <!-- Schedule -->
+            <div class="fd-card">
+                <h2>Schedule</h2>
+                <p class="fd-card-sub">Times are in your timezone ({{ feed_timezone }}).</p>
+
+                <div class="fd-field">
+                    <label class="fd-label">Days of the week</label>
+                    <div class="fd-days" id="dayPicker">
+                        {% for label in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}
+                        <div class="fd-day{% if loop.index0 in (feed.days_of_week or []) %} on{% endif %}" data-day="{{ loop.index0 }}" onclick="toggleDay(this)">{{ label }}</div>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="fd-row">
+                    <div class="fd-field">
+                        <label class="fd-label">Time</label>
+                        <input type="time" class="fd-input" id="sendTime" value="{{ feed.send_time }}" onchange="saveSettings()">
+                    </div>
+                    <div class="fd-field">
+                        <label class="fd-label">Don't start before <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                        <input type="date" class="fd-input" id="startDate" value="{{ feed.start_date.isoformat() if feed.start_date else '' }}" onchange="saveSettings()">
+                    </div>
+                </div>
+                <label class="fd-check">
+                    <input type="checkbox" id="loopFeed" {% if feed.loop_when_finished %}checked{% endif %} onchange="saveSettings()">
+                    Auto-restart from the beginning when the feed runs out
+                </label>
+                <p class="fd-card-sub" style="margin:6px 0 0;">
+                    Off: running out just pauses the releases — the feed stays on and continues from
+                    where it stopped as soon as you add more items.
+                </p>
+            </div>
+
+            <!-- Destination -->
+            <div class="fd-card">
+                <h2>Destination</h2>
+                <p class="fd-card-sub">Where each item is posted, and which site its links point at.</p>
+                <div class="fd-field">
+                    <label class="fd-label">Channel</label>
+                    <select class="fd-select" id="channelId" onchange="saveSettings()">
+                        <option value="">— pick a channel —</option>
+                        {% if locked_channel %}
+                        {# The feed posts here but this admin isn't granted the channel. Show it
+                           so they can see where it goes; picking anything else is one-way. #}
+                        <option value="{{ locked_channel.id }}" selected>{{ locked_channel.label }} (not yours to manage)</option>
+                        {% endif %}
+                        {% for c in channels %}
+                        <option value="{{ c.id }}" {% if feed.channel_id == c.id %}selected{% endif %}>{{ c.label }}{% if not c.is_active %} (disabled){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="fd-field">
+                    <label class="fd-label">Website</label>
+                    <select class="fd-select" id="websiteId" onchange="reloadAfterSave()">
+                        <option value="">Primary website</option>
+                        {% for w in live_websites %}
+                        <option value="{{ w.id }}" {% if feed.website_id == w.id %}selected{% endif %}>{{ w.name }}{% if w.url_prefix %} (/{{ w.url_prefix }}){% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="fd-field">
+                    <label class="fd-label">Prepend text <span style="opacity:0.6;font-weight:400;">(optional — role pings)</span></label>
+                    <textarea class="fd-textarea" id="prependText" placeholder="<@&123456789012345678>" onchange="saveSettings()">{{ feed.prepend_text or '' }}</textarea>
+                </div>
+            </div>
+
+            <!-- Message -->
+            <div class="fd-card">
+                <h2>Default message</h2>
+                <p class="fd-card-sub">Used for every item that doesn't have a message of its own.</p>
+                <textarea class="fd-textarea" id="defaultMessage" style="min-height:88px;" onchange="saveSettings()">{{ feed.default_message or default_feed_message }}</textarea>
+                <div class="fd-ph">
+                    {% for token, hint in placeholders %}
+                    <code title="{{ hint }}" onclick="insertToken('defaultMessage', '{{ token }}')">{{ token }}</code>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="fd-card">
+                <h2>Actions</h2>
+                <p class="fd-card-sub">Manual controls — none of these change the schedule.</p>
+                <div class="fd-toolbar">
+                    <button class="fd-btn fd-btn-secondary" onclick="previewNext()"><i class="fas fa-eye"></i> Preview next</button>
+                    <button class="fd-btn fd-btn-secondary" onclick="sendNow()"><i class="fas fa-paper-plane"></i> Send next now</button>
+                    <button class="fd-btn fd-btn-secondary" onclick="rewind()"><i class="fas fa-rotate-left"></i> Rewind to top</button>
+                    <button class="fd-btn fd-btn-secondary" onclick="duplicateFeed()"><i class="fas fa-copy"></i> Duplicate</button>
+                    <button class="fd-btn fd-btn-danger" onclick="deleteFeed()"><i class="fas fa-trash"></i> Delete feed</button>
+                </div>
+                <p class="fd-msg" id="actionMsg" style="margin-top:10px;"></p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Catalog drawer: everything on this website, grouped by category, searchable -->
+<div class="fd-drawer-scrim" id="drawerScrim" onclick="closeDrawer()"></div>
+<aside class="fd-drawer" id="catalogDrawer" aria-label="Add to feed">
+    <div class="fd-drawer-head">
+        <div class="fd-drawer-title">
+            Add to feed
+            <button class="fd-close" onclick="closeDrawer()">&times;</button>
+        </div>
+        <input class="fd-input" id="drawerSearch" type="search" placeholder="Search by name…"
+               oninput="renderCatalog()" style="margin-top:10px;">
+        <div class="fd-seg" id="drawerSeg">
+            <button class="on" data-kind="guide" onclick="setDrawerKind('guide')">Guides</button>
+            <button data-kind="quiz" onclick="setDrawerKind('quiz')">Quizzes</button>
+            <button data-kind="resource" onclick="setDrawerKind('resource')">Resources</button>
+            <button data-kind="bundle" onclick="setDrawerKind('bundle')">Bundles</button>
+        </div>
+        <div class="fd-drawer-filters">
+            <select class="fd-select" id="drawerCat" onchange="renderCatalog()" aria-label="Filter by category"></select>
+            <select class="fd-select" id="drawerInFeed" onchange="renderCatalog()" aria-label="Filter by what is already in the feed">
+                <option value="all">Everything</option>
+                <option value="out">Not in the feed</option>
+                <option value="in">Already in the feed</option>
+            </select>
+        </div>
+        <div class="fd-drawer-count" id="drawerCount"></div>
+    </div>
+    <div class="fd-drawer-body" id="drawerBody"></div>
+</aside>
+
+<!-- Item modal — links, messages, and editing anything already in the feed -->
+<div class="fd-overlay" id="itemOverlay" onclick="if(event.target===this)closeItemModal()">
+    <div class="fd-modal">
+        <div class="fd-modal-head">
+            <div style="font-weight:700;" id="itemModalTitle">Add item</div>
+            <button class="fd-close" onclick="closeItemModal()">&times;</button>
+        </div>
+        <div class="fd-modal-body">
+            <input type="hidden" id="itemId">
+            <input type="hidden" id="itemType">
+            <input type="hidden" id="itemRefId">
+            <div class="fd-field" id="itemUrlWrap" style="display:none;">
+                <label class="fd-label">Link</label>
+                <input class="fd-input" id="itemUrl" placeholder="https://youtube.com/watch?v=…">
+            </div>
+
+            <div class="fd-field">
+                <label class="fd-label">Title <span style="opacity:0.6;font-weight:400;" id="titleHint">(optional — defaults to the item's own title)</span></label>
+                <input class="fd-input" id="itemTitle" placeholder="Week 3: Safety basics">
+            </div>
+            <div class="fd-field">
+                <label class="fd-label">Message for this item <span style="opacity:0.6;font-weight:400;">(optional — falls back to the feed's default)</span></label>
+                <textarea class="fd-textarea" id="itemMessage" placeholder="Leave blank to use the feed's default message."></textarea>
+                <div class="fd-ph">
+                    {% for token, hint in placeholders %}
+                    <code title="{{ hint }}" onclick="insertToken('itemMessage', '{{ token }}')">{{ token }}</code>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        <div class="fd-modal-foot">
+            <span class="fd-msg" id="itemMsg" style="margin-right:auto;"></span>
+            <button class="fd-btn fd-btn-secondary" onclick="closeItemModal()">Cancel</button>
+            <button class="fd-btn fd-btn-primary" onclick="submitItem()">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Preview modal -->
+<div class="fd-overlay" id="previewOverlay" onclick="if(event.target===this)closePreview()">
+    <div class="fd-modal">
+        <div class="fd-modal-head">
+            <div style="font-weight:700;">Next release</div>
+            <button class="fd-close" onclick="closePreview()">&times;</button>
+        </div>
+        <div class="fd-modal-body" id="previewBody"></div>
+        <div class="fd-modal-foot">
+            <button class="fd-btn fd-btn-secondary" onclick="closePreview()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const FEED_ID = {{ feed.id }};
+const ITEMS = {{ items | tojson }};
+
+async function postJSON(url, body) {
+    const r = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body || {}),
+    });
+    return r.json();
+}
+
+function setMsg(id, text, ok) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.style.color = ok === false ? '#ff8a8a' : (ok ? '#8af5b0' : 'rgba(255,255,255,0.6)');
+    el.textContent = text;
+    if (ok) setTimeout(() => { if (el.textContent === text) el.textContent = ''; }, 3500);
+}
+
+function pickedDays() {
+    return Array.from(document.querySelectorAll('#dayPicker .fd-day.on')).map(d => parseInt(d.dataset.day, 10));
+}
+function toggleDay(el) { el.classList.toggle('on'); saveSettings(); }
+
+function settingsPayload() {
+    return {
+        name: document.getElementById('feedName').value.trim(),
+        channel_id: document.getElementById('channelId').value || null,
+        website_id: document.getElementById('websiteId').value || null,
+        days_of_week: pickedDays(),
+        send_time: document.getElementById('sendTime').value || '09:00',
+        start_date: document.getElementById('startDate').value || '',
+        default_message: document.getElementById('defaultMessage').value,
+        prepend_text: document.getElementById('prependText').value,
+        loop_when_finished: document.getElementById('loopFeed').checked,
+    };
+}
+
+async function saveSettings() {
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/update`, settingsPayload());
+    if (!j.success) { setMsg('actionMsg', j.error || 'Save failed.', false); return false; }
+    setMsg('actionMsg', 'Saved.', true);
+    return true;
+}
+
+// Changing the website changes which guides/quizzes/resources can be picked,
+// so that one needs a round trip.
+async function reloadAfterSave() { if (await saveSettings()) location.reload(); }
+
+async function toggleActive() {
+    // Persist any pending edits first so starting always uses what's on screen.
+    const payload = settingsPayload();
+    payload.is_active = document.getElementById('activeBtn').textContent.trim().startsWith('Start');
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/update`, payload);
+    if (!j.success) { setMsg('actionMsg', j.error || 'Could not update.', false); return; }
+    location.reload();
+}
+
+async function startHere(index) {
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/position`, {position: index});
+    if (!j.success) { setMsg('itemsMsg', j.error || 'Could not move the marker.', false); return; }
+    location.reload();
+}
+
+async function rewind() {
+    if (!confirm('Rewind this feed to the first item? Its contents stay exactly as they are.')) return;
+    const clear = confirm('Also clear the send history and per-item send counts?\n\nOK = fresh start, Cancel = keep history.');
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/reset`, {clear_history: clear});
+    if (!j.success) { setMsg('actionMsg', j.error || 'Rewind failed.', false); return; }
+    location.reload();
+}
+
+async function duplicateFeed() {
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/duplicate`);
+    if (!j.success) { setMsg('actionMsg', j.error || 'Duplicate failed.', false); return; }
+    location.href = `/admin/notifications/feeds/${j.id}`;
+}
+
+async function deleteFeed() {
+    if (!confirm('Delete this feed and everything in it? This cannot be undone.')) return;
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/delete`);
+    if (!j.success) { setMsg('actionMsg', j.error || 'Delete failed.', false); return; }
+    location.href = '/admin/notifications';
+}
+
+async function sendNow() {
+    if (!confirm('Send the next item right now? The feed advances to the item after it.')) return;
+    setMsg('actionMsg', 'Sending…');
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/send-now`);
+    if (!j.success) { setMsg('actionMsg', j.error || 'Send failed.', false); return; }
+    location.reload();
+}
+
+async function previewNext() {
+    const r = await fetch(`/admin/notifications/feeds/${FEED_ID}/preview`);
+    const j = await r.json();
+    const body = document.getElementById('previewBody');
+    if (!j.success) {
+        body.innerHTML = `<p style="color:#ff8a8a;margin:0;">${j.error || 'Nothing to preview.'}</p>`;
+    } else {
+        const esc = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const when = `<p class="fd-card-sub" style="margin:0 0 10px;">Would go out ${esc(j.when)}.</p>`;
+        const ping = j.prepend
+            ? `<p style="font-size:0.85rem;color:rgba(255,255,255,0.6);margin:0 0 8px;">${esc(j.prepend)}</p>` : '';
+        if (j.plain) {
+            // A bare web link goes out as a plain message with no embed of our
+            // own — Discord refuses to build a link preview for a message that
+            // already carries one, so a rich card would kill the page preview.
+            body.innerHTML = when + ping + `
+                <div class="fd-preview">
+                    <div style="font-weight:700;margin-bottom:6px;">${esc(j.title)}</div>
+                    ${esc(j.body)}
+                    <div style="margin-top:8px;word-break:break-all;color:#9fe8ff;">${esc(j.unfurl || j.video)}</div>
+                </div>
+                <p style="font-size:0.75rem;color:rgba(138,245,176,0.8);margin:10px 0 0;">
+                    <i class="fas ${j.video ? 'fa-circle-play' : 'fa-window-maximize'}"></i>
+                    Sent as a plain message so Discord builds the
+                    ${j.video ? 'video player' : "page's own preview card"},
+                    exactly as if you pasted the link yourself.</p>`;
+        } else {
+            // A thumbnail sits top-right beside the title and opens the page;
+            // a large image sits under the text and only opens the picture.
+            // Lay the preview out the way Discord will.
+            const thumb = (j.image && j.image_is_link)
+                ? `<a href="${esc(j.link)}" target="_blank" rel="noopener" title="Opens the page">
+                       <img src="${esc(j.image)}" alt="" style="width:72px;height:72px;object-fit:cover;
+                            border-radius:6px;flex-shrink:0;"></a>` : '';
+            const big = (j.image && !j.image_is_link)
+                ? `<img src="${esc(j.image)}" alt="" style="display:block;margin-top:10px;max-width:100%;border-radius:6px;">` : '';
+            body.innerHTML = when + ping + `
+                <div class="fd-preview" style="display:flex;gap:12px;align-items:flex-start;">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:700;margin-bottom:6px;">
+                            ${j.link ? `<a href="${esc(j.link)}" target="_blank" rel="noopener"
+                                          style="color:#5eeef8;text-decoration:none;">${esc(j.title)}</a>`
+                                     : esc(j.title)}
+                        </div>
+                        ${esc(j.body)}
+                        ${big}
+                    </div>
+                    ${thumb}
+                </div>
+                ${j.image && j.image_is_link ? `<p style="font-size:0.75rem;color:rgba(138,245,176,0.8);margin:10px 0 0;">
+                    <i class="fas fa-arrow-up-right-from-square"></i> The thumbnail opens the page, same as the title.</p>` : ''}
+                ${j.link ? `<p style="font-size:0.8rem;margin:10px 0 0;word-break:break-all;color:rgba(255,255,255,0.5);">${esc(j.link)}</p>` : ''}
+                <p style="font-size:0.75rem;color:rgba(255,255,255,0.35);margin:8px 0 0;">${esc(j.footer)}</p>
+                ${j.follow_ups ? `
+                <p class="fd-card-sub" style="margin:16px 0 6px;">
+                    …then a second message, so Discord builds
+                    ${j.video_count > 1 ? `${j.video_count} players` : 'the player'}:</p>
+                <div class="fd-preview" style="border-left-color:#9fe8ff;">
+                    <div style="word-break:break-all;color:#9fe8ff;white-space:pre-wrap;">${esc(j.video)}</div>
+                </div>
+                <p style="font-size:0.75rem;color:rgba(138,245,176,0.8);margin:8px 0 0;">
+                    <i class="fas fa-circle-play"></i> Two messages: the card above, then
+                    ${j.video_count > 1 ? `all ${j.video_count} videos` : 'the video'}
+                    underneath it. The role ping only goes on the first.</p>` : ''}`;
+        }
+    }
+    document.getElementById('previewOverlay').classList.add('open');
+}
+function closePreview() { document.getElementById('previewOverlay').classList.remove('open'); }
+
+// ── Catalog drawer ──────────────────────────────────────────────────────────
+const CATALOG = {{ picker_catalog | tojson }};
+// Which library items are already in this feed, so the drawer can say so
+// instead of letting you add the same guide twice without noticing.
+const ALREADY = new Set(ITEMS.filter(i => i.ref_id).map(i => `${i.item_type}:${i.ref_id}`));
+let DRAWER_KIND = 'guide';
+
+const escHtml = s => (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function openDrawer() {
+    document.getElementById('drawerSearch').value = '';
+    document.getElementById('drawerInFeed').value = 'all';
+    syncCategoryOptions();
+    renderCatalog();
+    document.getElementById('drawerScrim').classList.add('open');
+    document.getElementById('catalogDrawer').classList.add('open');
+    setTimeout(() => document.getElementById('drawerSearch').focus(), 60);
+}
+function closeDrawer() {
+    document.getElementById('drawerScrim').classList.remove('open');
+    document.getElementById('catalogDrawer').classList.remove('open');
+}
+function setDrawerKind(kind) {
+    DRAWER_KIND = kind;
+    document.querySelectorAll('#drawerSeg button').forEach(b =>
+        b.classList.toggle('on', b.dataset.kind === kind));
+    // Categories belong to one kind, so the previous selection is meaningless
+    // here — rebuild the list and fall back to "all".
+    syncCategoryOptions();
+    renderCatalog();
+}
+
+function syncCategoryOptions() {
+    const sel = document.getElementById('drawerCat');
+    const groups = CATALOG[DRAWER_KIND] || [];
+    sel.innerHTML = '<option value="all">All categories</option>'
+        + groups.map(g => `<option value="${g.cat_id}">${escHtml(g.category)}`
+                        + ` (${g.items.length})</option>`).join('');
+    sel.value = 'all';
+    sel.disabled = groups.length < 2;
+}
+
+function renderCatalog() {
+    const q = (document.getElementById('drawerSearch').value || '').trim().toLowerCase();
+    const wantCat = document.getElementById('drawerCat').value;
+    const membership = document.getElementById('drawerInFeed').value;
+    const groups = CATALOG[DRAWER_KIND] || [];
+    const icon = {guide: 'fa-book', quiz: 'fa-clipboard-check',
+                  resource: 'fa-folder-open', bundle: 'fa-box-open'}[DRAWER_KIND]
+                 || 'fa-folder-open';
+
+    let html = '', shown = 0, total = 0;
+    groups.forEach(group => {
+        total += group.items.length;
+        if (wantCat !== 'all' && String(group.cat_id) !== wantCat) return;
+        const matches = group.items.filter(it => {
+            if (q && !it.title.toLowerCase().includes(q)) return false;
+            const added = ALREADY.has(`${DRAWER_KIND}:${it.id}`);
+            if (membership === 'out' && added) return false;
+            if (membership === 'in' && !added) return false;
+            return true;
+        });
+        if (!matches.length) return;
+        shown += matches.length;
+        html += `<div class="fd-cat">${escHtml(group.category)}</div>`;
+        matches.forEach(it => {
+            const added = ALREADY.has(`${DRAWER_KIND}:${it.id}`);
+            html += `<button type="button" class="fd-pick" onclick="addFromCatalog(${it.id}, this)">
+                <i class="fas ${icon}" style="color:rgba(94,238,248,0.55);"></i>
+                <span class="fd-pick-title">${escHtml(it.title)}</span>
+                ${it.sub ? `<span class="fd-pick-sub">${escHtml(it.sub)}</span>` : ''}
+                ${added ? '<span class="fd-pick-added">in feed</span>' : ''}
+            </button>`;
+        });
+    });
+
+    document.getElementById('drawerCount').textContent =
+        total ? (shown === total ? `${total} item${total === 1 ? '' : 's'}`
+                                 : `${shown} of ${total}`) : '';
+
+    let empty;
+    if (!total) empty = 'Nothing here on this website yet.';
+    else if (q) empty = `Nothing matches “${escHtml(q)}”.`;
+    else if (membership === 'out') empty = 'Everything here is already in the feed.';
+    else if (membership === 'in') empty = 'None of these are in the feed yet.';
+    else empty = 'Nothing in this category.';
+    document.getElementById('drawerBody').innerHTML = shown ? html :
+        `<div class="fd-drawer-empty">${empty}</div>`;
+}
+
+async function addFromCatalog(refId, btn) {
+    btn.disabled = true;
+    const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/items/create`,
+                             {item_type: DRAWER_KIND, ref_id: refId});
+    if (!j.success) { btn.disabled = false; alert(j.error || 'Could not add that.'); return; }
+    location.reload();
+}
+
+// ── Items ───────────────────────────────────────────────────────────────────
+function openItemModal(kind) {
+    document.getElementById('itemId').value = '';
+    document.getElementById('itemModalTitle').textContent =
+        kind === 'link' ? 'Add a link' : 'Add a message';
+    document.getElementById('itemType').value = kind;
+    document.getElementById('itemRefId').value = '';
+    document.getElementById('itemUrl').value = '';
+    document.getElementById('itemTitle').value = '';
+    document.getElementById('itemMessage').value = '';
+    setMsg('itemMsg', '');
+    onItemTypeChange();
+    document.getElementById('itemOverlay').classList.add('open');
+}
+
+function editItem(id) {
+    const it = ITEMS.find(x => x.id === id);
+    if (!it) return;
+    document.getElementById('itemId').value = id;
+    document.getElementById('itemModalTitle').textContent = `Edit ${it.kind.toLowerCase()}`;
+    // What an item points at is fixed once added — delete and re-add to aim it
+    // somewhere else. Only its title, message and (for links) URL are editable.
+    document.getElementById('itemType').value = it.item_type;
+    document.getElementById('itemRefId').value = it.ref_id || '';
+    document.getElementById('itemUrl').value = it.url || '';
+    document.getElementById('itemTitle').value = it.raw_title || '';
+    document.getElementById('itemMessage').value = it.message || '';
+    setMsg('itemMsg', '');
+    onItemTypeChange();
+    document.getElementById('itemOverlay').classList.add('open');
+}
+function closeItemModal() { document.getElementById('itemOverlay').classList.remove('open'); }
+
+function onItemTypeChange() {
+    const t = document.getElementById('itemType').value;
+    document.getElementById('itemUrlWrap').style.display = (t === 'link') ? 'block' : 'none';
+    document.getElementById('titleHint').textContent = (t === 'message')
+        ? '(shown as the headline)'
+        : "(optional — defaults to the item's own title)";
+}
+
+async function submitItem() {
+    const id = document.getElementById('itemId').value;
+    const t = document.getElementById('itemType').value;
+    const payload = {
+        item_type: t,
+        title: document.getElementById('itemTitle').value,
+        message: document.getElementById('itemMessage').value,
+    };
+    if (t === 'link') payload.url = document.getElementById('itemUrl').value.trim();
+    setMsg('itemMsg', 'Saving…');
+    const url = id ? `/admin/notifications/feed-items/${id}/update`
+                   : `/admin/notifications/feeds/${FEED_ID}/items/create`;
+    const j = await postJSON(url, payload);
+    if (!j.success) { setMsg('itemMsg', j.error || 'Save failed.', false); return; }
+    location.reload();
+}
+
+async function toggleItem(id, enable) {
+    const j = await postJSON(`/admin/notifications/feed-items/${id}/update`, {is_enabled: enable});
+    if (!j.success) { setMsg('itemsMsg', j.error || 'Update failed.', false); return; }
+    location.reload();
+}
+
+async function deleteItem(id) {
+    if (!confirm('Remove this item from the feed?')) return;
+    const j = await postJSON(`/admin/notifications/feed-items/${id}/delete`);
+    if (!j.success) { setMsg('itemsMsg', j.error || 'Delete failed.', false); return; }
+    location.reload();
+}
+
+function insertToken(targetId, token) {
+    const el = document.getElementById(targetId);
+    const start = el.selectionStart ?? el.value.length;
+    el.value = el.value.slice(0, start) + token + el.value.slice(el.selectionEnd ?? start);
+    el.focus();
+    el.selectionStart = el.selectionEnd = start + token.length;
+    if (targetId === 'defaultMessage') saveSettings();
+}
+
+document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    closeDrawer();
+    closeItemModal();
+    closePreview();
+});
+
+// With the hopper capped, the item that goes out next can start off-screen
+// inside it. Bring it into view — but scroll only the list, never the page.
+(function showNextItem() {
+    const list = document.getElementById('itemList');
+    const next = list && list.querySelector('.fd-item.is-next');
+    if (!next || list.scrollHeight <= list.clientHeight) return;
+    list.scrollTop = Math.max(0, next.offsetTop - list.offsetTop
+                                 - (list.clientHeight - next.offsetHeight) / 2);
+})();
+
+(function initSort() {
+    const list = document.getElementById('itemList');
+    if (!list || !window.Sortable) return;
+    Sortable.create(list, {
+        animation: 150,
+        handle: '.fd-grip',
+        ghostClass: 'fd-sortable-ghost',
+        // The list scrolls now, so dragging to the edge has to carry the list
+        // with it — otherwise you can't reach anything past the visible rows.
+        scroll: list,
+        scrollSensitivity: 60,
+        scrollSpeed: 12,
+        forceAutoScrollFallback: true,
+        onEnd: async () => {
+            const order = Array.from(list.querySelectorAll('.fd-item')).map(el => el.dataset.id);
+            const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/items/reorder`, {order});
+            if (!j.success) { setMsg('itemsMsg', j.error || 'Re-order failed.', false); return; }
+            location.reload();
+        },
+    });
+})();
+</script>
+{% endblock %}

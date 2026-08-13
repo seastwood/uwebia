@@ -259,13 +259,13 @@
             </button>
             <div class="store-dropdown-content">
                 {% if _show_edu_guides %}
-                <a href="{{ url_for('admin_guides_page') }}"><i class="fas fa-book-open"></i><span>Guides</span></a>
+                <a href="{{ url_for('admin_education_page', tab='guides') }}"><i class="fas fa-book-open"></i><span>Guides</span></a>
                 {% endif %}
                 {% if _show_edu_quizzes %}
-                <a href="{{ url_for('admin_quizzes_page') }}"><i class="fas fa-clipboard-check"></i><span>Quizzes</span></a>
+                <a href="{{ url_for('admin_education_page', tab='quizzes') }}"><i class="fas fa-clipboard-check"></i><span>Quizzes</span></a>
                 {% endif %}
                 {% if _show_edu_resources %}
-                <a href="{{ url_for('admin_resources_page') }}"><i class="fas fa-folder-open"></i><span>Resources</span></a>
+                <a href="{{ url_for('admin_education_page', tab='resources') }}"><i class="fas fa-folder-open"></i><span>Resources</span></a>
                 {% endif %}
                 {% if _show_edu_divisions %}
                 <a href="{{ url_for('admin_divisions_page') }}"><i class="fas fa-sitemap"></i><span>{{ dlabel(plural=True) }}</span></a>
@@ -402,7 +402,7 @@
                    hamburger (mirrors the Store subgroup). Open by default when
                    the current page is one of its members. #}
                 {% if _has_education_group %}
-                {% set _on_edu_page = request.endpoint in ['admin_guides_page','guide_editor','admin_quizzes_page','quiz_editor','admin_resources_page','admin_divisions_page','admin_ksa_page'] %}
+                {% set _on_edu_page = request.endpoint in ['admin_education_page','admin_guides_page','guide_editor','admin_quizzes_page','quiz_editor','admin_resources_page','admin_divisions_page','admin_ksa_page'] %}
                 <div class="nav-tools-subgroup nav-tools-item--responsive{% if _on_edu_page %} open{% endif %}">
                     <button type="button" class="nav-tools-item nav-tools-subgroup-toggle" onclick="toggleNavSubgroup(event)">
                         <i class="fas fa-graduation-cap"></i>
@@ -411,13 +411,13 @@
                     </button>
                     <div class="nav-tools-subgroup-content">
                         {% if _show_edu_guides %}
-                        <a href="{{ url_for('admin_guides_page') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-book-open"></i><span>Guides</span></a>
+                        <a href="{{ url_for('admin_education_page', tab='guides') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-book-open"></i><span>Guides</span></a>
                         {% endif %}
                         {% if _show_edu_quizzes %}
-                        <a href="{{ url_for('admin_quizzes_page') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-clipboard-check"></i><span>Quizzes</span></a>
+                        <a href="{{ url_for('admin_education_page', tab='quizzes') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-clipboard-check"></i><span>Quizzes</span></a>
                         {% endif %}
                         {% if _show_edu_resources %}
-                        <a href="{{ url_for('admin_resources_page') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-folder-open"></i><span>Resources</span></a>
+                        <a href="{{ url_for('admin_education_page', tab='resources') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-folder-open"></i><span>Resources</span></a>
                         {% endif %}
                         {% if _show_edu_divisions %}
                         <a href="{{ url_for('admin_divisions_page') }}" class="nav-tools-item nav-tools-subitem"><i class="fas fa-sitemap"></i><span>{{ dlabel(plural=True) }}</span></a>

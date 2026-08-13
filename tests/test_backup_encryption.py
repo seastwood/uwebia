@@ -2,7 +2,7 @@
 
     venv/bin/python tests/test_backup_encryption.py
 
-Copies main.py into a throwaway directory (Templates/icons/static symlinked)
+Copies main.py into a throwaway directory (Templates/icons symlinked; static is its own)
 and imports it from there, so it builds its own SQLite database and cannot
 touch the real instance.
 """
@@ -18,16 +18,25 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-bkenc-test-')
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
-for _linked in ('Templates', 'icons', 'static'):
+# Templates/icons are read-only, so symlinking the real ones is safe. `static`
+# is NOT: uploads_folder lives inside it, and the backup code this test drives
+# DELETES and REWRITES files there. Symlinking it once destroyed the real
+# instance's uploaded images. Give this test its own empty static tree instead.
+for _linked in ('Templates', 'icons'):
     _src = os.path.join(_REPO, _linked)
     if os.path.exists(_src):
         os.symlink(_src, os.path.join(_SCRATCH, _linked))
+os.makedirs(os.path.join(_SCRATCH, 'static', 'uploads'), exist_ok=True)
 
 sys.path.insert(0, _SCRATCH)
 import main  # noqa: E402
 
 assert os.path.dirname(os.path.abspath(main.__file__)) == _SCRATCH, \
     'refusing to run against the real checkout'
+# Belt and braces: this test writes and deletes files under uploads_folder, so
+# refuse to run at all if that resolved back to the real checkout.
+assert os.path.realpath(main.uploads_folder).startswith(os.path.realpath(_SCRATCH)), \
+    f'uploads_folder escaped the sandbox: {main.uploads_folder}'
 
 FAILURES = []
 PASS = 'correct horse battery staple'
