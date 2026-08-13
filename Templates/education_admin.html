@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+{% block content %}
+{% include 'components/navbar.html' %}
+
+<style>
+/* The shell owns the whole viewport below the admin navbar: the tab strip is
+   fixed height and the pane takes the rest, so each pane scrolls its own
+   content instead of the window scrolling a stack of three. */
+.ed-shell { position: fixed; top: 52px; left: 0; right: 0; bottom: 0;
+            display: flex; flex-direction: column; }
+
+.ed-tabs { display: flex; gap: 4px; padding: 0 20px; flex-shrink: 0;
+           border-bottom: 1px solid rgba(255,255,255,0.09); overflow-x: auto;
+           scrollbar-width: none; }
+.ed-tabs::-webkit-scrollbar { display: none; }
+.ed-tab { appearance: none; background: none; border: none; font-family: inherit;
+          border-bottom: 2px solid transparent; color: rgba(255,255,255,0.5);
+          font-size: 0.92rem; font-weight: 600; padding: 11px 16px; cursor: pointer;
+          margin-bottom: -1px; display: inline-flex; align-items: center; gap: 8px;
+          white-space: nowrap; }
+.ed-tab:hover { color: rgba(255,255,255,0.82); }
+.ed-tab.active { color: #fff; border-bottom-color: #5eeec8; }
+.ed-tab i { font-size: 0.86rem; opacity: 0.75; }
+
+.ed-panes { flex: 1; position: relative; min-height: 0; }
+.ed-pane { position: absolute; inset: 0; width: 100%; height: 100%; border: 0;
+           display: block; background: transparent; }
+.ed-pane[hidden] { display: none; }
+
+.ed-loading { position: absolute; inset: 0; display: flex; align-items: center;
+              justify-content: center; gap: 10px; color: rgba(255,255,255,0.4);
+              font-size: 0.88rem; pointer-events: none; }
+.ed-loading[hidden] { display: none; }
+</style>
+
+<div class="ed-shell">
+    <div class="ed-tabs" role="tablist">
+        {% for t in tabs %}
+        <button class="ed-tab{% if t.key == active_tab %} active{% endif %}"
+                id="edTab-{{ t.key }}" role="tab" data-key="{{ t.key }}"
+                data-src="{{ t.path }}?embed=1"
+                aria-selected="{{ 'true' if t.key == active_tab else 'false' }}"
+                aria-controls="edPane-{{ t.key }}"
+                onclick="showEdTab('{{ t.key }}')">
+            <i class="fas {{ t.icon }}"></i> {{ t.label }}
+        </button>
+        {% endfor %}
+    </div>
+
+    <div class="ed-panes">
+        <div class="ed-loading" id="edLoading" hidden>
+            <i class="fas fa-circle-notch fa-spin"></i> Loading…
+        </div>
+        {% for t in tabs %}
+        {# src is filled in on first activation, so opening the page costs one
+           pane, not three. Once loaded a pane stays put — switching back keeps
+           whatever you had open, scrolled and half-typed. #}
+        <iframe class="ed-pane" id="edPane-{{ t.key }}" role="tabpanel"
+                title="{{ t.label }}" aria-labelledby="edTab-{{ t.key }}"
+                {% if t.key != active_tab %}hidden{% endif %}></iframe>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+const ED_KEYS = {{ tabs | map(attribute='key') | list | tojson }};
+
+function showEdTab(key) {
+    if (!ED_KEYS.includes(key)) key = ED_KEYS[0];
+    ED_KEYS.forEach(k => {
+        const on = k === key;
+        const tab = document.getElementById(`edTab-${k}`);
+        const pane = document.getElementById(`edPane-${k}`);
+        tab.classList.toggle('active', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+        pane.hidden = !on;
+        // Load on first show only; after that the pane keeps its state.
+        if (on && !pane.src) {
+            const loader = document.getElementById('edLoading');
+            loader.hidden = false;
+            pane.addEventListener('load', () => { loader.hidden = true; }, {once: true});
+            pane.src = tab.dataset.src;
+        }
+    });
+    // Keep the address bar honest so a reload, a bookmark or the back button
+    // lands on the tab you were actually looking at.
+    if (history.replaceState) history.replaceState(null, '', `/admin/education/${key}`);
+    try { sessionStorage.setItem('edTab', key); } catch (e) {}
+}
+
+(function initEdTabs() {
+    // Path wins (that's what the navbar links use), then whatever was open last.
+    const fromPath = (location.pathname.split('/')[3] || '').trim();
+    let want = ED_KEYS.includes(fromPath) ? fromPath : '';
+    if (!want) {
+        try {
+            const saved = sessionStorage.getItem('edTab');
+            if (ED_KEYS.includes(saved)) want = saved;
+        } catch (e) {}
+    }
+    showEdTab(want || {{ active_tab | tojson }});
+})();
+
+// A pane that navigates itself (opening a guide editor, or a redirect after a
+// save) breaks out to the whole window on its own — see breakOutOfPane in
+// base.html, which every admin page runs.
+</script>
+{% endblock %}

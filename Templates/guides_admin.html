@@ -1,6 +1,11 @@
 {% extends 'base.html' %}
 {% block content %}
-{% include 'components/navbar.html' %}
+{# `embed` is set when this page is shown inside a pane of /admin/education.
+   The shell already draws the admin navbar, so drawing a second one here would
+   stack two bars and eat 52px of the pane. #}
+{% if not embed %}{% include 'components/navbar.html' %}
+{% else %}<style>.content { padding-top: 0; }</style>
+{% endif %}
 
 <link rel="stylesheet" href="{{ url_for('static', filename='css/calendars.css') }}">
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>

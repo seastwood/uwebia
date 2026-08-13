@@ -3,6 +3,12 @@
 
 {% block title %}{{ (node.title + ' — ' if node else '') }}{{ guide.title }} — {{ website.name if website else 'Guide' }}{% endblock %}
 
+{# Social preview: a shared guide link shows the guide, not just the site. #}
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ node.title if node else guide.title }}{% endblock %}
+{% block og_description %}{{ social_preview_text(node.content if node else guide.description) }}{% endblock %}
+{% block og_image %}{{ guide.cover_image_url or '' }}{% endblock %}
+
 {% set _base = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}
 
 {% macro node_url(slug) %}{{ _base }}/{{ guide.slug }}/{{ slug }}{% endmacro %}

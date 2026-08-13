@@ -5,6 +5,10 @@
 
 {% block title %}{{ quiz.title }} — {{ website.name if website else 'Quiz' }}{% endblock %}
 
+{% block og_title %}{{ quiz.title }}{% endblock %}
+{% block og_description %}{{ social_preview_text(quiz.description) }}{% endblock %}
+{% block og_image %}{{ quiz.image_url or '' }}{% endblock %}
+
 {% block content %}
 <div style="max-width: 760px; margin: 0 auto; padding: 40px 20px 80px;">
     <h1 style="font-size: 1.8rem; font-weight: 800; margin: 0 0 8px; display: flex; align-items: center; gap: 12px;">

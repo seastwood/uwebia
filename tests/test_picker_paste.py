@@ -33,13 +33,22 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-pickerpaste-test-')
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
-for _linked in ('Templates', 'icons', 'static'):
+# `static` is NOT symlinked: uploads_folder lives inside it, and this test
+# UPLOADS files. Through a symlink those land in the real instance's asset
+# folder, where they linger as orphans nobody can see or clean up from the UI.
+for _linked in ('Templates', 'icons'):
     _src = os.path.join(_REPO, _linked)
     if os.path.exists(_src):
         os.symlink(_src, os.path.join(_SCRATCH, _linked))
+os.makedirs(os.path.join(_SCRATCH, 'static', 'uploads'), exist_ok=True)
 
 sys.path.insert(0, _SCRATCH)
 import main  # noqa: E402
+
+# This test writes into uploads_folder; refuse to run if that resolved back to
+# the real checkout.
+assert os.path.realpath(main.uploads_folder).startswith(os.path.realpath(_SCRATCH)), \
+    f'uploads_folder escaped the sandbox: {main.uploads_folder}'
 
 assert os.path.dirname(os.path.abspath(main.__file__)) == _SCRATCH, \
     'refusing to run against the real checkout'

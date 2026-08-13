@@ -3,6 +3,10 @@
 
 {% block title %}{{ resource.title }} — {{ website.name if website else 'Resource' }}{% endblock %}
 
+{% block og_title %}{{ resource.title }}{% endblock %}
+{% block og_description %}{{ social_preview_text(resource.description) }}{% endblock %}
+{% block og_image %}{{ resource.image_url or '' }}{% endblock %}
+
 {% block content %}
 <div style="max-width: 820px; margin: 0 auto; padding: 40px 20px 80px;">
     {% set _back = ('/' + website.url_prefix + '/guides') if website.url_prefix else '/guides' %}

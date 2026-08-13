@@ -27,6 +27,20 @@
 @keyframes toastIn { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
 </style>
 <body>
+<script>
+// Admin pages are framed in exactly one place: the panes of /admin/education,
+// which ask for it with ?embed=1. Anywhere else means a pane navigated itself
+// somewhere — opening a guide editor, or following a redirect after a save —
+// and a full page with its own navbar would be stranded inside the pane. Take
+// the whole window there instead.
+(function breakOutOfPane() {
+    try {
+        if (window.top === window.self) return;
+        if (new URLSearchParams(location.search).get('embed') === '1') return;
+        window.top.location.href = location.href;
+    } catch (e) { /* cross-origin frame: not ours, leave it alone */ }
+})();
+</script>
 {#    {% include 'components/navbar.html' %}#}
     <div class="content">
         {% block content %}{% endblock %}

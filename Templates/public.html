@@ -81,6 +81,31 @@
     {% endif %}
     <title>{{ website.name }}</title>
 
+    {# ── Social preview (Open Graph + Twitter card) ───────────────────────────
+       This template has its own <head> rather than extending public_base, so
+       the same tags are spelled out here. Without them a shared page link
+       arrives in Discord/Slack/iMessage as a bare URL. og:image must be
+       ABSOLUTE — the consumer fetches it from its own servers. #}
+    {% set _og_title = (content.name ~ ' — ' ~ website.name) if (content and content.name and content.name != website.name) else website.name %}
+    {% set _og_desc = (website.description or '') | trim %}
+    {% set _og_image = absolute_url(page_social_image(content) or icon_url or '') %}
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="{{ website.name }}">
+    <meta property="og:title" content="{{ _og_title }}">
+    {% if _og_desc %}
+    <meta property="og:description" content="{{ _og_desc }}">
+    <meta name="description" content="{{ _og_desc }}">
+    {% endif %}
+    {% if _og_image %}
+    <meta property="og:image" content="{{ _og_image }}">
+    <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+    <meta name="twitter:card" content="summary">
+    {% endif %}
+    <meta name="twitter:title" content="{{ _og_title }}">
+    {% if _og_desc %}<meta name="twitter:description" content="{{ _og_desc }}">{% endif %}
+    <meta property="og:url" content="{{ request.url }}">
+
     {# Simple, predictable background system:
          1. <html> paints the configured background color (solid or gradient).
             That's the page background — it's always there.

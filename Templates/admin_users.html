@@ -153,6 +153,59 @@
 </details>
 {% endmacro %}
 
+{# Notification Access picker. Unlike the guide/quiz pickers — where categories
+   and items are two ways of naming one thing — channels and feeds are separate
+   kinds, so the two lists are independent: leaving one side unchecked means
+   "all of that kind". `chcb` = channel checkbox class, `fdcb` = feed checkbox
+   class, `clearfn` = JS function that clears both. #}
+{% macro notification_access_picker(chcb, fdcb, clearfn) %}
+<details style="margin-bottom:16px;">
+    <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
+        <i class="fas fa-bell" style="margin-right:6px;color:rgba(255,255,255,0.35);"></i>
+        Notification Access
+        <span style="font-size:0.77rem;color:rgba(255,255,255,0.3);margin-left:8px;">optional — leave unchecked to allow all</span>
+    </summary>
+    <div style="margin-top:12px;padding:14px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(255,255,255,0.07);">
+        <p style="font-size:0.8rem;color:rgba(255,255,255,0.4);margin:0 0 12px;">
+            Check the <strong>channels</strong> and <strong>feeds</strong> this person may manage. The two lists work independently —
+            checking only feeds still allows every channel, and vice versa. Leaving a side unchecked means all of that kind.
+            Checking anything on a side also stops them creating new ones there.
+        </p>
+        {% if not notification_catalog.channels and not notification_catalog.feeds %}
+        <div style="font-size:0.8rem;color:rgba(255,255,255,0.25);padding:8px;">No channels or feeds yet.</div>
+        {% else %}
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <button type="button" class="perm-select-all" style="color:rgba(255,100,100,0.7);" onclick="{{ clearfn }}()">Clear all</button>
+        </div>
+        {% if notification_catalog.channels %}
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.35);margin:6px 0 4px;">Channels</div>
+        {% for c in notification_catalog.channels %}
+        <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+            <input type="checkbox" class="{{ chcb }}" data-channel-id="{{ c.id }}" value="{{ c.id }}"
+                   style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+            <i class="fab fa-discord" style="color:rgba(199,154,255,0.6);font-size:0.82rem;flex-shrink:0;"></i>
+            <span style="font-size:0.82rem;">{{ c.label }}</span>
+            {% if not c.is_active %}<span style="font-size:0.72rem;color:rgba(255,217,130,0.6);">· disabled</span>{% endif %}
+        </label>
+        {% endfor %}
+        {% endif %}
+        {% if notification_catalog.feeds %}
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.05em;color:rgba(255,255,255,0.35);margin:10px 0 4px;">Feeds</div>
+        {% for f in notification_catalog.feeds %}
+        <label class="perm-item" style="padding:6px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:7px;margin-bottom:4px;">
+            <input type="checkbox" class="{{ fdcb }}" data-feed-id="{{ f.id }}" value="{{ f.id }}"
+                   style="accent-color:#5eeef8;width:14px;height:14px;flex-shrink:0;">
+            <i class="fas fa-layer-group" style="color:rgba(138,245,176,0.7);font-size:0.82rem;flex-shrink:0;"></i>
+            <span style="font-size:0.82rem;">{{ f.name }}</span>
+            {% if f.channel %}<span style="font-size:0.72rem;color:rgba(255,255,255,0.3);">· {{ f.channel }}</span>{% endif %}
+        </label>
+        {% endfor %}
+        {% endif %}
+        {% endif %}
+    </div>
+</details>
+{% endmacro %}
+
 {% macro group_assign_picker(cb, clearfn) %}
 <details style="margin-bottom:16px;">
     <summary style="cursor:pointer;font-size:0.85rem;color:rgba(255,255,255,0.6);user-select:none;padding:8px 0;">
@@ -852,6 +905,7 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
             {{ guide_access_picker('guide-access-cb', 'guide-cat-cb', 'clearAllGuides') }}
             {{ quiz_access_picker('quiz-access-cb', 'quiz-cat-cb', 'clearAllQuizzes') }}
             {{ division_access_picker('division-access-cb', 'clearAllDivisions') }}
+            {{ notification_access_picker('notif-channel-cb', 'notif-feed-cb', 'clearAllNotifAccess') }}
             {{ group_assign_picker('group-assign-cb', 'clearAllGroupAssign') }}
 
             <div class="perm-search-wrap">
@@ -1058,6 +1112,7 @@ mark.perm-hit { background: rgba(94,238,248,0.28); color: #fff; border-radius: 3
             {{ guide_access_picker('grp-guide-access-cb', 'grp-guide-cat-cb', 'clearAllGrpGuides') }}
             {{ quiz_access_picker('grp-quiz-access-cb', 'grp-quiz-cat-cb', 'clearAllGrpQuizzes') }}
             {{ division_access_picker('grp-division-access-cb', 'clearAllGrpDivisions') }}
+            {{ notification_access_picker('grp-notif-channel-cb', 'grp-notif-feed-cb', 'clearAllGrpNotifAccess') }}
             {{ group_assign_picker('grp-group-assign-cb', 'clearAllGrpGroupAssign') }}
 
             <!-- Per-website permission overrides -->
@@ -1400,6 +1455,8 @@ const _existingGroups = {
         allowed_quiz_cats:   {{ ((g.permissions or {}).get('quizzes.allowed_category_ids') or []) | tojson }},
         allowed_quiz_ids:    {{ ((g.permissions or {}).get('quizzes.allowed_quiz_ids') or []) | tojson }},
         allowed_division_ids: {{ ((g.permissions or {}).get('divisions.allowed_division_ids') or []) | tojson }},
+        allowed_notif_channel_ids: {{ ((g.permissions or {}).get('notifications.allowed_channel_ids') or []) | tojson }},
+        allowed_notif_feed_ids:    {{ ((g.permissions or {}).get('notifications.allowed_feed_ids') or []) | tojson }},
         assignable_group_ids: {{ ((g.permissions or {}).get('admin_users.assignable_group_ids') or []) | tojson }},
         page_folder_perms:   {{ ((g.permissions or {}).get('page_folder_perms') or {}) | tojson }},
     },
@@ -1561,6 +1618,7 @@ function openUserModal(userId) {
     document.querySelectorAll('.guide-access-cb, .guide-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.quiz-access-cb, .quiz-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.division-access-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.notif-channel-cb, .notif-feed-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.group-assign-cb').forEach(cb => cb.checked = false);
 
     // Reset group selector
@@ -1585,7 +1643,7 @@ function openUserModal(userId) {
         } else {
             // Restore individual permissions
             Object.entries(u.permissions || {}).forEach(([key, val]) => {
-                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'admin_users.assignable_group_ids') {
+                if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'notifications.allowed_channel_ids' && key !== 'notifications.allowed_feed_ids' && key !== 'admin_users.assignable_group_ids') {
                     const cb = document.querySelector(`#permissionsContainer input[data-key="${key}"], #permissionsContainerWebsite input[data-key="${key}"]`);
                     if (cb) cb.checked = true;
                 }
@@ -1594,6 +1652,15 @@ function openUserModal(userId) {
         // Restore division access
         (u.permissions?.['divisions.allowed_division_ids'] || []).forEach(did => {
             const cb = document.querySelector(`.division-access-cb[data-division-id="${did}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore notification access (channels + feeds, independent lists)
+        (u.permissions?.['notifications.allowed_channel_ids'] || []).forEach(cid => {
+            const cb = document.querySelector(`.notif-channel-cb[data-channel-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (u.permissions?.['notifications.allowed_feed_ids'] || []).forEach(fid => {
+            const cb = document.querySelector(`.notif-feed-cb[data-feed-id="${fid}"]`);
             if (cb) cb.checked = true;
         });
         // Restore assignable permission groups
@@ -1740,6 +1807,14 @@ function clearAllDivisions() {
 
 function clearAllGrpDivisions() {
     document.querySelectorAll('.grp-division-access-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllNotifAccess() {
+    document.querySelectorAll('.notif-channel-cb, .notif-feed-cb').forEach(cb => cb.checked = false);
+}
+
+function clearAllGrpNotifAccess() {
+    document.querySelectorAll('.grp-notif-channel-cb, .grp-notif-feed-cb').forEach(cb => cb.checked = false);
 }
 
 function clearAllGroupAssign() {
@@ -2288,6 +2363,10 @@ async function submitUserForm() {
 
     const allowedDivIds = Array.from(document.querySelectorAll('.division-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['divisions.allowed_division_ids'] = allowedDivIds.length ? allowedDivIds : null;
+    const allowedNotifChannels = Array.from(document.querySelectorAll('.notif-channel-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedNotifFeeds    = Array.from(document.querySelectorAll('.notif-feed-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['notifications.allowed_channel_ids'] = allowedNotifChannels.length ? allowedNotifChannels : null;
+    permissions['notifications.allowed_feed_ids']    = allowedNotifFeeds.length    ? allowedNotifFeeds    : null;
 
     const assignableGroups = Array.from(document.querySelectorAll('.group-assign-cb:checked')).map(cb => parseInt(cb.value));
     permissions['admin_users.assignable_group_ids'] = assignableGroups.length ? assignableGroups : null;
@@ -2664,6 +2743,7 @@ function openGroupModal(groupId) {
     document.querySelectorAll('.grp-guide-access-cb, .grp-guide-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.grp-quiz-access-cb, .grp-quiz-cat-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.grp-division-access-cb').forEach(cb => cb.checked = false);
+    document.querySelectorAll('.grp-notif-channel-cb, .grp-notif-feed-cb').forEach(cb => cb.checked = false);
     document.querySelectorAll('.grp-group-assign-cb').forEach(cb => cb.checked = false);
 
     if (groupId && _existingGroups[groupId]) {
@@ -2671,7 +2751,7 @@ function openGroupModal(groupId) {
         document.getElementById('groupName').value = g.name;
         document.getElementById('groupDescription').value = g.description;
         Object.entries(g.permissions || {}).forEach(([key, val]) => {
-            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'admin_users.assignable_group_ids') {
+            if (val && key !== 'pages.allowed_ids' && key !== 'sections.allowed_ids' && key !== 'assets.allowed_folder_ids' && key !== 'groups.allowed_ids' && key !== 'page_folder_perms' && key !== 'guides.allowed_category_ids' && key !== 'guides.allowed_guide_ids' && key !== 'quizzes.allowed_category_ids' && key !== 'quizzes.allowed_quiz_ids' && key !== 'divisions.allowed_division_ids' && key !== 'notifications.allowed_channel_ids' && key !== 'notifications.allowed_feed_ids' && key !== 'admin_users.assignable_group_ids') {
                 const cb = document.querySelector(`#groupPermissionsContainer input[data-key="${key}"], #groupPermissionsContainerWebsite input[data-key="${key}"]`);
                 if (cb) cb.checked = true;
             }
@@ -2702,6 +2782,15 @@ function openGroupModal(groupId) {
         // Restore division access
         (g.allowed_division_ids || []).forEach(did => {
             const cb = document.querySelector(`.grp-division-access-cb[data-division-id="${did}"]`);
+            if (cb) cb.checked = true;
+        });
+        // Restore notification access (channels + feeds, independent lists)
+        (g.allowed_notif_channel_ids || []).forEach(cid => {
+            const cb = document.querySelector(`.grp-notif-channel-cb[data-channel-id="${cid}"]`);
+            if (cb) cb.checked = true;
+        });
+        (g.allowed_notif_feed_ids || []).forEach(fid => {
+            const cb = document.querySelector(`.grp-notif-feed-cb[data-feed-id="${fid}"]`);
             if (cb) cb.checked = true;
         });
         // Restore assignable permission groups
@@ -3118,6 +3207,10 @@ async function submitGroupForm() {
     // Collect division access restrictions
     const allowedDivIds = Array.from(document.querySelectorAll('.grp-division-access-cb:checked')).map(cb => parseInt(cb.value));
     permissions['divisions.allowed_division_ids'] = allowedDivIds.length ? allowedDivIds : null;
+    const allowedNotifChannels = Array.from(document.querySelectorAll('.grp-notif-channel-cb:checked')).map(cb => parseInt(cb.value));
+    const allowedNotifFeeds    = Array.from(document.querySelectorAll('.grp-notif-feed-cb:checked')).map(cb => parseInt(cb.value));
+    permissions['notifications.allowed_channel_ids'] = allowedNotifChannels.length ? allowedNotifChannels : null;
+    permissions['notifications.allowed_feed_ids']    = allowedNotifFeeds.length    ? allowedNotifFeeds    : null;
 
     // Collect assignable permission groups
     const assignableGroups = Array.from(document.querySelectorAll('.grp-group-assign-cb:checked')).map(cb => parseInt(cb.value));

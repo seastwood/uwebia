@@ -2,6 +2,11 @@
 
 {% block title %}{{ post.title }} — {{ website.name if website else 'Post' }}{% endblock %}
 
+{% block og_type %}article{% endblock %}
+{% block og_title %}{{ post.title }}{% endblock %}
+{% block og_description %}{{ social_preview_text(post.excerpt or post.content) }}{% endblock %}
+{% block og_image %}{{ post.cover_image_url or '' }}{% endblock %}
+
 {% block head %}
 <style>
 .pd-wrap {

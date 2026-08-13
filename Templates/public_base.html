@@ -27,6 +27,36 @@
 
     <title>{% block title %}{{ website.name if website else 'Public Page' }}{% endblock %}</title>
 
+    {# ── Social preview (Open Graph + Twitter card) ───────────────────────────
+       What Discord, Slack, iMessage and the rest show when someone posts a link
+       to this site. Without these a shared link is just a bare URL. Child
+       templates override the three blocks to describe the specific thing on the
+       page; the defaults describe the site. og:image MUST be absolute — the
+       consumer fetches it from its own servers — hence absolute_url(). #}
+    {# The {% set %}…{% endset %} wrapper both DEFINES each block (so children
+       can override it) and captures its output into a variable, instead of
+       dumping it into the document where the block sits. #}
+    {% set _og_title %}{% block og_title %}{{ website.name if website else 'Public Page' }}{% endblock %}{% endset %}
+    {% set _og_desc %}{% block og_description %}{{ website.description or '' }}{% endblock %}{% endset %}
+    {% set _og_image_raw %}{% block og_image %}{{ get_site_icon_url(website) or '' }}{% endblock %}{% endset %}
+    {% set _og_image = absolute_url(_og_image_raw | trim) %}
+    <meta property="og:type" content="{% block og_type %}website{% endblock %}">
+    <meta property="og:site_name" content="{{ website.name if website else 'Uwebia' }}">
+    <meta property="og:title" content="{{ _og_title | trim }}">
+    {% if _og_desc | trim %}
+    <meta property="og:description" content="{{ _og_desc | trim }}">
+    <meta name="description" content="{{ _og_desc | trim }}">
+    {% endif %}
+    {% if _og_image %}
+    <meta property="og:image" content="{{ _og_image }}">
+    <meta name="twitter:card" content="summary_large_image">
+    {% else %}
+    <meta name="twitter:card" content="summary">
+    {% endif %}
+    <meta name="twitter:title" content="{{ _og_title | trim }}">
+    {% if _og_desc | trim %}<meta name="twitter:description" content="{{ _og_desc | trim }}">{% endif %}
+    <meta property="og:url" content="{{ request.url }}">
+
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800;900&display=swap">
 
     <link
