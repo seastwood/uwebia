@@ -239,6 +239,12 @@
        sits inline and only falls into the menu when the bar runs out of room. #}
     {% set _pin = admin_navbar_pinned if admin_navbar_pinned is not none else ['trash'] %}
     {%- macro _dcls(k) -%}nav-tools-item{% if k not in _pin %} nav-tools-item--responsive{% endif %}{%- endmacro -%}
+    {# Subgroups are WRAPPERS, not items: the clickable row inside them already
+       carries .nav-tools-item. Adding it to the wrapper too stacks a second
+       10px/12px padding (the toggle ends up indented past its siblings) and its
+       align-items:center stops the children stretching. So they take the
+       responsive modifier alone. #}
+    {%- macro _dresp(k) -%}{% if k not in _pin %}nav-tools-item--responsive{% endif %}{%- endmacro -%}
     {% set _b = store_nav_badges | default({}) %}
     {% macro _badge(n) %}{% if n and n > 0 %}<span class="nav-item-badge">{{ n if n < 100 else '99+' }}</span>{% endif %}{% endmacro %}
     <!-- Inline tool shortcuts — only the "responsive" items that collapse into
@@ -432,7 +438,7 @@
                    the current page is one of its members. #}
                 {% if _has_education_group %}
                 {% set _on_edu_page = request.endpoint in ['admin_education_page','admin_guides_page','guide_editor','admin_quizzes_page','quiz_editor','admin_resources_page','admin_divisions_page','admin_ksa_page'] %}
-                <div class="nav-tools-subgroup {{ _dcls('education') }}{% if _on_edu_page %} open{% endif %}" style="{{ _ord('education') }}">
+                <div class="nav-tools-subgroup {{ _dresp('education') }}{% if _on_edu_page %} open{% endif %}" style="{{ _ord('education') }}">
                     <button type="button" class="nav-tools-item nav-tools-subgroup-toggle" onclick="toggleNavSubgroup(event)">
                         <i class="fas fa-graduation-cap"></i>
                         <span>Education</span>
@@ -479,7 +485,7 @@
                    collapsed unless the current page is a store page. #}
                 {% if _has_store_group %}
                 {% set _on_store_page = request.endpoint in ['store_products','store_product_edit','store_product_new','admin_orders_page','admin_order_detail','admin_returns','admin_return_detail','admin_return_new','admin_shipping_page','admin_payments_page','admin_sales_analytics'] %}
-                <div class="nav-tools-subgroup {{ _dcls('store') }}{% if _on_store_page %} open{% endif %}" id="navToolsStoreGroup" style="{{ _ord('store') }}">
+                <div class="nav-tools-subgroup {{ _dresp('store') }}{% if _on_store_page %} open{% endif %}" id="navToolsStoreGroup" style="{{ _ord('store') }}">
                     <button type="button" class="nav-tools-item nav-tools-subgroup-toggle"
                             onclick="toggleNavStoreSubgroup(event)">
                         <i class="fas fa-store"></i>

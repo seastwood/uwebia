@@ -176,6 +176,24 @@ def main_test():
             inline_orders[href] = o
     check(f'inline items are ordered too ({len(inline_orders)})', len(inline_orders) >= 5)
 
+    print('\n[4b] a subgroup is a wrapper, not an item')
+    # Reported: "the dropdowns in the hamburger dropdown are indented from all
+    # the other items, especially Education and Store". The ordering helper was
+    # emitting the full item class onto the subgroup WRAPPER, so its padding
+    # stacked on top of the toggle row's own padding, and its align-items:center
+    # stopped the children stretching.
+    subgroups = drop.select('.nav-tools-subgroup')
+    check(f'the subgroups render ({len(subgroups)})', len(subgroups) >= 1)
+    for g in subgroups:
+        cls = g.get('class') or []
+        check(f'the wrapper does not double as an item ({cls})',
+              'nav-tools-item' not in cls)
+        check('but still collapses with the bar',
+              'nav-tools-item--responsive' in cls)
+        tog = g.select_one('.nav-tools-subgroup-toggle')
+        check('while the clickable row inside it is the item',
+              tog is not None and 'nav-tools-item' in (tog.get('class') or []))
+
     print('\n[5] the things that must stay put still do')
     # Trash used to be hard-pinned with order:8000. It is placeable now, so
     # what must hold is that it is ordered like everything else and still
