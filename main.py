@@ -6050,10 +6050,30 @@ class NotificationFeed(db.Model):
     # Free-form text sent before the embed — commonly a Discord role ping.
     prepend_text = db.Column(db.String(500), nullable=True)
 
+    # ── Public schedule page ────────────────────────────────────────────────
+    # A feed is a plan, and the people it is aimed at benefit from seeing the
+    # whole plan: what has already gone out (catch up) and what is coming
+    # (work ahead). Off by default — a feed stays private until published.
+    public_enabled = db.Column(db.Boolean, nullable=False, default=False,
+                               server_default=_sa_false())
+    # What readers see it called, e.g. "Build Training Schedule". Falls back to
+    # `name`, which is the admin's own label for it.
+    public_title = db.Column(db.String(200), nullable=True)
+    public_slug = db.Column(db.String(200), nullable=True, index=True)
+    public_description = db.Column(db.Text, nullable=True)
+    # Optional owner division. Set it and the schedule is shown to that
+    # division's members (and staff) rather than to everyone.
+    division_id = db.Column(db.Integer, db.ForeignKey('division.id', ondelete='SET NULL'),
+                            nullable=True, index=True)
+    # Restrict to organization members, mirroring Guide.members_only.
+    public_members_only = db.Column(db.Boolean, nullable=False, default=False,
+                                    server_default=_sa_false())
+
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
     last_sent_at = db.Column(db.DateTime, nullable=True)
 
     channel = db.relationship('NotificationChannel')
+    division = db.relationship('Division')
     items = db.relationship('NotificationFeedItem', backref='feed',
                             lazy='dynamic', cascade='all, delete-orphan',
                             order_by='NotificationFeedItem.sort_order')
@@ -10813,8 +10833,42 @@ def dashboard():
     return render_template(
         'admin_home.html',
         widgets=_dashboard_widgets(website),
+        feed_progress=_dashboard_feed_progress(),
         current_site=website,
     )
+
+
+def _dashboard_feed_progress():
+    """Where every feed this admin can see has got to.
+
+    A widget tile can hold two numbers; a feed needs its position in the run,
+    what goes out next and when. So this renders as its own strip under the
+    grid rather than being squeezed into a tile. Running feeds come first —
+    a paused one isn't what you opened the dashboard to check."""
+    if not current_user.has_permission('notifications.view'):
+        return []
+    rows = []
+    for feed in _visible_feeds_for_admin():
+        ov = _feed_overview(feed)
+        rows.append({
+            'id': feed.id,
+            'name': feed.name,
+            'channel': feed.channel.label if feed.channel else '',
+            'is_active': feed.is_active,
+            'exhausted': ov['exhausted'],
+            'position': ov['next_position'],     # 1-based; 0 when spent
+            'total': ov['queue_len'],
+            # cursor indexes the ENABLED queue, so queue_len is the denominator
+            # — total_items counts skipped ones too and would understate it.
+            'percent': (int(round(ov['cursor'] / ov['queue_len'] * 100))
+                        if ov['queue_len'] and ov['cursor'] < ov['queue_len']
+                        else (100 if ov['queue_len'] else 0)),
+            'next_title': ov['next_title'],
+            'next_slot': ov['next_slot'],
+            'public_slug': feed.public_slug if feed.public_enabled else '',
+        })
+    rows.sort(key=lambda r: (not r['is_active'], r['exhausted'], r['name'].lower()))
+    return rows
 
 
 def _dashboard_widgets(website):
@@ -10925,6 +10979,17 @@ def _dashboard_widgets(website):
         [{'value': count(StoreOrder, website_id=wid), 'label': 'orders'},
          {'value': count(StoreProduct, website_id=wid), 'label': 'products'}],
         enabled=bool(website and getattr(website, 'store_enabled', False)))
+
+    # ── Notifications ────────────────────────────────────────────────────────
+    # Channels and feeds are account-wide, not per-website, so they are counted
+    # against the root admin rather than the current site.
+    _channels = count(NotificationChannel, user_id=root_id)
+    _feeds = count(NotificationFeed, user_id=root_id)
+    add('notifications', 'Notifications', 'fa-bell',
+        url_for('admin_notifications_page'), 'notifications.view',
+        [{'value': _channels, 'label': 'channels'},
+         {'value': _feeds, 'label': 'feeds'}],
+        enabled=bool(_channels or _feeds), accent='#8af5b0')
 
     # ── Account-wide ─────────────────────────────────────────────────────────
     add('assets', 'Asset Library', 'fa-photo-film', url_for('asset_library'), 'assets.view',
@@ -18895,6 +18960,12 @@ def _serialize_backup(uid):
                                 'position': f.position,
                                 'default_message': f.default_message,
                                 'prepend_text': f.prepend_text,
+                                'public_enabled': f.public_enabled,
+                                'public_title': f.public_title,
+                                'public_slug': f.public_slug,
+                                'public_description': f.public_description,
+                                'public_members_only': f.public_members_only,
+                                'division_id': f.division_id,
                                 'created_at': f.created_at.isoformat() if f.created_at else None,
                                 'last_sent_at': f.last_sent_at.isoformat() if f.last_sent_at else None,
                                 } for f in notification_feeds],
@@ -21802,6 +21873,13 @@ def import_backup():
                     position=fd.get('position') or 0,
                     default_message=fd.get('default_message'),
                     prepend_text=fd.get('prepend_text'),
+                    public_enabled=bool(fd.get('public_enabled')),
+                    public_title=fd.get('public_title'),
+                    public_slug=fd.get('public_slug'),
+                    public_description=fd.get('public_description'),
+                    public_members_only=bool(fd.get('public_members_only')),
+                    # Divisions are restored earlier, so this map already exists.
+                    division_id=division_map.get(fd.get('division_id')) if fd.get('division_id') else None,
                     created_at=datetime.fromisoformat(fd['created_at']) if fd.get('created_at') else None,
                     last_sent_at=datetime.fromisoformat(fd['last_sent_at']) if fd.get('last_sent_at') else None,
                 )
@@ -43176,6 +43254,7 @@ def public_guides_index(prefix=None):
         quiz_status=quiz_status,
         grouped_resources=grouped_resources,
         favorites=favorites, favorites_enabled=favorites_enabled,
+        schedules=_public_schedule_cards(website, public_user),
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -47446,6 +47525,109 @@ def public_resource_bundle(bid):
                            blocks=blocks, public_user=public_user,
                            favorites=favorite_ids_for(public_user),
                            favorites_enabled=bool(public_user))
+
+
+def _visible_public_feeds(website, public_user=None):
+    """Published schedules the current viewer of `website` may see.
+
+    A schedule tied to a division is for that division's members; staff see
+    everything. Ordered so the running ones come first — a finished or paused
+    schedule is reference material, not what someone is looking for."""
+    if not website:
+        return []
+    feeds = (NotificationFeed.query
+             .filter_by(website_id=website.id, public_enabled=True)
+             .filter(NotificationFeed.public_slug.isnot(None))
+             .order_by(NotificationFeed.is_active.desc(), NotificationFeed.name)
+             .all())
+    if not feeds:
+        return []
+
+    pu = public_user if public_user is not None else _public_user_for_website(website)
+    is_member = bool(pu and pu.is_org_member)
+    my_divisions = set()
+    if pu:
+        my_divisions = {m.division_id for m in DivisionMembership.query.filter_by(
+            public_user_id=pu.id, status='active').all()}
+    # Admin mirrors are staff — they see every schedule regardless of division.
+    is_staff = bool(pu and pu.is_admin_mirror)
+
+    out = []
+    for f in feeds:
+        if f.public_members_only and not is_member:
+            continue
+        if f.division_id and not is_staff and f.division_id not in my_divisions:
+            continue
+        out.append(f)
+    return out
+
+
+def _public_schedule_cards(website, public_user=None):
+    """Summary of each schedule this viewer can see, for the learning index."""
+    cards = []
+    for f in _visible_public_feeds(website, public_user):
+        ov = _feed_overview(f)
+        cards.append({
+            'title': _feed_public_title(f),
+            'slug': f.public_slug,
+            'description': f.public_description or '',
+            'division': f.division.name if f.division else '',
+            'audience': _feed_audience_label(f),
+            'is_active': f.is_active,
+            'next_title': ov['next_title'],
+            'cursor': ov['cursor'],
+            'total': ov['queue_len'],
+            'exhausted': ov['exhausted'],
+        })
+    return cards
+
+
+@app.route('/training/<string:slug>')
+@app.route('/<string:prefix>/training/<string:slug>')
+def public_feed_schedule(slug, prefix=None):
+    """The whole run of a feed, so readers can catch up or work ahead."""
+    website = get_live_website(url_prefix=prefix) if prefix else get_live_website()
+    if not website:
+        return render_template('no_site_found.html'), 404
+    if not website.is_live:
+        return render_template('site_offline.html', website=website), 503
+    feed = NotificationFeed.query.filter_by(
+        website_id=website.id, public_slug=slug, public_enabled=True).first()
+    if not feed:
+        abort(404)
+
+    public_user = _public_user_for_website(website)
+    gate = _members_only_gate(website, feed.public_members_only, public_user)
+    if gate is not None:
+        return gate
+    # A division-owned schedule is for that division. Staff always pass.
+    if feed.division_id and not (public_user and public_user.is_admin_mirror):
+        member_of = public_user and DivisionMembership.query.filter_by(
+            public_user_id=public_user.id, division_id=feed.division_id,
+            status='active').first()
+        if not member_of:
+            abort(404)
+
+    # Progress is tracked per logged-in member OR per anonymous visitor cookie,
+    # so a signed-out reader still sees what they have worked through.
+    visitor_id, should_set_cookie = get_or_create_asset_visitor_id()
+    visitor_hash = hash_asset_visitor_id(visitor_id)
+    rows = _feed_schedule_rows(feed, public_user=public_user,
+                               visitor_hash=visitor_hash)
+    resp = make_response(render_template(
+        'public_feed_schedule.html',
+        website=website, feed=feed, public_user=public_user,
+        title=_feed_public_title(feed),
+        rows=rows,
+        overview=_feed_overview(feed),
+        done_count=sum(1 for r in rows
+                       if r['progress'] and r['progress']['complete']),
+        trackable_count=sum(1 for r in rows if r['progress'] is not None),
+        audience_label=_feed_audience_label(feed),
+        weekday_labels=FEED_WEEKDAY_LABELS,
+        feed_timezone=str(_feed_owner_timezone(feed)),
+    ))
+    return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
 
 @app.route('/resource/<int:rid>')
@@ -53652,6 +53834,76 @@ def _absolute_media_url(url, website):
     return f'{base}{u}'
 
 
+def _feed_item_picture(feed, item):
+    """The picture an item shows, exactly as stored (site-relative).
+
+    Kept separate from _feed_item_media because the two want different things:
+    Discord needs it absolute (it fetches from its own servers), while the
+    schedule page wants the stored path so it renders whatever host it is
+    served from."""
+    if item.item_type == 'guide':
+        g = db.session.get(Guide, item.ref_id) if item.ref_id else None
+        return (g.cover_image_url or '') if g else ''
+    if item.item_type == 'quiz':
+        q = db.session.get(Quiz, item.ref_id) if item.ref_id else None
+        return (q.image_url or '') if q else ''
+    if item.item_type == 'resource':
+        r = db.session.get(Resource, item.ref_id) if item.ref_id else None
+        return (r.image_url or '') if r else ''
+    if item.item_type == 'bundle':
+        b = db.session.get(ResourceBundle, item.ref_id) if item.ref_id else None
+        return next((r.image_url for r in _bundle_public_resources(b)
+                     if r.image_url), '') if b else ''
+    if item.item_type == 'link':
+        u = (item.url or '').strip()
+        return u if _IMAGE_FILE_RE.search(u) else ''
+    return ''
+
+
+# Fallback glyph per item type, for rows with no picture of their own.
+FEED_ITEM_ICONS = {
+    'guide': 'fa-book', 'quiz': 'fa-clipboard-check', 'resource': 'fa-folder-open',
+    'bundle': 'fa-box-open', 'link': 'fa-link', 'message': 'fa-comment',
+}
+
+
+def _feed_item_details(feed, item):
+    """Short facts worth knowing before opening a row — how long a guide is,
+    how many questions a quiz asks, what a link points at."""
+    out = []
+    if item.item_type == 'guide':
+        g = db.session.get(Guide, item.ref_id) if item.ref_id else None
+        if g:
+            lessons = len(_guide_reading_order(g))
+            if lessons:
+                out.append(f'{lessons} lesson{"" if lessons == 1 else "s"}')
+    elif item.item_type == 'quiz':
+        q = db.session.get(Quiz, item.ref_id) if item.ref_id else None
+        if q:
+            asked = q.draw_count or QuizQuestion.query.filter_by(
+                quiz_id=q.id).filter(QuizQuestion.question_type != 'text').count()
+            if asked:
+                out.append(f'{asked} question{"" if asked == 1 else "s"}')
+            if q.pass_threshold:
+                out.append(f'{int(round(q.pass_threshold * 100))}% to pass')
+            if q.max_attempts:
+                out.append(f'{q.max_attempts} attempt'
+                           f'{"" if q.max_attempts == 1 else "s"}')
+    elif item.item_type == 'bundle':
+        b = db.session.get(ResourceBundle, item.ref_id) if item.ref_id else None
+        if b and b.category:
+            out.append(b.category.name)
+    elif item.item_type == 'link':
+        from urllib.parse import urlparse as _urlparse
+        try:
+            host = _urlparse(item.url or '').hostname or ''
+        except Exception:
+            host = ''
+        if host:
+            out.append(host.replace('www.', ''))
+    return out
+
+
 def _feed_item_media(feed, item, website=None):
     """(image_url, [video_url, …]) for a feed item — either may be empty.
 
@@ -54368,6 +54620,129 @@ def _feed_picker_catalog(site_id):
     }
 
 
+def _feed_row_progress(item, public_user, visitor_hash):
+    """What this reader has already done with a row, or None.
+
+    Only guides and quizzes track anything. Returns a small dict the template
+    can render without knowing which kind it came from."""
+    if item.item_type == 'guide':
+        g = db.session.get(Guide, item.ref_id) if item.ref_id else None
+        if not g or not g.track_progress:
+            return None
+        summary = _guide_progress_summary(g, public_user, visitor_hash)
+        if not summary or not summary.get('total'):
+            return None
+        done, total = summary['completed'], summary['total']
+        return {'kind': 'guide', 'done': done, 'total': total,
+                'percent': int(round(done / total * 100)) if total else 0,
+                'complete': done >= total and total > 0}
+    if item.item_type == 'quiz':
+        q = db.session.get(Quiz, item.ref_id) if item.ref_id else None
+        if not q:
+            return None
+        attempts = QuizAttempt.query.filter(QuizAttempt.quiz_id == q.id)
+        if public_user:
+            attempts = attempts.filter(db.or_(
+                QuizAttempt.public_user_id == public_user.id,
+                QuizAttempt.visitor_id_hash == visitor_hash))
+        else:
+            attempts = attempts.filter(QuizAttempt.visitor_id_hash == visitor_hash)
+        best, threshold = 0, (q.pass_threshold or 0.9)
+        found = False
+        for a in attempts.all():
+            found = True
+            best = max(best, (a.score / a.max_score) if a.max_score else 0)
+        if not found:
+            return None
+        return {'kind': 'quiz', 'percent': int(round(best * 100)),
+                'complete': best >= threshold}
+    return None
+
+
+def _feed_schedule_rows(feed, limit_upcoming=None, public_user=None,
+                        visitor_hash=None):
+    """The whole run as a reader sees it: what has gone out, what is next, and
+    what is coming — each with the date it landed or is due.
+
+    Position in the list is the only source of truth for state: everything
+    before the cursor has been released, the cursor itself is next, the rest is
+    upcoming. Release dates come from the run log (what actually happened);
+    upcoming dates are projected by walking the schedule forward from now."""
+    website = _feed_website(feed)
+    queue = _feed_queue(feed)
+    cursor = max(0, feed.position or 0)
+
+    # Last successful send per item, so a released row can say when.
+    sent_at = {}
+    for run in feed.runs.filter_by(success=True).order_by(
+            NotificationFeedRun.sent_at.asc()).all():
+        if run.item_id:
+            sent_at[run.item_id] = run.sent_at
+
+    # Project the dates the upcoming items are due on, one slot each.
+    tz = _feed_owner_timezone(feed)
+    projected, slot = [], datetime.now(tz)
+    if feed.is_active:
+        for _ in range(max(0, len(queue) - cursor)):
+            slot = _feed_next_slot(feed, after=slot)
+            if slot is None:
+                break
+            projected.append(slot)
+
+    rows = []
+    for idx, item in enumerate(queue):
+        state = 'released' if idx < cursor else ('next' if idx == cursor else 'upcoming')
+        if state == 'upcoming' and limit_upcoming is not None \
+                and idx - cursor > limit_upcoming:
+            break
+        title, url, kind, blurb = _feed_item_target(feed, item, website)
+        when, when_iso = '', ''
+        if state == 'released':
+            stamp = sent_at.get(item.id) or item.last_sent_at
+            if stamp:
+                when, when_iso = stamp.strftime('%b %-d, %Y'), stamp.isoformat()
+        else:
+            ahead = idx - cursor
+            if ahead < len(projected):
+                when = projected[ahead].strftime('%a, %b %-d')
+                when_iso = projected[ahead].isoformat()
+        rows.append({
+            'number': idx + 1,
+            'state': state,
+            'title': title,
+            'kind': kind,
+            'item_type': item.item_type,
+            'url': url if url.startswith(('http://', 'https://', '/')) else '',
+            'blurb': blurb,
+            'when': when,
+            'when_iso': when_iso,
+            'image': _feed_item_picture(feed, item),
+            'icon': FEED_ITEM_ICONS.get(item.item_type, 'fa-circle'),
+            'details': _feed_item_details(feed, item),
+            'progress': (_feed_row_progress(item, public_user, visitor_hash)
+                         if visitor_hash else None),
+        })
+    return rows
+
+
+def _feed_public_title(feed):
+    return (feed.public_title or '').strip() or feed.name
+
+
+def _feed_audience(feed):
+    """The audience preset this feed's settings amount to."""
+    if feed.division_id:
+        return f'division:{feed.division_id}'
+    return 'members' if feed.public_members_only else 'everyone'
+
+
+def _feed_audience_label(feed):
+    """How the audience reads to a person."""
+    if feed.division_id:
+        return feed.division.name if feed.division else 'A division'
+    return 'All members' if feed.public_members_only else 'Anyone'
+
+
 def _feed_overview(feed):
     """Schedule/progress summary shared by the list page and the editor."""
     queue = _feed_queue(feed)
@@ -54457,6 +54832,13 @@ def admin_notification_feed_editor(fid):
     runs = (feed.runs.order_by(NotificationFeedRun.sent_at.desc())
             .limit(25).all())
 
+    divisions = (Division.query.filter_by(website_id=site_id)
+                 .order_by(Division.sort_order, Division.name).all()) if site_id else []
+    public_url = ''
+    if feed.public_enabled and feed.public_slug:
+        prefix = ('/' + feed_site.url_prefix) if (feed_site and feed_site.url_prefix) else ''
+        public_url = f'{prefix}/training/{feed.public_slug}'
+
     return render_template(
         'notification_feed_editor.html',
         feed=feed,
@@ -54466,6 +54848,9 @@ def admin_notification_feed_editor(fid):
         locked_channel=locked_channel,
         live_websites=live_websites,
         picker_catalog=picker_catalog,
+        divisions=divisions,
+        public_url=public_url,
+        audience=_feed_audience(feed),
         runs=runs,
         placeholders=FEED_MESSAGE_PLACEHOLDERS,
         default_feed_message=DEFAULT_FEED_MESSAGE,
@@ -54539,6 +54924,69 @@ def admin_notification_feed_update(fid):
         feed.prepend_text = (data.get('prepend_text') or '').strip()[:500] or None
     if 'loop_when_finished' in data:
         feed.loop_when_finished = bool(data.get('loop_when_finished'))
+
+    # ── Public schedule page ────────────────────────────────────────────────
+    if 'public_title' in data:
+        feed.public_title = (data.get('public_title') or '').strip()[:200] or None
+    if 'public_description' in data:
+        feed.public_description = (data.get('public_description') or '').strip() or None
+    # Who the schedule is for. One choice rather than two independent switches:
+    # "all members" is division_id=None + members_only=True, which nobody would
+    # deduce from a division dropdown sitting next to a checkbox.
+    if 'public_audience' in data:
+        audience = (data.get('public_audience') or 'everyone').strip()
+        if audience == 'everyone':
+            feed.division_id, feed.public_members_only = None, False
+        elif audience == 'members':
+            feed.division_id, feed.public_members_only = None, True
+        elif audience.startswith('division:'):
+            try:
+                did = int(audience.split(':', 1)[1])
+            except (TypeError, ValueError):
+                return _utf8_json({'success': False, 'error': 'Unknown audience.'}, 400)
+            div = db.session.get(Division, did)
+            if not div or div.website_id not in _admin_website_ids():
+                return _utf8_json({'success': False, 'error': 'Division not found.'}, 404)
+            # A division is made of members, so membership is implied.
+            feed.division_id, feed.public_members_only = did, True
+        else:
+            return _utf8_json({'success': False, 'error': 'Unknown audience.'}, 400)
+    # The underlying fields stay settable on their own for anything that needs
+    # finer control than the three presets.
+    if 'public_members_only' in data:
+        feed.public_members_only = bool(data.get('public_members_only'))
+    if 'division_id' in data:
+        did = data.get('division_id')
+        if did:
+            div = db.session.get(Division, int(did))
+            if not div or div.website_id not in _admin_website_ids():
+                return _utf8_json({'success': False, 'error': 'Division not found.'}, 404)
+            feed.division_id = int(did)
+        else:
+            feed.division_id = None
+    if 'public_slug' in data:
+        raw = (data.get('public_slug') or '').strip()
+        slug = _slugify_post(raw or _feed_public_title(feed) or feed.name or 'schedule')[:200]
+        # Slugs live in the site's URL space, so they have to be unique there —
+        # otherwise publishing a second schedule silently shadows the first.
+        clash = NotificationFeed.query.filter(
+            NotificationFeed.website_id == feed.website_id,
+            NotificationFeed.public_slug == slug,
+            NotificationFeed.id != feed.id).first()
+        if clash:
+            return _utf8_json({'success': False,
+                               'error': f'“{slug}” is already used by another schedule.'}, 400)
+        feed.public_slug = slug
+    if 'public_enabled' in data:
+        want_public = bool(data.get('public_enabled'))
+        if want_public:
+            if not feed.website_id:
+                return _utf8_json({'success': False,
+                                   'error': 'Pick a website before publishing the page.'}, 400)
+            if not feed.public_slug:
+                feed.public_slug = _slugify_post(
+                    _feed_public_title(feed) or 'schedule')[:200]
+        feed.public_enabled = want_public
     if 'is_active' in data:
         want_active = bool(data.get('is_active'))
         if want_active:

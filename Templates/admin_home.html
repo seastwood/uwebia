@@ -108,6 +108,32 @@
         color: rgba(255,255,255,0.42);
         margin-top: 3px;
     }
+    .fp-heading { font-size: 1rem; font-weight: 800; margin: 34px 0 12px;
+                  color: rgba(255,255,255,0.8); }
+    .fp-list { display: flex; flex-direction: column; gap: 10px; }
+    .fp-row { display: block; background: rgba(255,255,255,0.04);
+              border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+              padding: 13px 16px; text-decoration: none; color: inherit; }
+    .fp-row:hover { background: rgba(255,255,255,0.07);
+                    border-color: rgba(138,245,176,0.32); }
+    .fp-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .fp-name { font-weight: 700; }
+    .fp-pill { font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+               letter-spacing: 0.06em; padding: 2px 9px; border-radius: 999px; }
+    .fp-pill-on { background: rgba(94,238,200,0.15); color: #8af5b0; }
+    .fp-pill-off { background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.5); }
+    .fp-pill-done { background: rgba(255,217,130,0.14); color: #ffd982; }
+    .fp-count { margin-left: auto; font-size: 0.78rem; font-weight: 700;
+                color: #8af5b0; white-space: nowrap; }
+    .fp-bar { height: 5px; border-radius: 3px; background: rgba(255,255,255,0.09);
+              margin: 10px 0 7px; overflow: hidden; }
+    .fp-bar span { display: block; height: 100%;
+                   background: linear-gradient(90deg,#5eeef8,#8af5b0); }
+    .fp-meta { font-size: 0.79rem; color: rgba(255,255,255,0.45); line-height: 1.5; }
+    .fp-meta strong { color: rgba(255,255,255,0.72); font-weight: 650; }
+    .fp-warn { color: #ffd982; }
+    @media (max-width: 560px) { .fp-count { margin-left: 0; } }
+
     .widget-open {
         font-size: 0.78rem;
         color: rgba(255,255,255,0.35);
@@ -178,6 +204,47 @@
     <div class="home-empty">
         Nothing to show yet. Once features are enabled on this site — and you have
         permission to use them — they'll appear here.
+    </div>
+    {% endif %}
+
+    {# Feeds get their own strip rather than a tile: a tile holds two numbers,
+       and what you actually want to know is where each run has got to. #}
+    {% if feed_progress %}
+    <h2 class="fp-heading">Notification feeds</h2>
+    <div class="fp-list">
+        {% for f in feed_progress %}
+        <a class="fp-row" href="/admin/notifications/feeds/{{ f.id }}">
+            <div class="fp-top">
+                <span class="fp-name">{{ f.name }}</span>
+                {% if f.exhausted and f.is_active %}
+                    <span class="fp-pill fp-pill-done">Out of items</span>
+                {% elif f.is_active %}
+                    <span class="fp-pill fp-pill-on">Running</span>
+                {% else %}
+                    <span class="fp-pill fp-pill-off">Paused</span>
+                {% endif %}
+                {% if f.total %}
+                <span class="fp-count">
+                    {% if f.exhausted %}all {{ f.total }} sent{% else %}on {{ f.position }} of {{ f.total }}{% endif %}
+                </span>
+                {% endif %}
+            </div>
+            {% if f.total %}
+            <div class="fp-bar"><span style="width: {{ f.percent }}%;"></span></div>
+            {% endif %}
+            <div class="fp-meta">
+                {% if f.exhausted %}
+                    Add more items and it carries on from here.
+                {% elif f.next_title %}
+                    Up next: <strong>{{ f.next_title }}</strong>{% if f.is_active and f.next_slot %} · {{ f.next_slot }}{% endif %}
+                {% else %}
+                    Nothing queued yet.
+                {% endif %}
+                {% if f.channel %} · {{ f.channel }}{% else %} · <span class="fp-warn">no channel</span>{% endif %}
+                {% if f.public_slug %} · <i class="fas fa-globe"></i> published{% endif %}
+            </div>
+        </a>
+        {% endfor %}
     </div>
     {% endif %}
 </div>

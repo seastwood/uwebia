@@ -82,6 +82,15 @@
 .gi-tab:hover { opacity: 0.85; }
 .gi-tab.is-active { opacity: 1; border-bottom-color: currentColor; }
 .gi-tab-panel[hidden] { display: none; }
+.gi-schedule { display: block; border: 1px solid rgba(127,127,127,0.28); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; color: inherit; text-decoration: none; }
+.gi-schedule:hover { border-color: currentColor; }
+.gi-schedule-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gi-schedule-name { font-weight: 800; font-size: 1.05rem; }
+.gi-schedule-div { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 9px; border-radius: 999px; border: 1px solid rgba(127,127,127,0.4); opacity: 0.7; }
+.gi-schedule-desc { font-size: 0.9rem; opacity: 0.7; margin: 8px 0 0; line-height: 1.5; }
+.gi-schedule-bar { height: 6px; border-radius: 3px; background: rgba(127,127,127,0.22); margin: 12px 0 6px; overflow: hidden; }
+.gi-schedule-bar span { display: block; height: 100%; background: currentColor; opacity: 0.6; }
+.gi-schedule-meta { font-size: 0.83rem; opacity: 0.65; margin: 0; }
 /* Category chips. Same idea as the role/division chips on the members page:
    one tap to narrow a long list down to what you came for. */
 .gi-catbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 22px; }
@@ -533,11 +542,51 @@ function giRefreshFavCounts() {
 {% endif %}
 {% endmacro %}
 
-    {% if grouped_quizzes or grouped_resources %}
+    {% if grouped_quizzes or grouped_resources or schedules %}
     <div class="gi-tabs" role="tablist">
         <button type="button" class="gi-tab is-active" data-tab="guides" role="tab" onclick="giSwitchTab('guides')"><i class="fas fa-book-open"></i> Guides</button>
         {% if grouped_quizzes %}<button type="button" class="gi-tab" data-tab="quizzes" role="tab" onclick="giSwitchTab('quizzes')"><i class="fas fa-clipboard-check"></i> Quizzes</button>{% endif %}
         {% if grouped_resources %}<button type="button" class="gi-tab" data-tab="resources" role="tab" onclick="giSwitchTab('resources')"><i class="fas fa-folder-open"></i> Resources</button>{% endif %}
+        {# "My Training" only reads right for someone it belongs to. A visitor
+           with no account is looking at a published schedule, not theirs. #}
+        {% set _training_label = 'My Training' if (public_user and public_user.is_org_member) else 'Training' %}
+        {% if schedules %}<button type="button" class="gi-tab" data-tab="training" role="tab" onclick="giSwitchTab('training')"><i class="fas fa-calendar-check"></i> {{ _training_label }}</button>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if schedules %}
+    <div class="gi-tab-panel" data-tab="training" hidden>
+        <p style="opacity:0.68;line-height:1.6;margin:0 0 22px;">
+            {% if public_user and public_user.is_org_member %}
+                The full run of each schedule — catch up on anything you missed, or work ahead.
+            {% else %}
+                The full run of each schedule, so you can follow along at your own pace.
+            {% endif %}
+        </p>
+        {% for s in schedules %}
+        <a class="gi-schedule" href="{{ ('/' + website.url_prefix) if website.url_prefix else '' }}/training/{{ s.slug }}">
+            <div class="gi-schedule-top">
+                <i class="fas fa-calendar-check"></i>
+                <span class="gi-schedule-name">{{ s.title }}</span>
+                {% if s.division %}<span class="gi-schedule-div">{{ s.division }}</span>
+                {% elif s.audience == 'All members' %}<span class="gi-schedule-div">All members</span>{% endif %}
+                {% if not s.is_active %}<span class="gi-schedule-div">Paused</span>{% endif %}
+            </div>
+            {% if s.description %}<p class="gi-schedule-desc">{{ s.description }}</p>{% endif %}
+            {% if s.total %}
+            <div class="gi-schedule-bar">
+                <span style="width: {{ (s.cursor / s.total * 100) | round | int if s.cursor < s.total else 100 }}%;"></span>
+            </div>
+            <p class="gi-schedule-meta">
+                {% if s.exhausted %}
+                    All {{ s.total }} released
+                {% else %}
+                    {{ s.cursor }} of {{ s.total }} released{% if s.next_title %} · up next: <strong>{{ s.next_title }}</strong>{% endif %}
+                {% endif %}
+            </p>
+            {% endif %}
+        </a>
+        {% endfor %}
     </div>
     {% endif %}
 
