@@ -240,6 +240,7 @@
                 {% else %}
                     Nothing queued yet.
                 {% endif %}
+                · {{ f.type_label }}
                 {% if f.channel %} · {{ f.channel }}{% else %} · <span class="fp-warn">no channel</span>{% endif %}
                 {% if f.public_slug %} · <i class="fas fa-globe"></i> published{% endif %}
             </div>

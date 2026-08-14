@@ -346,6 +346,23 @@
                     The item going out next is highlighted, the same as in the hopper above.
                 </p>
 
+                <div class="fd-field">
+                    <label class="fd-label">What this feed is for</label>
+                    <select class="fd-select" id="feedType" onchange="saveSettings(true)">
+                        {% for key, meta in feed_types.items() %}
+                        <option value="{{ key }}" {% if feed_type == key %}selected{% endif %}>{{ meta.label }}</option>
+                        {% endfor %}
+                    </select>
+                    <p class="fd-card-sub" style="margin:6px 0 0;">
+                        {% if in_training_tab %}
+                            Training feeds are listed under <em>My Training</em> on the public learning page.
+                        {% else %}
+                            Only <strong>Training</strong> feeds are listed under <em>My Training</em>. This one
+                            still gets its page — share the link directly.
+                        {% endif %}
+                    </p>
+                </div>
+
                 <label class="fd-check" style="margin-bottom:12px;">
                     <input type="checkbox" id="publicEnabled" {% if feed.public_enabled %}checked{% endif %}
                            onchange="saveSettings(true)">
@@ -550,6 +567,7 @@ function settingsPayload() {
         public_slug: document.getElementById('publicSlug').value,
         public_description: document.getElementById('publicDescription').value,
         public_audience: document.getElementById('publicAudience').value,
+        feed_type: document.getElementById('feedType').value,
     };
 }
 
