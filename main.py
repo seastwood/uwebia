@@ -1425,14 +1425,22 @@ def get_main_admin():
 
 
 def _org_requires_2fa():
-    """Org-wide 2FA policy, read from the anchor (primary owner). True when the
-    explicit policy is on OR (legacy/back-compat) the owner has their own 2FA
-    enabled — so enabling the org policy never makes the admin side LESS secure
-    than the old 'owner's 2FA forces everyone' behaviour.
+    """Org-wide 2FA policy, read from the anchor (primary owner).
 
-    Like per-user 2FA, the explicit policy auto-disables if the email server
-    settings changed since it was verified (admins couldn't receive codes), and
-    must be re-verified."""
+    The explicit toggle IS the policy. It used to be OR'd with the anchor's own
+    `two_factor_enabled` for back-compat with the old "owner's 2FA forces
+    everyone" behaviour, but that made the toggle unusable for exactly the orgs
+    most likely to want it: an owner with their own 2FA could never switch the
+    org requirement off, because their personal setting kept forcing it back on
+    with nothing on screen explaining why.
+
+    Turning the org policy off does NOT weaken the owner's own account —
+    admin_requires_2fa still returns True for anyone who enrolled a factor
+    themselves. It only stops that choice being imposed on every other admin.
+
+    Like per-user 2FA, the policy auto-disables if the email server settings
+    changed since it was verified (admins couldn't receive codes), and must be
+    re-verified."""
     anchor = get_main_admin()
     if not anchor:
         return False
@@ -1450,7 +1458,7 @@ def _org_requires_2fa():
                 anchor.org_2fa_email_settings_version = None
                 anchor.org_2fa_needs_attention = True
                 db.session.commit()
-    return bool(anchor.org_require_2fa or anchor.two_factor_enabled)
+    return bool(anchor.org_require_2fa)
 
 
 def admin_github_only_mode():
@@ -26810,7 +26818,7 @@ def admin_users_page():
     # that helper can switch the policy OFF as a side effect when the mail
     # settings have changed, which should happen on a login attempt, not
     # because someone opened this page.
-    org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
+    org_requires_2fa = bool(anchor and anchor.org_require_2fa)
 
     _anchor_for_access = get_main_admin()
     return render_template('admin_users.html',
