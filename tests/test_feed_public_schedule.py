@@ -333,6 +333,42 @@ def main_test():
     other_page = as_member(ids['driver'], ids['site']).get(URL).get_data(as_text=True)
     check('another reader does not inherit it', '1 of 2 lessons done' not in other_page)
 
+    print('\n[4f] only training feeds belong in the training tab')
+    # The same machinery drives a reading list or a run of announcements. Those
+    # are not somebody's course material, so they must not be listed as it.
+    ac0.post(f'/admin/notifications/feeds/{ids["feed"]}/update',
+             json={'public_audience': 'members'})
+    member_index = c.get('/guides').get_data(as_text=True)
+    check('a training feed is listed', 'data-tab="training"' in member_index)
+
+    r = ac0.post(f'/admin/notifications/feeds/{ids["feed"]}/update',
+                 json={'feed_type': 'announcements'})
+    check('the type can be changed', r.get_json().get('success'))
+    after = c.get('/guides').get_data(as_text=True)
+    check('an announcements feed drops out of the tab',
+          'data-tab="training"' not in after)
+    check('but its page still works — it is published, just not course material',
+          c.get(URL).status_code == 200)
+
+    r = ac0.post(f'/admin/notifications/feeds/{ids["feed"]}/update',
+                 json={'feed_type': 'nonsense'})
+    check(f'an unknown type is refused ({r.status_code})', r.status_code == 400)
+    with app.app_context():
+        check('and the feed keeps the type it had',
+              db.session.get(main.NotificationFeed, ids['feed']).feed_type
+              == 'announcements')
+
+    editor = ac0.get(f'/admin/notifications/feeds/{ids["feed"]}').get_data(as_text=True)
+    check('the editor offers the type', 'id="feedType"' in editor)
+    check('listing every kind', all(k in editor for k in main.FEED_TYPES))
+    check('and says a non-training feed will not be listed',
+          'still gets its page' in editor)
+
+    ac0.post(f'/admin/notifications/feeds/{ids["feed"]}/update',
+             json={'feed_type': 'training'})
+    check('switching back puts it in the tab',
+          'data-tab="training"' in c.get('/guides').get_data(as_text=True))
+
     print('\n[5] publishing is opt-in')
     with app.app_context():
         feed = db.session.get(main.NotificationFeed, ids['feed'])

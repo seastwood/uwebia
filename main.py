@@ -6050,6 +6050,14 @@ class NotificationFeed(db.Model):
     # Free-form text sent before the embed — commonly a Discord role ping.
     prepend_text = db.Column(db.String(500), nullable=True)
 
+    # What this feed is FOR. Not every feed is a course — a feed of shop
+    # announcements or a reading list is the same machinery aimed at something
+    # else. The type decides where a published feed is listed publicly; see
+    # FEED_TYPES. 'training' is the default because that is what the feature was
+    # built for and what every existing feed is.
+    feed_type = db.Column(db.String(30), nullable=False, default='training',
+                          server_default="'training'")
+
     # ── Public schedule page ────────────────────────────────────────────────
     # A feed is a plan, and the people it is aimed at benefit from seeing the
     # whole plan: what has already gone out (catch up) and what is coming
@@ -10853,6 +10861,7 @@ def _dashboard_feed_progress():
         rows.append({
             'id': feed.id,
             'name': feed.name,
+            'type_label': _feed_type_label(feed),
             'channel': feed.channel.label if feed.channel else '',
             'is_active': feed.is_active,
             'exhausted': ov['exhausted'],
@@ -18930,9 +18939,13 @@ def _serialize_backup(uid):
                                    'received_at': e.received_at.isoformat() if e.received_at else None,
                                    } for e in stripe_webhook_events],
         'notification_channels': [{'id': c.id, 'label': c.label, 'provider': c.provider,
-                                   # Provider config may contain encrypted secrets that
-                                   # depend on the source's Fernet key — drop on serialize.
-                                   'config': None,
+                                   # Only the SECRET is dropped (it is encrypted with
+                                   # the source's Fernet key and can't survive). The
+                                   # rest of the config is ordinary settings, and
+                                   # making the admin re-type a thread id and bot name
+                                   # alongside the webhook is needless.
+                                   'config': {k: v for k, v in (c.config or {}).items()
+                                              if k != 'webhook_url'},
                                    'is_active': c.is_active,
                                    'created_at': c.created_at.isoformat() if c.created_at else None,
                                    'last_used_at': c.last_used_at.isoformat() if c.last_used_at else None,
@@ -18960,6 +18973,7 @@ def _serialize_backup(uid):
                                 'position': f.position,
                                 'default_message': f.default_message,
                                 'prepend_text': f.prepend_text,
+                                'feed_type': f.feed_type,
                                 'public_enabled': f.public_enabled,
                                 'public_title': f.public_title,
                                 'public_slug': f.public_slug,
@@ -21812,7 +21826,10 @@ def import_backup():
                 nc = NotificationChannel(
                     user_id=uid, label=cd.get('label') or 'Channel',
                     provider=cd.get('provider') or 'discord_webhook',
-                    config={},  # Secrets were stripped on serialize; admin re-enters.
+                    # The webhook secret was stripped on serialize (admin re-enters
+                    # it); everything else in the config comes back as it was.
+                    config={k: v for k, v in (cd.get('config') or {}).items()
+                            if k != 'webhook_url'},
                     is_active=bool(cd.get('is_active', True)),
                     created_at=datetime.fromisoformat(cd['created_at']) if cd.get('created_at') else None,
                     last_used_at=datetime.fromisoformat(cd['last_used_at']) if cd.get('last_used_at') else None,
@@ -21873,6 +21890,7 @@ def import_backup():
                     position=fd.get('position') or 0,
                     default_message=fd.get('default_message'),
                     prepend_text=fd.get('prepend_text'),
+                    feed_type=fd.get('feed_type') or DEFAULT_FEED_TYPE,
                     public_enabled=bool(fd.get('public_enabled')),
                     public_title=fd.get('public_title'),
                     public_slug=fd.get('public_slug'),
@@ -43254,7 +43272,7 @@ def public_guides_index(prefix=None):
         quiz_status=quiz_status,
         grouped_resources=grouped_resources,
         favorites=favorites, favorites_enabled=favorites_enabled,
-        schedules=_public_schedule_cards(website, public_user),
+        schedules=_public_schedule_cards(website, public_user, training_only=True),
         public_user=public_user, completion_by_guide=completion_by_guide))
     return _set_visitor_cookie(resp, visitor_id) if should_set_cookie else resp
 
@@ -47562,10 +47580,16 @@ def _visible_public_feeds(website, public_user=None):
     return out
 
 
-def _public_schedule_cards(website, public_user=None):
-    """Summary of each schedule this viewer can see, for the learning index."""
+def _public_schedule_cards(website, public_user=None, training_only=False):
+    """Summary of each schedule this viewer can see, for the learning index.
+
+    `training_only` keeps the My Training tab to feeds that actually are
+    training — a feed of shop announcements uses the same machinery but is not
+    someone's course material."""
     cards = []
     for f in _visible_public_feeds(website, public_user):
+        if training_only and not _feed_in_training_tab(f):
+            continue
         ov = _feed_overview(f)
         cards.append({
             'title': _feed_public_title(f),
@@ -47573,6 +47597,8 @@ def _public_schedule_cards(website, public_user=None):
             'description': f.public_description or '',
             'division': f.division.name if f.division else '',
             'audience': _feed_audience_label(f),
+            'type': f.feed_type or DEFAULT_FEED_TYPE,
+            'type_label': _feed_type_label(f),
             'is_active': f.is_active,
             'next_title': ov['next_title'],
             'cursor': ov['cursor'],
@@ -53204,6 +53230,21 @@ CHANNEL_WEBHOOK_UNREADABLE = (
 )
 
 
+def _clean_thread_id(raw):
+    """(thread_id or None, error or None).
+
+    Discord ids are snowflakes — digits only. Anything else is almost certainly
+    a channel name or a pasted URL, and silently storing it would produce a
+    webhook URL that 404s at send time with nothing pointing at the cause."""
+    val = (raw or '').strip()
+    if not val:
+        return None, None
+    if not val.isdigit():
+        return None, ('Thread ID must be the numeric id Discord gives you '
+                      '(Copy Link on the thread — it is the last number).')
+    return val[:32], None
+
+
 def channel_webhook_url(channel):
     """The channel's usable webhook URL, or '' if there isn't one.
 
@@ -53218,16 +53259,25 @@ def channel_webhook_url(channel):
     is treated as legacy plaintext, which is the one case the loose fallback
     was actually there for.
     """
-    stored = ((channel.config or {}).get('webhook_url') or '').strip()
+    cfg = channel.config or {}
+    stored = (cfg.get('webhook_url') or '').strip()
     if not stored:
         return ''
     plain = decrypt_api_key_strict(stored)
-    if plain:
-        return plain
-    if stored.startswith(('https://discord.com/api/webhooks/',
-                          'https://discordapp.com/api/webhooks/')):
-        return stored          # saved before secrets were encrypted
-    return ''
+    if not plain:
+        if stored.startswith(('https://discord.com/api/webhooks/',
+                              'https://discordapp.com/api/webhooks/')):
+            plain = stored     # saved before secrets were encrypted
+        else:
+            return ''
+    # An optional thread turns the same webhook into a post INTO that thread.
+    # Folding it into the URL here means every sender inherits it without
+    # knowing about threads at all — and `?wait=true` appends cleanly on top,
+    # because the sender already handles a URL that has a query string.
+    thread_id = (cfg.get('thread_id') or '').strip()
+    if thread_id:
+        plain += ('&' if '?' in plain else '?') + f'thread_id={thread_id}'
+    return plain
 
 
 def _build_discord_payload(channel, embed, prepend_text=None, content=None):
@@ -53493,6 +53543,29 @@ FEED_ITEM_TYPES = ('guide', 'quiz', 'resource', 'bundle', 'link', 'message')
 
 # Python weekday numbering (0=Mon … 6=Sun) — matches date.weekday().
 FEED_WEEKDAY_LABELS = ('Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun')
+
+# What a feed is for. `in_training_tab` is the only behavioural difference so
+# far: it decides whether a published feed is listed under My Training. The
+# others still get their public page and are perfectly linkable — they just
+# aren't course material, so they don't belong in a list of someone's training.
+# Adding a type is adding an entry here.
+FEED_TYPES = {
+    'training':      {'label': 'Training',      'in_training_tab': True},
+    'announcements': {'label': 'Announcements', 'in_training_tab': False},
+    'reading':       {'label': 'Reading list',  'in_training_tab': False},
+    'other':         {'label': 'Something else', 'in_training_tab': False},
+}
+DEFAULT_FEED_TYPE = 'training'
+
+
+def _feed_type_label(feed):
+    return FEED_TYPES.get(feed.feed_type or DEFAULT_FEED_TYPE,
+                          FEED_TYPES[DEFAULT_FEED_TYPE])['label']
+
+
+def _feed_in_training_tab(feed):
+    return FEED_TYPES.get(feed.feed_type or DEFAULT_FEED_TYPE,
+                          FEED_TYPES[DEFAULT_FEED_TYPE])['in_training_tab']
 
 FEED_ITEM_TYPE_LABELS = {
     'guide':    'Guide',
@@ -54283,6 +54356,7 @@ def admin_notifications_page():
     channel_broken = {ch.id: not channel_webhook_url(ch) for ch in channels}
     feeds = _visible_feeds_for_admin()
     feed_overviews = {f.id: _feed_overview(f) for f in feeds}
+    feed_type_labels = {f.id: _feed_type_label(f) for f in feeds}
     return render_template(
         'notifications_admin.html',
         channels=channels,
@@ -54293,6 +54367,7 @@ def admin_notifications_page():
         can_add_feeds=can_create_notification_feeds(),
         feeds=feeds,
         feed_overviews=feed_overviews,
+        feed_type_labels=feed_type_labels,
         weekday_labels=FEED_WEEKDAY_LABELS,
         live_websites=live_websites,
         calendars=calendars,
@@ -54323,10 +54398,14 @@ def admin_notification_channel_create():
             and not webhook_url.startswith('https://discordapp.com/api/webhooks/'):
         return _utf8_json({'success': False,
                            'error': 'Webhook URL must start with https://discord.com/api/webhooks/'}, 400)
+    thread_id, thread_err = _clean_thread_id(data.get('thread_id'))
+    if thread_err:
+        return _utf8_json({'success': False, 'error': thread_err}, 400)
     config = {
         'webhook_url': encrypt_api_key(webhook_url),
         'bot_username': bot_username,
         'bot_avatar_url': bot_avatar_url,
+        'thread_id': thread_id,
     }
     ch = NotificationChannel(
         user_id=current_user.root_user_id,
@@ -54364,6 +54443,11 @@ def admin_notification_channel_update(cid):
         cfg['bot_username'] = (data.get('bot_username') or '').strip() or None
     if 'bot_avatar_url' in data:
         cfg['bot_avatar_url'] = (data.get('bot_avatar_url') or '').strip() or None
+    if 'thread_id' in data:
+        thread_id, thread_err = _clean_thread_id(data.get('thread_id'))
+        if thread_err:
+            return _utf8_json({'success': False, 'error': thread_err}, 400)
+        cfg['thread_id'] = thread_id
     ch.config = cfg
     if 'is_active' in data:
         ch.is_active = bool(data.get('is_active'))
@@ -54851,6 +54935,9 @@ def admin_notification_feed_editor(fid):
         divisions=divisions,
         public_url=public_url,
         audience=_feed_audience(feed),
+        feed_types=FEED_TYPES,
+        feed_type=feed.feed_type or DEFAULT_FEED_TYPE,
+        in_training_tab=_feed_in_training_tab(feed),
         runs=runs,
         placeholders=FEED_MESSAGE_PLACEHOLDERS,
         default_feed_message=DEFAULT_FEED_MESSAGE,
@@ -54924,6 +55011,12 @@ def admin_notification_feed_update(fid):
         feed.prepend_text = (data.get('prepend_text') or '').strip()[:500] or None
     if 'loop_when_finished' in data:
         feed.loop_when_finished = bool(data.get('loop_when_finished'))
+
+    if 'feed_type' in data:
+        kind = (data.get('feed_type') or DEFAULT_FEED_TYPE).strip()
+        if kind not in FEED_TYPES:
+            return _utf8_json({'success': False, 'error': 'Unknown feed type.'}, 400)
+        feed.feed_type = kind
 
     # ── Public schedule page ────────────────────────────────────────────────
     if 'public_title' in data:

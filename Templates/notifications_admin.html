@@ -142,6 +142,7 @@
                     <div class="nf-channel-name">{{ ch.label }}{% if not ch.is_active %} <span style="color:#ffd982;font-weight:400;font-size:0.82rem;">(disabled)</span>{% endif %}</div>
                     <div class="nf-channel-meta">
                         Discord webhook
+                        {% if ch.config.get('thread_id') %} · <i class="fas fa-comments"></i> thread {{ ch.config.get('thread_id') }}{% endif %}
                         {% if ch.last_used_at %} · last used {{ ch.last_used_at.strftime('%b %-d, %Y') }}{% endif %}
                     </div>
                     {% if channel_broken.get(ch.id) %}
@@ -151,7 +152,7 @@
             </div>
             <div class="nf-channel-actions">
                 <button class="nf-btn nf-btn-secondary" onclick="testChannel({{ ch.id }})"><i class="fas fa-paper-plane"></i> Test</button>
-                <button class="nf-btn nf-btn-secondary" onclick='editChannel({{ ch.id }}, {{ ch.label | tojson }}, {{ (ch.config.get("bot_username") or "") | tojson }}, {{ (ch.config.get("bot_avatar_url") or "") | tojson }}, {{ ch.is_active | tojson }})'>
+                <button class="nf-btn nf-btn-secondary" onclick='editChannel({{ ch.id }}, {{ ch.label | tojson }}, {{ (ch.config.get("bot_username") or "") | tojson }}, {{ (ch.config.get("bot_avatar_url") or "") | tojson }}, {{ ch.is_active | tojson }}, {{ (ch.config.get("thread_id") or "") | tojson }})'>
                     <i class="fas fa-pen"></i> Edit
                 </button>
                 <button class="nf-btn nf-btn-danger" onclick="deleteChannel({{ ch.id }}, '{{ ch.label | replace("'", "\\'") }}')"><i class="fas fa-trash"></i></button>
@@ -230,6 +231,7 @@
                             {% for d in f.days_of_week %}{{ weekday_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}
                             at {{ f.send_time }}
                         {% else %}No days picked yet{% endif %}
+                        · {{ feed_type_labels[f.id] }}
                         · {{ ov.queue_len }} item{{ '' if ov.queue_len == 1 else 's' }}
                         {% if f.channel %} · {{ f.channel.label }}{% else %} · <span style="color:#ffd982;">no channel</span>{% endif %}
                         {% if f.is_active and ov.next_slot %} · next {{ ov.next_slot }}{% endif %}
@@ -307,6 +309,14 @@
                 <input class="nf-input" id="chWebhookUrl" placeholder="https://discord.com/api/webhooks/...">
                 <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
                     In Discord: Server Settings → Integrations → Webhooks → New Webhook → Copy URL.
+                </p>
+            </div>
+            <div class="nf-field">
+                <label class="nf-label">Thread ID <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                <input class="nf-input" id="chThreadId" inputmode="numeric" placeholder="e.g. 1234567890123456789">
+                <p style="font-size:0.78rem;color:rgba(255,255,255,0.45);margin:6px 0 0;">
+                    Posts into a thread instead of the channel itself. In Discord: right-click the
+                    thread → Copy Link — the ID is the last number in it. Leave blank to post to the channel.
                 </p>
             </div>
             <div class="nf-row">
@@ -403,6 +413,7 @@ function openChannelModal() {
     document.getElementById('chWebhookUrl').value = '';
     document.getElementById('chBotUsername').value = '';
     document.getElementById('chBotAvatar').value = '';
+    document.getElementById('chThreadId').value = '';
     document.getElementById('chActive').checked = true;
     document.getElementById('channelMsg').textContent = '';
     document.getElementById('channelModalTitle').textContent = 'New Discord Channel';
@@ -410,13 +421,14 @@ function openChannelModal() {
     document.getElementById('chActiveWrap').style.display = 'none';
     document.getElementById('channelOverlay').classList.add('open');
 }
-function editChannel(id, label, botUser, botAvatar, isActive) {
+function editChannel(id, label, botUser, botAvatar, isActive, threadId) {
     document.getElementById('chIdInput').value = id;
     document.getElementById('chLabel').value = label || '';
     document.getElementById('chWebhookUrl').value = '';
     document.getElementById('chWebhookUrl').placeholder = '(leave blank to keep existing)';
     document.getElementById('chBotUsername').value = botUser || '';
     document.getElementById('chBotAvatar').value = botAvatar || '';
+    document.getElementById('chThreadId').value = threadId || '';
     document.getElementById('chActive').checked = !!isActive;
     document.getElementById('channelMsg').textContent = '';
     document.getElementById('channelModalTitle').textContent = 'Edit Channel';
@@ -433,6 +445,7 @@ async function submitChannel() {
         webhook_url: document.getElementById('chWebhookUrl').value.trim(),
         bot_username: document.getElementById('chBotUsername').value.trim(),
         bot_avatar_url: document.getElementById('chBotAvatar').value.trim(),
+        thread_id: document.getElementById('chThreadId').value.trim(),
     };
     if (id) {
         payload.is_active = document.getElementById('chActive').checked;
