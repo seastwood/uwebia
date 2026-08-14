@@ -1361,6 +1361,29 @@
             /* will be overridden by JS */
         }
 
+        .navbar-modal-tabs {
+            display: flex;
+            gap: 4px;
+            margin: 0 0 14px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .navbar-modal-tab {
+            background: none;
+            border: none;
+            border-bottom: 2px solid transparent;
+            padding: 8px 14px;
+            color: rgba(255, 255, 255, 0.55);
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+        .navbar-modal-tab:hover { color: rgba(255, 255, 255, 0.85); }
+        .navbar-modal-tab.active {
+            color: #5eeef8;
+            border-bottom-color: #5eeef8;
+        }
+        /* `hidden` alone loses to the display rules the panes inherit. */
+        .navbar-modal-pane[hidden] { display: none; }
+
         .navbar-builder-modal {
             display: flex;
             flex-direction: column;
@@ -1449,6 +1472,26 @@
             border-radius: 6px;
             padding: 2px 8px;
             white-space: nowrap;
+        }
+
+        /* A switched-off entry stays in the list, visibly inert, so it can be
+           switched back on without rebuilding it. */
+        .navbar-row-off {
+            opacity: 0.45;
+        }
+        .navbar-row-off .navbar-name,
+        .navbar-row-off .navbar-url,
+        .navbar-row-off .navbar-group-name {
+            text-decoration: line-through;
+        }
+        .navbar-toggle-btn {
+            flex: 0 0 auto;
+            min-width: 34px;
+        }
+        /* The toggle itself must stay legible while the row it sits in is dimmed. */
+        .navbar-row-off > .navbar-toggle-btn,
+        .navbar-row-off > .navbar-group-header > .navbar-toggle-btn {
+            opacity: 1;
         }
 
         .navbar-group-row {
@@ -2724,15 +2767,6 @@
                     </button>
                     {% endif %}
 
-                    {% if user_has_perm_for('appearance.navbar', website) %}
-                    <button type="button" class="website-action-button" onclick="openModal('publicNavbarStyleModal_{{ website.id }}')">
-                        <i class="fas fa-paint-brush"></i><span>Navbar Style</span>
-                    </button>
-                    {% else %}
-                    <button type="button" class="website-action-button perm-locked-btn" disabled title="You don't have permission to edit navbar style">
-                        <i class="fas fa-lock"></i><span>Navbar Style</span>
-                    </button>
-                    {% endif %}
 
                     {% if not website.is_draft %}
                     {% if user_has_perm('website.draft.create') and website.id not in drafted_website_ids %}
@@ -3845,8 +3879,22 @@
 
 
 
-            <h5>Public Navbar</h5>
+            <h5>Navbar</h5>
 
+            {# Routing and style were two buttons opening two modals, which meant
+               leaving one to reach the other while working on the same navbar. #}
+            <div class="navbar-modal-tabs" role="tablist">
+                <button type="button" class="navbar-modal-tab active" role="tab"
+                        data-navtab="routes" onclick="switchNavbarTab('{{ website.id }}', 'routes')">
+                    <i class="fas fa-bars"></i> Routing
+                </button>
+                <button type="button" class="navbar-modal-tab" role="tab"
+                        data-navtab="style" onclick="switchNavbarTab('{{ website.id }}', 'style')">
+                    <i class="fas fa-paint-brush"></i> Style
+                </button>
+            </div>
+
+            <div class="navbar-modal-pane" data-navpane="routes">
             <div class="modal-body navbar-builder-modal">
                 <div class="navbar-builder-actions">
                     <div class="navbar-builder-card">
@@ -3959,12 +4007,9 @@
                     </button>
                 </div>
             </div>
-        </div>
+            </div>{# /routes pane #}
 
-        <div id="publicNavbarStyleModal_{{ website.id }}" class="modal modal-content navbar-style-modal">
-            <span class="close" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">&times;</span>
-
-            <h5>Navbar Style</h5>
+            <div class="navbar-modal-pane" data-navpane="style" hidden>
 
             <div class="modal-body navbar-style-body">
 
@@ -4328,7 +4373,7 @@
             </div>
 
             <div class="modal-footer">
-                <button type="button" onclick="closeModal('publicNavbarStyleModal_{{ website.id }}')">
+                <button type="button" onclick="closeModal('publicNavbarModal_{{ website.id }}')">
                     Close
                 </button>
 
@@ -4336,7 +4381,9 @@
                     Save Navbar Style
                 </button>
             </div>
+            </div>{# /style pane #}
         </div>
+
 
         {% endfor %}
         <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
@@ -5070,7 +5117,35 @@
                 });
             }
 
-            function addNavbarItem(websiteId, name = '', url = '', parentEl = null) {
+            // Switching an entry off keeps it in the list — the alternative is
+            // deleting it and rebuilding the name, URL, group and position later.
+            function navbarToggleButtonHtml(rowSelector = '.navbar-item-row') {
+                return `<button type="button" class="navbar-toggle-btn"
+                        onclick="toggleNavbarRow(this.closest('${rowSelector}'))"></button>`;
+            }
+
+            function isNavbarRowDisabled(row) {
+                return !!row && row.dataset.disabled === '1';
+            }
+
+            function setNavbarRowDisabled(row, off) {
+                if (!row) return;
+                row.dataset.disabled = off ? '1' : '';
+                row.classList.toggle('navbar-row-off', !!off);
+                const btn = row.querySelector(':scope > .navbar-toggle-btn')
+                         || row.querySelector(':scope > .navbar-group-header > .navbar-toggle-btn');
+                if (btn) {
+                    btn.innerHTML = off ? '<i class="fas fa-eye-slash"></i>' : '<i class="fas fa-eye"></i>';
+                    btn.title = off ? 'Hidden from the public navbar — click to show'
+                                    : 'Visible — click to hide without deleting';
+                }
+            }
+
+            function toggleNavbarRow(row) {
+                setNavbarRowDisabled(row, !isNavbarRowDisabled(row));
+            }
+
+            function addNavbarItem(websiteId, name = '', url = '', parentEl = null, disabled = false) {
                 const container = parentEl || document.getElementById(`navbarItems_${websiteId}`);
 
                 const row = document.createElement('div');
@@ -5081,15 +5156,17 @@
         <span class="drag-handle" title="Drag to reorder">☰</span>
         <input type="text" class="navbar-name form-control" placeholder="Link name" value="${escapeHtml(name)}">
         <input type="text" class="navbar-url form-control" placeholder="URL" value="${escapeHtml(url)}">
+        ${navbarToggleButtonHtml()}
         <button type="button" onclick="this.closest('.navbar-item-row').remove()">Remove</button>
     `;
+                setNavbarRowDisabled(row, disabled);
 
                 container.appendChild(row);
                 initializeNavbarSorting(websiteId);
                 initializeGroupSorting(websiteId);
             }
 
-            function addSystemNavbarItem(websiteId, key, name, container = null) {
+            function addSystemNavbarItem(websiteId, key, name, container = null, disabled = false) {
                 if (!container) {
                     const dest = document.getElementById(`navbarDestinationSelect_${websiteId}`);
                     const val  = dest ? dest.value : 'top';
@@ -5104,14 +5181,16 @@
                     <span class="drag-handle" title="Drag to reorder">☰</span>
                     <input type="text" class="navbar-name form-control" placeholder="Display name" value="${escapeHtml(name || label)}">
                     <span class="navbar-system-badge" title="System page — only shows when the feature is enabled">⚙ ${escapeHtml(key)}</span>
+                    ${navbarToggleButtonHtml()}
                     <button type="button" onclick="this.closest('.navbar-item-row').remove()">Remove</button>
                 `;
+                setNavbarRowDisabled(row, disabled);
                 container.appendChild(row);
                 initializeNavbarSorting(websiteId);
                 initializeGroupSorting(websiteId);
             }
 
-            function addNavbarGroup(websiteId, name = 'More', children = [], groupUrl = '') {
+            function addNavbarGroup(websiteId, name = 'More', children = [], groupUrl = '', disabled = false) {
                 const container = document.getElementById(`navbarItems_${websiteId}`);
                 const groupId = `group_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
 
@@ -5137,6 +5216,8 @@
                 Add Blank Link
             </button>
 
+            ${navbarToggleButtonHtml('.navbar-group-row')}
+
             <button type="button" onclick="this.closest('.navbar-group-row').remove(); refreshNavbarDestinationOptions('${websiteId}')">
                 Remove Group
             </button>
@@ -5145,6 +5226,7 @@
         <div class="navbar-group-children"></div>
     `;
 
+                setNavbarRowDisabled(group, disabled);
                 container.appendChild(group);
 
                 const groupNameInput = group.querySelector('.navbar-group-name');
@@ -5159,9 +5241,11 @@
                     // back as a system row, or reloading the editor would turn
                     // it into a blank link row and the next save would drop it.
                     if (child.type === 'system') {
-                        addSystemNavbarItem(websiteId, child.key, child.name || '', childContainer);
+                        addSystemNavbarItem(websiteId, child.key, child.name || '',
+                                            childContainer, !!child.disabled);
                     } else {
-                        addNavbarItem(websiteId, child.name || '', child.url || '', childContainer);
+                        addNavbarItem(websiteId, child.name || '', child.url || '',
+                                      childContainer, !!child.disabled);
                     }
                 });
 
@@ -5329,7 +5413,8 @@
                         return {
                             type: 'link',
                             name: el.querySelector('.navbar-name').value.trim(),
-                            url: el.querySelector('.navbar-url').value.trim()
+                            url: el.querySelector('.navbar-url').value.trim(),
+                            disabled: isNavbarRowDisabled(el)
                         };
                     }
 
@@ -5337,7 +5422,8 @@
                         return {
                             type: 'system',
                             key: el.dataset.systemKey,
-                            name: el.querySelector('.navbar-name').value.trim()
+                            name: el.querySelector('.navbar-name').value.trim(),
+                            disabled: isNavbarRowDisabled(el)
                         };
                     }
 
@@ -5351,6 +5437,7 @@
                             type: 'group',
                             name: groupName,
                             url: groupUrl,   // empty string = label is not a link
+                            disabled: isNavbarRowDisabled(el),
                             // A child is not necessarily a link. Dropping a
                             // system page into a group builds a row with no
                             // .navbar-url input, and reading .value off that
@@ -5361,11 +5448,12 @@
                             children: childRows.map(child => {
                                 const nameEl = child.querySelector('.navbar-name');
                                 const name = nameEl ? nameEl.value.trim() : '';
+                                const off = isNavbarRowDisabled(child);
                                 if (child.dataset.type === 'system') {
-                                    return { type: 'system', key: child.dataset.systemKey, name };
+                                    return { type: 'system', key: child.dataset.systemKey, name, disabled: off };
                                 }
                                 const urlEl = child.querySelector('.navbar-url');
-                                return { type: 'link', name, url: urlEl ? urlEl.value.trim() : '' };
+                                return { type: 'link', name, url: urlEl ? urlEl.value.trim() : '', disabled: off };
                             }).filter(item => item.type === 'system' ? !!item.key
                                                                      : (item.name && item.url))
                         };
@@ -5386,17 +5474,29 @@
                 const topContainer = document.getElementById(`navbarItems_${websiteId}`);
                 items.forEach(item => {
                     if (item.type === 'group') {
-                        addNavbarGroup(websiteId, item.name || 'More', item.children || [], item.url || '');
+                        addNavbarGroup(websiteId, item.name || 'More', item.children || [],
+                                       item.url || '', !!item.disabled);
                     } else if (item.type === 'system') {
-                        addSystemNavbarItem(websiteId, item.key, item.name || '', topContainer);
+                        addSystemNavbarItem(websiteId, item.key, item.name || '',
+                                            topContainer, !!item.disabled);
                     } else {
-                        addNavbarItem(websiteId, item.name || '', item.url || '');
+                        addNavbarItem(websiteId, item.name || '', item.url || '',
+                                      null, !!item.disabled);
                     }
                 });
 
                 initializeNavbarSorting(websiteId);
                 initializeGroupSorting(websiteId);
                 refreshNavbarDestinationOptions(websiteId);
+            }
+
+            function switchNavbarTab(websiteId, tab) {
+                const modal = document.getElementById(`publicNavbarModal_${websiteId}`);
+                if (!modal) return;
+                modal.querySelectorAll(':scope > .navbar-modal-tabs > .navbar-modal-tab')
+                     .forEach(b => b.classList.toggle('active', b.dataset.navtab === tab));
+                modal.querySelectorAll(':scope > .navbar-modal-pane')
+                     .forEach(p => { p.hidden = (p.dataset.navpane !== tab); });
             }
 
             function savePublicNavbar(websiteId) {

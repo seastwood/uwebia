@@ -912,6 +912,11 @@ def valid_email(value):
         return None
 
 
+# Trash is the one item that starts in the hamburger menu: it matters, but it's
+# reached rarely and doesn't earn permanent space on the bar.
+DEFAULT_NAVBAR_PINNED = ['trash']
+
+
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
@@ -1075,6 +1080,11 @@ class User(UserMixin, db.Model):
     # Org-wide order of admin navbar items (list of item keys). Items missing
     # from the list keep their default position (rendered after the ordered ones).
     admin_navbar_order = db.Column(db.JSON, nullable=True, default=list)
+    # Org-wide list of item keys kept in the hamburger menu instead of the bar
+    # itself — for things used rarely enough that an icon isn't worth the width.
+    # NULL means "never configured": Trash starts in the menu, everything else
+    # on the bar. An explicit [] is different, and means nothing is pinned.
+    admin_navbar_pinned = db.Column(db.JSON, nullable=True, default=None)
     # Org-wide admin branding (lives on the anchor). NULL falls back to the
     # default "uwebia" name / icon. Shown on the admin navbar & admin login page.
     admin_brand_name = db.Column(db.String(80), nullable=True)
@@ -10784,6 +10794,11 @@ def inject_current_website():
     _nd_root = db.session.get(User, current_user.root_user_id)
     disabled = (_nd_root.admin_navbar_disabled if _nd_root else None) or []
     nav_order = (_nd_root.admin_navbar_order if _nd_root else None) or []
+    # None (never configured) is not the same as [] (explicitly nothing pinned),
+    # so this deliberately avoids `or []`.
+    nav_pinned = _nd_root.admin_navbar_pinned if _nd_root else None
+    if nav_pinned is None:
+        nav_pinned = list(DEFAULT_NAVBAR_PINNED)   # copy: it's a module global
 
     # All live websites for the switcher in the navbar
     if current_user.is_sub_admin:
@@ -10802,6 +10817,7 @@ def inject_current_website():
         'current_draft_website_folders': draft_folders,
         'admin_navbar_disabled': disabled,
         'admin_navbar_order': nav_order,
+        'admin_navbar_pinned': nav_pinned,
         'all_live_websites': _all_live,
     }
 
@@ -12899,7 +12915,9 @@ def save_navbar_visibility():
              # so they can actually be toggled off (the navbar already honors them).
              'store', 'returns', 'sms', 'sales', 'tickets_scan', 'support',
              # Education dropdown master + its Resources sub-item.
-             'education', 'resources'}
+             'education', 'resources',
+             # Trash is orderable and pinnable like anything else now.
+             'trash'}
     disabled = [k for k in data.get('disabled', []) if k in valid]
     root = db.session.get(User, current_user.root_user_id)
     if root:
@@ -12912,6 +12930,13 @@ def save_navbar_visibility():
                     _seen.add(k)
                     order.append(k)
             root.admin_navbar_order = order
+        if 'pinned' in data:
+            # Which items sit in the hamburger menu rather than on the bar.
+            # An empty list is meaningful (nothing pinned), so this must not
+            # be collapsed to NULL — NULL is reserved for "never configured".
+            root.admin_navbar_pinned = [
+                k for k in dict.fromkeys(data.get('pinned') or []) if k in valid
+            ]
         db.session.commit()
     return jsonify({'ok': True})
 
@@ -17998,6 +18023,9 @@ def settings_page():
         can_moderate_posts=current_user.has_permission('posts.settings'),
         anchor_navbar_disabled=_anchor.admin_navbar_disabled or [],
         anchor_navbar_order=_anchor.admin_navbar_order or [],
+        anchor_navbar_pinned=(list(DEFAULT_NAVBAR_PINNED)
+                              if _anchor.admin_navbar_pinned is None
+                              else _anchor.admin_navbar_pinned),
         admin_brand_name_raw=_anchor.admin_brand_name or '',
         admin_brand_has_custom_icon=bool(_anchor.admin_brand_icon_url),
         public_base_url_raw=_anchor.public_base_url or '',
@@ -18385,6 +18413,7 @@ def _serialize_backup(uid):
         'owner_settings': {
             'admin_navbar_disabled': _owner.admin_navbar_disabled or [],
             'admin_navbar_order': _owner.admin_navbar_order or [],
+            'admin_navbar_pinned': _owner.admin_navbar_pinned,
             'admin_url_key': _owner.admin_url_key,
             'admin_url_key_enabled': bool(_owner.admin_url_key_enabled),
             'org_require_2fa': bool(_owner.org_require_2fa),
@@ -20348,6 +20377,8 @@ def import_backup():
                 if _owner:
                     _owner.admin_navbar_disabled = _owner_settings.get('admin_navbar_disabled') or []
                     _owner.admin_navbar_order = _owner_settings.get('admin_navbar_order') or []
+                    # Absent in older backups → leave NULL so the default applies.
+                    _owner.admin_navbar_pinned = _owner_settings.get('admin_navbar_pinned')
                     _owner.admin_url_key = _owner_settings.get('admin_url_key')
                     _owner.admin_url_key_enabled = bool(_owner_settings.get('admin_url_key_enabled'))
                     _owner.org_require_2fa = bool(_owner_settings.get('org_require_2fa'))
@@ -35526,7 +35557,7 @@ def navbar_entry_target(item, website):
     than a hand-typed link: the Shop item disappears with the store instead of
     pointing at a dead page.
     """
-    if not isinstance(item, dict):
+    if not isinstance(item, dict) or item.get('disabled'):
         return None
     kind = item.get('type') or 'link'
 
@@ -35552,7 +35583,39 @@ def navbar_entry_target(item, website):
     return url, (item.get('name') or url)
 
 
+def visible_navbar_items(items):
+    """Public-navbar entries with the switched-off ones removed.
+
+    Disabling is deliberately separate from deleting: taking a link out of the
+    navbar for a season should not mean rebuilding it (and its group, and its
+    order) from scratch afterwards. So the entry stays in the stored JSON with
+    `disabled: true`, and is dropped here on the way to the template.
+
+    One choke point on purpose — public_navbar.html renders the same list twice
+    (desktop and mobile), and each of those handles links, system pages and
+    groups separately, so filtering at the render sites would be six places to
+    keep in step instead of one.
+    """
+    visible = []
+    for item in items or []:
+        if not isinstance(item, dict) or item.get('disabled'):
+            continue
+        if (item.get('type') or 'link') == 'group':
+            # Copy before editing: this runs on the stored column value, and
+            # mutating it would persist the filtering on the next save.
+            item = dict(item)
+            item['children'] = [c for c in (item.get('children') or [])
+                                if isinstance(c, dict) and not c.get('disabled')]
+            # A group whose every child is switched off would render as an
+            # empty dropdown, so it only survives if its own label is a link.
+            if not item['children'] and not (item.get('url') or '').strip():
+                continue
+        visible.append(item)
+    return visible
+
+
 app.jinja_env.globals['navbar_entry_target'] = navbar_entry_target
+app.jinja_env.globals['visible_navbar_items'] = visible_navbar_items
 
 
 def _is_unreachable_host(url):
