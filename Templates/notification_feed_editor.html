@@ -332,6 +332,72 @@
                 </div>
             </div>
 
+            <!-- Public schedule page -->
+            <div class="fd-card">
+                <div class="fd-card-head">
+                    <h2>Public page</h2>
+                    {% if public_url %}
+                    <a class="fd-count" href="{{ public_url }}" target="_blank" rel="noopener"
+                       style="text-decoration:none;">View <i class="fas fa-arrow-up-right-from-square"></i></a>
+                    {% endif %}
+                </div>
+                <p class="fd-card-sub">
+                    Publish the whole run so people can catch up on what they missed or work ahead.
+                    The item going out next is highlighted, the same as in the hopper above.
+                </p>
+
+                <label class="fd-check" style="margin-bottom:12px;">
+                    <input type="checkbox" id="publicEnabled" {% if feed.public_enabled %}checked{% endif %}
+                           onchange="saveSettings(true)">
+                    Publish a public schedule page
+                </label>
+
+                <div class="fd-field">
+                    <label class="fd-label">Page title</label>
+                    <input class="fd-input" id="publicTitle" maxlength="200"
+                           placeholder="{{ feed.name }}" value="{{ feed.public_title or '' }}"
+                           onchange="saveSettings()">
+                    <p class="fd-card-sub" style="margin:6px 0 0;">
+                        What readers see it called — e.g. “Build Training Schedule”. Blank uses the feed's own name.
+                    </p>
+                </div>
+                <div class="fd-field">
+                    <label class="fd-label">Web address</label>
+                    <input class="fd-input" id="publicSlug" maxlength="200"
+                           placeholder="build-training-schedule" value="{{ feed.public_slug or '' }}"
+                           onchange="saveSettings()">
+                    <p class="fd-card-sub" style="margin:6px 0 0;">
+                        Lives at <code>/training/&lt;address&gt;</code>. Blank builds one from the title.
+                    </p>
+                </div>
+                <div class="fd-field">
+                    <label class="fd-label">Blurb <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                    <textarea class="fd-textarea" id="publicDescription"
+                              placeholder="What this schedule covers." onchange="saveSettings()">{{ feed.public_description or '' }}</textarea>
+                </div>
+                <div class="fd-field">
+                    <label class="fd-label">Who it's for</label>
+                    <select class="fd-select" id="publicAudience" onchange="saveSettings()">
+                        <option value="everyone" {% if audience == 'everyone' %}selected{% endif %}>
+                            Anyone who can see the site
+                        </option>
+                        <option value="members" {% if audience == 'members' %}selected{% endif %}>
+                            All members
+                        </option>
+                        {% for d in divisions %}
+                        <option value="division:{{ d.id }}" {% if audience == 'division:' ~ d.id %}selected{% endif %}>
+                            {{ d.name }} division
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <p class="fd-card-sub" style="margin:6px 0 0;">
+                        <strong>All members</strong> puts it under <em>My Training</em> for everyone in the
+                        organization. Pick a <strong>division</strong> and only that division's members see it.
+                        <strong>Anyone</strong> leaves it open to visitors too. Staff always see everything.
+                    </p>
+                </div>
+            </div>
+
             <!-- Message -->
             <div class="fd-card">
                 <h2>Default message</h2>
@@ -479,13 +545,19 @@ function settingsPayload() {
         default_message: document.getElementById('defaultMessage').value,
         prepend_text: document.getElementById('prependText').value,
         loop_when_finished: document.getElementById('loopFeed').checked,
+        public_enabled: document.getElementById('publicEnabled').checked,
+        public_title: document.getElementById('publicTitle').value,
+        public_slug: document.getElementById('publicSlug').value,
+        public_description: document.getElementById('publicDescription').value,
+        public_audience: document.getElementById('publicAudience').value,
     };
 }
 
-async function saveSettings() {
+async function saveSettings(reloadAfter) {
     const j = await postJSON(`/admin/notifications/feeds/${FEED_ID}/update`, settingsPayload());
     if (!j.success) { setMsg('actionMsg', j.error || 'Save failed.', false); return false; }
     setMsg('actionMsg', 'Saved.', true);
+    if (reloadAfter) location.reload();
     return true;
 }
 

@@ -1,0 +1,191 @@
+{% extends 'public_base.html' %}
+
+{% block title %}{{ title }} — {{ website.name if website else 'Schedule' }}{% endblock %}
+{% block og_title %}{{ title }}{% endblock %}
+{% block og_description %}{{ social_preview_text(feed.public_description) }}{% endblock %}
+
+{% block content %}
+<style>
+.fs-page { max-width: 820px; margin: 0 auto; padding: 34px 20px 70px; }
+.fs-head { margin-bottom: 26px; }
+.fs-title { font-size: 2rem; font-weight: 900; margin: 0 0 8px; line-height: 1.15; }
+.fs-desc { opacity: 0.72; line-height: 1.6; margin: 0 0 14px; }
+.fs-meta { display: flex; gap: 8px 16px; flex-wrap: wrap; font-size: 0.85rem; opacity: 0.6; }
+.fs-meta span { display: inline-flex; align-items: center; gap: 6px; }
+
+.fs-progress { margin: 20px 0 4px; height: 6px; border-radius: 3px;
+               background: rgba(127,127,127,0.22); overflow: hidden; }
+.fs-progress span { display: block; height: 100%; background: currentColor; opacity: 0.65; }
+.fs-progress-label { font-size: 0.82rem; opacity: 0.6; }
+
+/* The run itself. A left rail ties the rows together so it reads as a
+   sequence rather than a pile of cards. */
+.fs-list { list-style: none; margin: 26px 0 0; padding: 0; position: relative; }
+.fs-list::before { content: ''; position: absolute; left: 15px; top: 8px; bottom: 8px;
+                   width: 2px; background: rgba(127,127,127,0.22); }
+.fs-row { position: relative; padding: 0 0 6px 46px; margin-bottom: 14px; }
+.fs-dot { position: absolute; left: 8px; top: 4px; width: 16px; height: 16px;
+          border-radius: 50%; background: var(--fs-bg, #888);
+          border: 3px solid currentColor; box-sizing: border-box; }
+.fs-card { border: 1px solid rgba(127,127,127,0.28); border-radius: 12px;
+           padding: 13px 15px; }
+.fs-num { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.06em;
+          text-transform: uppercase; opacity: 0.5; }
+.fs-name { font-weight: 800; font-size: 1.05rem; margin: 3px 0 0; word-break: break-word; }
+.fs-name a { color: inherit; text-decoration: none; }
+.fs-name a:hover { text-decoration: underline; }
+.fs-blurb { font-size: 0.88rem; opacity: 0.7; margin: 6px 0 0; line-height: 1.5;
+            white-space: pre-line; }
+.fs-when { font-size: 0.8rem; opacity: 0.6; margin-top: 7px; display: flex;
+           gap: 10px; flex-wrap: wrap; align-items: center; }
+.fs-kind { font-size: 0.68rem; font-weight: 800; text-transform: uppercase;
+           letter-spacing: 0.05em; padding: 2px 8px; border-radius: 999px;
+           border: 1px solid rgba(127,127,127,0.35); }
+
+/* Released rows recede; the current one is the thing you came for. */
+.fs-row.released { opacity: 0.66; }
+.fs-row.next .fs-card { border-width: 2px; border-color: currentColor;
+                        box-shadow: 0 4px 18px rgba(0,0,0,0.12); }
+.fs-row.next .fs-dot { transform: scale(1.25); }
+.fs-badge { display: inline-block; font-size: 0.7rem; font-weight: 800;
+            text-transform: uppercase; letter-spacing: 0.06em; padding: 2px 9px;
+            border-radius: 999px; border: 1px solid currentColor; margin-bottom: 6px; }
+.fs-row.upcoming .fs-card { border-style: dashed; }
+
+/* Picture on the RIGHT, pinned to the top of the card. It comes after the
+   text in the source, so no reordering is needed — flex lays it out where it
+   sits and align-items keeps it level with the first line rather than
+   drifting to the middle of a tall card. */
+.fs-card-main { display: flex; gap: 13px; align-items: flex-start; }
+.fs-body { flex: 1; min-width: 0; }
+.fs-thumb { width: 62px; height: 62px; border-radius: 9px; overflow: hidden;
+            flex-shrink: 0; background: rgba(127,127,127,0.14);
+            display: flex; align-items: center; justify-content: center; }
+.fs-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.fs-thumb.is-glyph i { font-size: 1.3rem; opacity: 0.42; }
+@media (max-width: 520px) { .fs-thumb { width: 46px; height: 46px; } }
+
+.fs-detail { opacity: 0.85; }
+.fs-detail::before { content: '·'; margin-right: 10px; opacity: 0.5; }
+
+.fs-badge-done { border-color: currentColor; opacity: 0.9; margin-left: 6px; }
+.fs-own { display: flex; align-items: center; gap: 10px; margin-top: 11px; }
+.fs-own-bar { flex: 1; height: 5px; border-radius: 3px;
+              background: rgba(127,127,127,0.24); overflow: hidden; }
+.fs-own-bar span { display: block; height: 100%; background: currentColor; opacity: 0.55; }
+.fs-own-label { font-size: 0.76rem; opacity: 0.6; white-space: nowrap; }
+
+.fs-empty { opacity: 0.55; padding: 40px 0; text-align: center; }
+.fs-back { display: inline-flex; align-items: center; gap: 7px; font-size: 0.88rem;
+           opacity: 0.65; text-decoration: none; color: inherit; margin-bottom: 16px; }
+.fs-back:hover { opacity: 1; }
+</style>
+
+<div class="fs-page">
+    <a class="fs-back" href="{{ ('/' + website.url_prefix) if website.url_prefix else '' }}/guides">
+        <i class="fas fa-arrow-left"></i> Back to learning
+    </a>
+
+    <div class="fs-head">
+        <h1 class="fs-title">{{ title }}</h1>
+        {% if feed.public_description %}
+        <div class="fs-desc">{{ feed.public_description }}</div>
+        {% endif %}
+        <div class="fs-meta">
+            {% if feed.division %}
+            <span><i class="fas fa-sitemap"></i> {{ feed.division.name }}</span>
+            {% endif %}
+            {% if feed.is_active and feed.days_of_week %}
+            <span><i class="fas fa-calendar-day"></i>
+                {% for d in feed.days_of_week %}{{ weekday_labels[d] }}{% if not loop.last %}, {% endif %}{% endfor %}
+            </span>
+            {% elif not feed.is_active %}
+            <span><i class="fas fa-pause"></i> Paused</span>
+            {% endif %}
+            <span><i class="fas fa-list-ol"></i> {{ overview.queue_len }} in the run</span>
+        </div>
+
+        {% if overview.queue_len %}
+        <div class="fs-progress">
+            <span style="width: {{ (overview.cursor / overview.queue_len * 100) | round | int if overview.cursor < overview.queue_len else 100 }}%;"></span>
+        </div>
+        <div class="fs-progress-label">
+            {% if overview.exhausted %}
+                All {{ overview.queue_len }} released.
+            {% else %}
+                {{ overview.cursor }} of {{ overview.queue_len }} released so far.
+            {% endif %}
+            {# Two different numbers: how much has been PUBLISHED above, and how
+               much YOU have finished. Keep them apart or they read as one. #}
+            {% if trackable_count %}
+            · You've completed {{ done_count }} of {{ trackable_count }}.
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+
+    {% if rows %}
+    <ol class="fs-list">
+        {% for r in rows %}
+        <li class="fs-row {{ r.state }}">
+            <span class="fs-dot"></span>
+            <div class="fs-card">
+                <div class="fs-card-main">
+                    {# Text first in the source, picture second: that puts the
+                       image top-right visually AND keeps a screen reader on the
+                       title before the decoration. #}
+                    <div class="fs-body">
+                        {% if r.state == 'next' %}<span class="fs-badge">Current</span>{% endif %}
+                        {% if r.progress and r.progress.complete %}
+                        <span class="fs-badge fs-badge-done"><i class="fas fa-check"></i> Done</span>
+                        {% endif %}
+                        <div class="fs-num">#{{ r.number }}</div>
+                        <div class="fs-name">
+                            {% if r.url %}<a href="{{ r.url }}">{{ r.title }}</a>{% else %}{{ r.title }}{% endif %}
+                        </div>
+                        {% if r.blurb %}<div class="fs-blurb">{{ r.blurb }}</div>{% endif %}
+                        <div class="fs-when">
+                            <span class="fs-kind">{{ r.kind }}</span>
+                            {% for d in r.details %}<span class="fs-detail">{{ d }}</span>{% endfor %}
+                            {% if r.when and r.state == 'released' %}
+                                <span><i class="fas fa-check"></i> Released {{ r.when }}</span>
+                            {% elif r.when %}
+                                <span><i class="fas fa-clock"></i>
+                                    {% if r.state == 'next' %}Due {{ r.when }}{% else %}{{ r.when }}{% endif %}
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {# A picture if the item has one, else the glyph for its kind —
+                       so every row reads the same shape whether or not art exists. #}
+                    <div class="fs-thumb{% if not r.image %} is-glyph{% endif %}">
+                        {% if r.image %}
+                            <img src="{{ r.image }}" alt="" loading="lazy">
+                        {% else %}
+                            <i class="fas {{ r.icon }}"></i>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {# What this reader has already done with it. Guides show how far
+                   through, quizzes the best score they have managed. #}
+                {% if r.progress and not r.progress.complete %}
+                <div class="fs-own">
+                    {% if r.progress.kind == 'guide' %}
+                        <div class="fs-own-bar"><span style="width: {{ r.progress.percent }}%;"></span></div>
+                        <span class="fs-own-label">{{ r.progress.done }} of {{ r.progress.total }} lessons done</span>
+                    {% else %}
+                        <div class="fs-own-bar"><span style="width: {{ r.progress.percent }}%;"></span></div>
+                        <span class="fs-own-label">Best score {{ r.progress.percent }}%</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </li>
+        {% endfor %}
+    </ol>
+    {% else %}
+    <div class="fs-empty">Nothing scheduled yet — check back soon.</div>
+    {% endif %}
+</div>
+{% endblock %}
