@@ -1425,14 +1425,22 @@ def get_main_admin():
 
 
 def _org_requires_2fa():
-    """Org-wide 2FA policy, read from the anchor (primary owner). True when the
-    explicit policy is on OR (legacy/back-compat) the owner has their own 2FA
-    enabled — so enabling the org policy never makes the admin side LESS secure
-    than the old 'owner's 2FA forces everyone' behaviour.
+    """Org-wide 2FA policy, read from the anchor (primary owner).
 
-    Like per-user 2FA, the explicit policy auto-disables if the email server
-    settings changed since it was verified (admins couldn't receive codes), and
-    must be re-verified."""
+    The explicit toggle IS the policy. It used to be OR'd with the anchor's own
+    `two_factor_enabled` for back-compat with the old "owner's 2FA forces
+    everyone" behaviour, but that made the toggle unusable for exactly the orgs
+    most likely to want it: an owner with their own 2FA could never switch the
+    org requirement off, because their personal setting kept forcing it back on
+    with nothing on screen explaining why.
+
+    Turning the org policy off does NOT weaken the owner's own account —
+    admin_requires_2fa still returns True for anyone who enrolled a factor
+    themselves. It only stops that choice being imposed on every other admin.
+
+    Like per-user 2FA, the policy auto-disables if the email server settings
+    changed since it was verified (admins couldn't receive codes), and must be
+    re-verified."""
     anchor = get_main_admin()
     if not anchor:
         return False
@@ -1450,7 +1458,7 @@ def _org_requires_2fa():
                 anchor.org_2fa_email_settings_version = None
                 anchor.org_2fa_needs_attention = True
                 db.session.commit()
-    return bool(anchor.org_require_2fa or anchor.two_factor_enabled)
+    return bool(anchor.org_require_2fa)
 
 
 def admin_github_only_mode():
@@ -6379,6 +6387,14 @@ class GitHubLoginSettings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     client_id = db.Column(db.String(255), nullable=True)
     client_secret = db.Column(db.String(1000), nullable=True)  # encrypted
+    # Optional GitHub organization an admin must belong to in order to sign in.
+    # Set it and this app checks membership on every login; turn on that org's
+    # "Require two-factor authentication" and GitHub enforces the second factor
+    # for you, CONTINUOUSLY — it removes members who drop 2FA, which a
+    # per-login boolean read off the user's profile can never promise.
+    # It also gives you a deprovisioning switch: remove someone from the org and
+    # they lose admin access here, without anyone remembering to do it by hand.
+    required_org = db.Column(db.String(120), nullable=True)
     updated_at = db.Column(db.DateTime, nullable=True)
 
 
@@ -11953,6 +11969,17 @@ def save_github_login_settings():
         db.session.add(cfg)
     client_id = (data.get('client_id') or '').strip()
     secret = (data.get('client_secret') or '').strip()
+    if 'required_org' in data:
+        org = (data.get('required_org') or '').strip().lstrip('@')
+        # Accept a pasted org URL as well as a bare name — people copy the
+        # address bar, and silently storing 'github.com/acme' would make every
+        # membership check 404 with nothing explaining why.
+        if '/' in org:
+            org = [p for p in org.rstrip('/').split('/') if p][-1]
+        if org and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}', org):
+            return _utf8_json({'success': False,
+                               'error': 'That is not a valid GitHub organization name.'}, 400)
+        cfg.required_org = org or None
     cfg.client_id = client_id or None
     # A blank secret means "leave the stored one alone" — the UI never renders
     # the existing value back, so an empty field must not wipe it.
@@ -11960,7 +11987,8 @@ def save_github_login_settings():
         cfg.client_secret = encrypt_api_key(secret)
     cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.session.commit()
-    return _utf8_json({'success': True, 'configured': github_login_is_configured()})
+    return _utf8_json({'success': True, 'configured': github_login_is_configured(),
+                       'required_org': cfg.required_org or ''})
 
 
 # The org-wide switches that govern every admin account, with the wording the
@@ -17987,6 +18015,10 @@ def settings_page():
         # a page, which is why a blank secret field means "keep the stored one".
         github_client_id=(get_github_login_settings().client_id
                           if get_github_login_settings() else ''),
+        github_required_org=github_required_org(),
+        # Populated by the list-orgs round trip and consumed once, so a stale
+        # list never lingers behind a changed GitHub account.
+        github_org_choices=session.pop('gh_org_choices', []),
         verbose_logging=bool(getattr(_anchor, 'org_verbose_logging', False)),
         log_file_status=_log_file_status(),
         ip_retention_days=int(getattr(_anchor, 'ip_retention_days', 90) or 0),
@@ -26810,7 +26842,7 @@ def admin_users_page():
     # that helper can switch the policy OFF as a side effect when the mail
     # settings have changed, which should happen on a login attempt, not
     # because someone opened this page.
-    org_requires_2fa = bool(anchor and (anchor.org_require_2fa or anchor.two_factor_enabled))
+    org_requires_2fa = bool(anchor and anchor.org_require_2fa)
 
     _anchor_for_access = get_main_admin()
     return render_template('admin_users.html',
@@ -30943,6 +30975,26 @@ def github_link_admin():
     return redirect(url)
 
 
+@app.route('/admin/auth/github/list-orgs')
+@login_required
+@require_perm('settings.edit')
+def github_list_orgs():
+    """Authorize once to read which GitHub orgs this admin belongs to.
+
+    The app has no GitHub identity of its own — the client id and secret
+    identify the APP, not an account — so there is no way to ask "what orgs
+    exist" without a user token. This borrows one for a single call and throws
+    it away, which is why it is a round trip rather than a background fetch."""
+    if not current_user.is_full_admin:
+        flash('Only a full admin can change GitHub sign-in settings.', 'error')
+        return redirect(url_for('settings_page'))
+    url, err = _github_begin('list_orgs')
+    if err:
+        flash(err, 'error')
+        return redirect(url_for('settings_page'))
+    return redirect(url)
+
+
 @app.route('/admin/auth/github/unlink', methods=['POST'])
 @login_required
 def github_unlink_admin():
@@ -30995,6 +31047,36 @@ def github_callback():
                      'Check the server log for the exact response.')
 
     intent = ctx['intent']
+    # Populating the org dropdown: read the list, hand it to the settings page
+    # through the session, and let the token fall out of scope with everything
+    # else. Nothing about this round trip is persisted.
+    if intent == 'list_orgs':
+        if not current_user.is_authenticated or not current_user.is_full_admin:
+            return _fail('Only a full admin can list organizations.')
+        orgs, problem = _github_user_orgs(token)
+        if orgs:
+            # Show what we did get even alongside a warning — a partial list is
+            # still useful, and hiding it would be worse than explaining it.
+            session['gh_org_choices'] = orgs
+        if problem == 'missing_scope':
+            flash(GITHUB_ORGS_PROBLEMS['missing_scope'], 'error')
+        elif orgs is None:
+            flash(GITHUB_ORGS_PROBLEMS['unreachable'], 'error')
+        elif not orgs:
+            flash(GITHUB_ORGS_PROBLEMS['none_found'], 'error')
+        else:
+            flash(f'Found {len(orgs)} organization'
+                  f'{"" if len(orgs) == 1 else "s"} on your GitHub account.', 'success')
+        # The query has to come BEFORE the fragment or it lands inside it.
+        return redirect(url_for('settings_page', tab='site', _anchor='github'))
+
+    # The org requirement guards ADMIN sign-in only. Public members sign in with
+    # GitHub too, and putting the team's org between a student and the public
+    # site would lock out the people it was built to include.
+    if intent in ('admin', 'link_admin'):
+        org_ok, org_error = github_org_gate(token)
+        if not org_ok:
+            return _fail(org_error)
     if intent == 'admin':
         return _github_admin_login(gh_id)
     if intent == 'link_admin':
@@ -34768,7 +34850,7 @@ def github_callback_url():
     return url_for('github_callback', _external=True, _scheme=_email_link_scheme())
 
 
-def github_authorize_url(state):
+def github_authorize_url(state, want_orgs=False):
     cfg = get_github_login_settings()
     if not cfg or not cfg.client_id:
         return None
@@ -34778,8 +34860,12 @@ def github_authorize_url(state):
         'redirect_uri': github_callback_url(),
         'state': state,
         # Empty scope, spelled out explicitly so a future edit has to make a
-        # deliberate decision to widen it.
-        'scope': '',
+        # deliberate decision to widen it. `read:org` is added ONLY when a
+        # required organization is configured — or when the admin is explicitly
+        # asking us to list their orgs, which is the one time the scope is
+        # needed before the setting exists. It reads org membership — not
+        # profile data, not email — so the promise above still holds.
+        'scope': 'read:org' if (want_orgs or github_required_org()) else '',
         'allow_signup': 'false',
     }
     return f'{_GITHUB_AUTHORIZE_URL}?{_enc(params)}'
@@ -34895,6 +34981,168 @@ def _github_identity(access_token):
         return None
 
 
+def github_required_org():
+    """The GitHub org an admin must belong to, or '' when unrestricted."""
+    cfg = get_github_login_settings()
+    return ((cfg.required_org or '').strip() if cfg else '') or ''
+
+
+# What the membership check concluded. Kept as constants because the login flow
+# has to tell these apart: 'pending' is an invitation the person never accepted,
+# which is a different conversation from "you were never invited".
+GITHUB_ORG_OK = 'ok'
+GITHUB_ORG_NOT_A_MEMBER = 'not_a_member'
+GITHUB_ORG_PENDING = 'pending'
+GITHUB_ORG_UNVERIFIABLE = 'unverifiable'
+
+
+def _github_org_membership(access_token, org):
+    """Is this token's owner an ACTIVE member of `org`?
+
+    Returns one of the GITHUB_ORG_* constants and nothing else — like
+    _github_identity, the response body never reaches a caller, so a future
+    edit can't start persisting organization or profile data it happened to
+    receive.
+
+    Uses /user/memberships/orgs/{org} rather than listing the user's orgs: it
+    answers the exact question in one call and distinguishes an accepted
+    membership from an invitation still sitting unopened.
+
+    A network failure or an unexpected status returns UNVERIFIABLE rather than
+    NOT_A_MEMBER. The caller refuses the login either way — this must fail
+    closed — but the distinction is what stops "GitHub was down" being reported
+    to a member as "you have been removed from the team".
+    """
+    import requests as _requests   # not available at module scope — see above
+    try:
+        resp = _requests.get(
+            f'https://api.github.com/user/memberships/orgs/{org}',
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            timeout=12,
+        )
+        if resp.status_code == 404:
+            return GITHUB_ORG_NOT_A_MEMBER
+        if resp.status_code == 403:
+            # Almost always the org enforcing SAML/SSO on the token, or the
+            # OAuth app not being approved for the org.
+            app.logger.warning('GitHub org membership forbidden for %s: %s',
+                               org, resp.text[:200])
+            return GITHUB_ORG_UNVERIFIABLE
+        if resp.status_code != 200:
+            app.logger.warning('GitHub org membership check failed: HTTP %s — %s',
+                               resp.status_code, resp.text[:200])
+            return GITHUB_ORG_UNVERIFIABLE
+        state = ((resp.json() or {}).get('state') or '').strip().lower()
+        if state == 'active':
+            return GITHUB_ORG_OK
+        if state == 'pending':
+            return GITHUB_ORG_PENDING
+        app.logger.warning('GitHub org membership unexpected state: %r', state)
+        return GITHUB_ORG_UNVERIFIABLE
+    except Exception as e:
+        app.logger.warning('GitHub org membership error: %s', e)
+        return GITHUB_ORG_UNVERIFIABLE
+
+
+# What each outcome means to the person who just tried to sign in. Deliberately
+# does not say "you are not in the org" for the unverifiable case.
+GITHUB_ORG_MESSAGES = {
+    GITHUB_ORG_NOT_A_MEMBER: (
+        'Your GitHub account is not a member of the {org} organization, which '
+        'this site requires for admin sign-in. Ask an owner to invite you.'),
+    GITHUB_ORG_PENDING: (
+        'You have an unaccepted invitation to the {org} organization on GitHub. '
+        'Accept it there, then sign in again.'),
+    GITHUB_ORG_UNVERIFIABLE: (
+        "Couldn't confirm your membership of the {org} organization with GitHub. "
+        'If your organization uses SAML single sign-on, authorize this app for '
+        'the org — otherwise try again shortly.'),
+}
+
+
+def github_org_gate(access_token):
+    """(ok, message). Enforces the required-org policy for one sign-in.
+
+    Fails CLOSED: anything other than a confirmed active membership refuses the
+    login. An org requirement that lets people through when GitHub is
+    unreachable is not a requirement."""
+    org = github_required_org()
+    if not org:
+        return True, None
+    result = _github_org_membership(access_token, org)
+    if result == GITHUB_ORG_OK:
+        return True, None
+    return False, GITHUB_ORG_MESSAGES[result].format(org=org)
+
+
+def _github_user_orgs(access_token):
+    """(orgs, problem) — the org logins this token's owner belongs to.
+
+    `orgs` is a sorted list (possibly empty) or None when the call failed;
+    `problem` is a key from GITHUB_ORGS_PROBLEMS or None.
+
+    Only the `login` of each org is kept — not the id, description, avatar or
+    anything else in the response — because the login is the whole of what the
+    required-org setting stores. Same discipline as _github_identity.
+
+    The critical subtlety: WITHOUT `read:org` this endpoint still answers 200,
+    listing only PUBLIC memberships. Most org memberships are private, so a
+    token missing the scope produces an empty list that looks exactly like
+    "you have no organizations" — which is why the granted scopes are read off
+    GitHub's own `X-OAuth-Scopes` header rather than assumed. Asking for a
+    scope is not the same as being granted it: a pre-existing authorization of
+    this OAuth app can hand back a token with the older, narrower grant.
+    """
+    import requests as _requests   # not available at module scope — see above
+    try:
+        resp = _requests.get(
+            'https://api.github.com/user/orgs',
+            headers={'Authorization': f'Bearer {access_token}',
+                     'Accept': 'application/vnd.github+json'},
+            params={'per_page': 100},
+            timeout=12,
+        )
+        granted = {s.strip() for s in
+                   (resp.headers.get('X-OAuth-Scopes') or '').split(',') if s.strip()}
+        if resp.status_code != 200:
+            app.logger.warning('GitHub /user/orgs failed: HTTP %s (scopes=%s) — %s',
+                               resp.status_code, sorted(granted), resp.text[:200])
+            return None, 'unreachable'
+        body = resp.json()
+        if not isinstance(body, list):
+            return None, 'unreachable'
+        orgs = sorted({(o.get('login') or '').strip() for o in body
+                       if isinstance(o, dict) and (o.get('login') or '').strip()},
+                      key=str.lower)
+        app.logger.info('GitHub /user/orgs returned %d org(s); granted scopes: %s',
+                        len(orgs), sorted(granted) or 'none')
+        if 'read:org' not in granted and 'admin:org' not in granted:
+            # Anything we got is public-only, so an empty list means nothing.
+            return orgs, 'missing_scope'
+        return orgs, None
+    except Exception as e:
+        app.logger.warning('GitHub /user/orgs error: %s', e)
+        return None, 'unreachable'
+
+
+GITHUB_ORGS_PROBLEMS = {
+    'missing_scope': (
+        "GitHub did not grant permission to read your organizations, so it only "
+        "returned public memberships. This happens when you have already "
+        "authorized this app without that permission. Revoke it under GitHub → "
+        "Settings → Applications → Authorized OAuth Apps, then try again and "
+        "approve the organization access prompt."),
+    'unreachable': (
+        'GitHub would not return your organizations. If your organization uses '
+        'SAML single sign-on, authorize this app for it first.'),
+    'none_found': (
+        'GitHub reported no organizations for that account. If you belong to one '
+        'that restricts third-party apps, an owner has to approve this app for it '
+        'under the organization\'s settings before it will appear.'),
+}
+
+
 def _github_login_name(access_token):
     """Fetch the GitHub *login* — for offering as a username suggestion only.
 
@@ -34940,11 +35188,12 @@ def _github_begin(intent, website_prefix=None, next_url=None):
     # Remember the exact redirect_uri sent to GitHub so the token exchange can
     # replay the identical string instead of recomputing it.
     session['gh_redirect_uri'] = github_callback_url()
-    session['gh_intent'] = intent          # 'public' | 'admin' | 'link_admin' | 'link_public'
+    # 'public' | 'admin' | 'link_admin' | 'link_public' | 'list_orgs'
+    session['gh_intent'] = intent
     session['gh_prefix'] = website_prefix or ''
     # Only site-relative targets, so the callback can't be used as an open redirect.
     session['gh_next'] = next_url if (next_url or '').startswith('/') and not (next_url or '').startswith('//') else ''
-    url = github_authorize_url(state)
+    url = github_authorize_url(state, want_orgs=(intent == 'list_orgs'))
     if not url:
         return None, 'GitHub sign-in is not configured on this site.'
     return url, None
