@@ -1587,7 +1587,7 @@ def owns_calendar(calendar):
     if calendar.user_id is not None:
         return calendar.user_id == current_user.root_user_id
     if calendar.website_id is not None:
-        w = Website.query.get(calendar.website_id)
+        w = db.session.get(Website, calendar.website_id)
         return w is not None and w.user_id == current_user.root_user_id
     return False
 
@@ -3437,6 +3437,12 @@ class PageSection(db.Model):
     # the version it last saw — server rejects if it no longer matches.
     version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     updated_at = db.Column(db.DateTime, nullable=True)
+    # Who last wrote THIS section. The conflict message used to name the page's
+    # last editor — whoever last touched anything on the page, almost always the
+    # person reading the message, so it accused them of racing themselves.
+    # SET NULL so removing an admin doesn't delete their sections.
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
     messages = db.relationship('ContactMessage', backref='section', lazy=True, cascade='all, delete-orphan')
 
     # Define a one-to-one relationship with Column
@@ -4840,7 +4846,7 @@ def agent_belongs_to_current_user(agent) -> bool:
     if agent.user_id is not None:
         return agent.user_id == current_user.root_user_id
     if agent.website_id is not None:
-        w = Website.query.get(agent.website_id)
+        w = db.session.get(Website, agent.website_id)
         return bool(w and w.user_id == current_user.root_user_id)
     return False
 
@@ -7432,7 +7438,7 @@ def asset_upload():
                 try:
                     os.remove(path)
                 except Exception as cleanup_error:
-                    print(f"Failed to clean up upload leftover {path}: {cleanup_error}")
+                    app.logger.error(f"Failed to clean up upload leftover {path}: {cleanup_error}")
         return jsonify({
             'status': 'error',
             'error': str(e)
@@ -8266,32 +8272,30 @@ def delete_row(row_id):
     try:
         row_id = int(row_id)  # Convert row_id to integer
         row = db.session.get(Row, row_id)
-        print("Deleting Row:", row)
+        app.logger.debug('delete_row %s', row_id)
         if row:
-            # Delete associated columns and update associated sections
             for column in row.columns:
-                # Update all sections associated with the column to set column to null
-                sections = PageSection.query.filter_by(column=column).all()
-                print("Sections with removed columns: ", sections)
-                # for section in sections:
-                #     section.column = None
-
-                for section in sections:
+                # A column holds at most one section, reached by the backref of
+                # PageSection.column. This used to ask
+                # PageSection.query.filter_by(column=column), which compares
+                # against column.section_id — None for an empty column, so
+                # SQLAlchemy warned the comparison was meaningless and the
+                # lookup found nothing.
+                section = column.section
+                if section is not None:
                     delete_associated_pictures(section.id)
                     db.session.delete(section)
                 db.session.delete(column)
-            # Delete associated columns
-            columns = Column.query.filter_by(row_id=row_id).all()
-            for column in columns:
-                db.session.delete(column)
+            # The loop above already deleted every column on this row; a second
+            # pass over Column.query.filter_by(row_id=...) deleted them again,
+            # which is what raised "expected to delete 1 row(s); 0 were matched".
             db.session.delete(row)
             db.session.commit()
-            print("Row and associated columns deleted successfully")
             return jsonify({'success': True}), 200
         else:
             return jsonify({'error': 'Row not found'}), 404
     except Exception as e:
-        print("Error:", e)
+        app.logger.error('Error: %s', e)
         return jsonify({'error': str(e)}), 500
 
 
@@ -8320,19 +8324,17 @@ def delete_column(column_id):
         # Update widths of remaining columns
         columns = Column.query.filter_by(row_id=row_id).all()
         num_columns = len(columns)
-        print("deleting column... numcolumns: ", num_columns)
         if num_columns > 0:
             new_width = 100 / num_columns
             for col in columns:
                 col.width = new_width
-                print("Adjusting Column width: ", col.id)
             db.session.commit()
-
-        # Log the remaining columns associated with the row
-        print(f"Columns remaining in row {row_id}:")
-        for col in columns:
-            print(f"Column ID: {col.id}, Width: {col.width}, Column Number: {col.column_number}")
-        check_for_undefined_columns()
+        app.logger.debug('delete_column: row %s now has %d column(s)',
+                         row_id, num_columns)
+        # check_for_undefined_columns() used to run here. It walked EVERY row in
+        # the database and printed a line per column — pages of output on every
+        # column delete — while computing nothing. delete_undefined_columns()
+        # above is the part that actually repairs anything.
         # Respond with the updated columns to ensure frontend can sync
         return jsonify({'success': True, 'columns': [col.id for col in columns]}), 200
     except Exception as e:
@@ -8352,40 +8354,6 @@ def delete_associated_pictures(section_id):
         raise e
 
 
-def check_for_undefined_columns():
-    rows = Row.query.all()
-    for row in rows:
-        columns = Column.query.filter_by(row_id=row.id).all()
-        column_numbers = [col.column_number for col in columns]
-        max_column_number = max(column_numbers) if column_numbers else 0
-
-        for i in range(1, max_column_number + 1):
-            if i not in column_numbers:
-                print(f"Undefined or missing column in row {row.id}: column number {i}")
-            else:
-                print(f"Column {i} in row {row.id} is defined")
-
-
-def find_undefined_columns():
-    rows = Row.query.all()
-    for row in rows:
-        columns = Column.query.filter_by(row_id=row.id).all()
-        column_numbers = [col.column_number for col in columns]
-        max_column_number = max(column_numbers) if column_numbers else 0
-
-        undefined_columns = []
-        for i in range(1, max_column_number + 1):
-            if i not in column_numbers:
-                undefined_columns.append(i)
-
-        if undefined_columns:
-            print(f"Undefined or missing columns in row {row.id}: {undefined_columns}")
-        else:
-            print(f"No undefined columns in row {row.id}")
-
-    return undefined_columns
-
-
 def delete_undefined_columns():
     rows = Row.query.all()
     for row in rows:
@@ -8399,9 +8367,9 @@ def delete_undefined_columns():
             if i not in column_numbers:
                 undefined_columns.append(i)
 
-        # Log undefined columns
         if undefined_columns:
-            print(f"Undefined or missing columns in row {row.id}: {undefined_columns}")
+            app.logger.debug('row %s had undefined column numbers: %s',
+                             row.id, undefined_columns)
 
         # Delete undefined columns and renumber remaining columns if necessary
         for col in columns:
@@ -8531,7 +8499,7 @@ def get_sections_and_structure(page_content_id):
         return jsonify(response_data), 200
 
     except Exception as e:
-        print(f"Error retrieving sections and structure: {str(e)}")
+        app.logger.error(f"Error retrieving sections and structure: {str(e)}")
         return jsonify({'error': 'Internal Server Error'}), 500
 
 
@@ -8564,7 +8532,7 @@ def create_section_group(page_content_id):
         })
 
     except Exception as e:
-        print(f"Error creating section group: {e}")
+        app.logger.error(f"Error creating section group: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -8823,7 +8791,7 @@ def delete_section_group(group_id):
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error deleting section group: {e}")
+        app.logger.error(f"Error deleting section group: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -8883,7 +8851,7 @@ def update_section_group(group_id):
 
     except Exception as e:
         db.session.rollback()
-        print("Error updating section group:", str(e))
+        app.logger.error('Error updating section group: %s', str(e))
         return jsonify({
             'success': False,
             'error': str(e)
@@ -8933,7 +8901,7 @@ def update_section_group_order():
         return jsonify({'success': True})
 
     except Exception as e:
-        print(f"Error updating group order: {e}")
+        app.logger.error(f"Error updating group order: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -8956,7 +8924,7 @@ def update_row_order_and_groups():
         return jsonify({'success': True})
 
     except Exception as e:
-        print(f"Error updating row order and groups: {e}")
+        app.logger.error(f"Error updating row order and groups: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -9172,7 +9140,7 @@ def add_row_to_group(page_content_id, group_id):
         return jsonify({'success': True, 'row_id': new_row.id})
 
     except Exception as e:
-        print(f"Error adding row to group: {e}")
+        app.logger.error(f"Error adding row to group: {e}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -9679,7 +9647,7 @@ If you did not request this, you can ignore this email.
                         body
                     )
                 except Exception as e:
-                    print(f"Password reset email failed: {e}")
+                    app.logger.error(f"Password reset email failed: {e}")
 
         flash(generic_message, 'success')
         return redirect(request.path)
@@ -9865,7 +9833,7 @@ If you did not request this, you can ignore this email.
                         body
                     )
                 except Exception as e:
-                    print(f"Username recovery email failed: {e}")
+                    app.logger.error(f"Username recovery email failed: {e}")
 
         flash(generic_message, 'success')
         return redirect(request.path)
@@ -10532,7 +10500,7 @@ def admin_login_link_request(admin_key=None):
                 try:
                     send_admin_login_link_email(user, None, dest='admin')
                 except Exception as e:
-                    print(f'Admin magic sign-in link email failed: {e}')
+                    app.logger.error(f'Admin magic sign-in link email failed: {e}')
 
         flash('If that matches an admin account and email sending is configured, '
               'a sign-in link is on its way. It expires in 15 minutes.', 'success')
@@ -14691,7 +14659,7 @@ def duplicate_page(website_id, page_id):
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error duplicating page: {e}")
+        app.logger.error(f"Error duplicating page: {e}")
         return jsonify({
             'success': False,
             'error': str(e)
@@ -15077,7 +15045,7 @@ def replace_page(target_page_id, source_page_id):
 
     except Exception as e:
         db.session.rollback()
-        print(f"Error replacing page: {e}")
+        app.logger.error(f"Error replacing page: {e}")
         return jsonify({
             "success": False,
             "error": str(e)
@@ -15908,7 +15876,7 @@ def move_or_swap_section(section_id):
 
     except Exception as e:
         db.session.rollback()
-        print(f'Error moving/swapping section: {e}')
+        app.logger.error(f'Error moving/swapping section: {e}')
 
         return jsonify({
             'success': False,
@@ -16109,7 +16077,7 @@ def add_section(page_id):
 @app.route('/add_row_above/<int:row_id>', methods=['POST'])
 @login_required
 def add_row_above(row_id):
-    print("ADD ROW ABOVE: ", row_id)
+    app.logger.debug('ADD ROW ABOVE: %s', row_id)
     try:
         # Get the current row
         current_row = Row.query.get_or_404(row_id)
@@ -16124,7 +16092,7 @@ def add_row_above(row_id):
         # Increment the row numbers of the current row and all rows below it
         for row in rows_to_increment:
             row.row_number += 1
-            print(f"Incremented Row {row.id} to Row Number {row.row_number}")
+            app.logger.debug(f"Incremented Row {row.id} to Row Number {row.row_number}")
 
         # Create a new row at the original position of the current row
         new_row = Row(
@@ -16134,7 +16102,7 @@ def add_row_above(row_id):
         )
         db.session.add(new_row)
         db.session.flush()  # Flush to get the new_row ID
-        print(f"New Row ID: {new_row.id}, Row Number: {new_row.row_number}")
+        app.logger.debug(f"New Row ID: {new_row.id}, Row Number: {new_row.row_number}")
 
         # Create a default column for the new row
         new_column = Column(
@@ -16146,12 +16114,12 @@ def add_row_above(row_id):
 
         # Commit the changes to the database
         db.session.commit()
-        print("Commit successful")
+        app.logger.debug("Commit successful")
 
         return jsonify({'success': True}), 200
     except Exception as e:
         db.session.rollback()
-        print(f"Error: {str(e)}")
+        app.logger.error(f"Error: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -16507,20 +16475,20 @@ def update_public_images():
     # current_user is guaranteed to exist and be logged in
     user_id = current_user.id  # or .get_id() depending on your User model
 
-    print(f"Logged in as user {user_id}")
-    print('UserID: ', user_id)
+    app.logger.debug(f"Logged in as user {user_id}")
+    app.logger.debug('UserID: %s', user_id)
     if not user_id:
-        print('missing user id')
+        app.logger.error('missing user id')
         return jsonify({'status': 'error', 'message': 'User ID is missing'})
 
     if 'picture' not in request.files:
-        print('missing file?')
+        app.logger.error('missing file?')
         return jsonify({'status': 'error', 'message': 'No file part'})
 
     files = request.files.getlist('picture')  # Get the list of files
 
     section_id = request.form.get('section_id')  # Get the section ID from the form
-    print("Section ID: ", section_id)
+    app.logger.debug('Section ID: %s', section_id)
 
     if not section_id:
         return jsonify({'status': 'error', 'message': 'Section ID is missing'})
@@ -16578,11 +16546,11 @@ def update_public_images():
 
         for file in files:
             if file.filename == '':
-                print('Upload Image Not Found')
+                app.logger.error('Upload Image Not Found')
                 return jsonify({'status': 'error', 'message': 'No selected file'})
 
             if file and allowed_file(file.filename):
-                print('Upload Image Found')
+                app.logger.debug('Upload Image Found')
                 filename = secure_filename(file.filename)
                 filepath = os.path.join(user_folder, filename)
                 file.save(filepath)
@@ -17269,7 +17237,7 @@ def update_contact_form():
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
-    print("Request for static file:", filename)
+    app.logger.debug('Request for static file: %s', filename)
     return send_from_directory(app.static_folder, filename)
 
 
@@ -20956,7 +20924,7 @@ def import_backup():
                         fallback_collection_map = {}
                     fb = fallback_collection_map.get(new_wid)
                     if not fb:
-                        fb_owner = Website.query.get(new_wid)
+                        fb_owner = db.session.get(Website, new_wid)
                         owner_uid = fb_owner.user_id if fb_owner else uid
                         existing = PostCollection.query.filter_by(
                             user_id=owner_uid, slug='uncategorized').first()
@@ -24719,6 +24687,7 @@ def update_section():
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
     section.version = (section.version or 0) + 1
+    _record_section_author(section)
     section.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     _touch_page(section.page_content_id)
     db.session.commit()
@@ -24733,7 +24702,7 @@ def toggle_public_page():
     site_active_status = data.get('site_active_status')
     website_id = data.get('website_id')
     page_id = data.get('page_id')  # Get the page_id from the request data
-    print("Publish WEBSITE ID: ", website_id, " PAGE ID: ", page_id)
+    app.logger.debug('%s %s %s %s', "Publish WEBSITE ID: ", website_id, " PAGE ID: ", page_id)
 
     # Verify the user owns the website
     website = Website.query.filter_by(id=website_id, user_id=current_user.root_user_id).first()
@@ -29131,6 +29100,7 @@ def save_code_section(section_id):
         section.content = {'code': code, 'agent_id': agent_id}
         flag_modified(section, 'content')
         section.version = (section.version or 0) + 1
+        _record_section_author(section)
         section.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         _touch_page(section.page_content_id)
         db.session.commit()
@@ -29776,7 +29746,7 @@ def owns_review_board(board):
     if board.user_id is not None:
         return board.user_id == current_user.root_user_id
     if board.website_id is not None:
-        w = Website.query.get(board.website_id)
+        w = db.session.get(Website, board.website_id)
         return bool(w and w.user_id == current_user.root_user_id)
     return False
 
@@ -31521,7 +31491,7 @@ def public_forgot_password():
             try:
                 send_public_user_password_reset_email(public_user)
             except Exception as e:
-                print(f'Public forum password reset email failed: {e}')
+                app.logger.error(f'Public forum password reset email failed: {e}')
 
         flash(generic_message, 'success')
         return redirect(url_for('public_login'))
@@ -31606,7 +31576,7 @@ def public_login_link_request():
                 try:
                     send_public_user_login_link_email(public_user, safe_next)
                 except Exception as e:
-                    print(f'Magic sign-in link email failed: {e}')
+                    app.logger.error(f'Magic sign-in link email failed: {e}')
         elif admin:
             recently_sent = (
                 admin.login_link_sent_at and
@@ -31616,7 +31586,7 @@ def public_login_link_request():
                 try:
                     send_admin_login_link_email(admin, website, safe_next)
                 except Exception as e:
-                    print(f'Magic sign-in link email failed (admin): {e}')
+                    app.logger.error(f'Magic sign-in link email failed (admin): {e}')
 
         flash(generic_message, 'success')
         return redirect(url_for('public_login', **login_kwargs))
@@ -31954,7 +31924,7 @@ def public_resend_verification():
             try:
                 send_public_user_verification_email(public_user)
             except Exception as e:
-                print(f'Public forum verification resend failed: {e}')
+                app.logger.error(f'Public forum verification resend failed: {e}')
 
         flash(generic_message, 'success')
         return _login_redirect()
@@ -33482,8 +33452,8 @@ def public_2fa():
     if not pending_user_id or session.get('pub_2fa_purpose') != 'login':
         return redirect(url_for('public_login'))
     # Use the website the pending user belongs to for correct styling/favicon
-    _pending_pub_user = PublicUser.query.get(pending_user_id)
-    website = (Website.query.get(_pending_pub_user.website_id)
+    _pending_pub_user = db.session.get(PublicUser, pending_user_id)
+    website = (db.session.get(Website, _pending_pub_user.website_id)
                if _pending_pub_user else None) or get_live_website()
     if not website:
         return render_template('no_site_found.html'), 404
@@ -33717,7 +33687,7 @@ def public_2fa_resend():
         return _utf8_json({'error': 'No pending 2FA session.'}, 400)
     if _pub_2fa_recently_sent(pending_user_id, cooldown_seconds=10):
         return _utf8_json({'error': 'Please wait before requesting a new code.'}, 429)
-    pub_user = PublicUser.query.get(pending_user_id)
+    pub_user = db.session.get(PublicUser, pending_user_id)
     if not pub_user:
         return _utf8_json({'error': 'User not found.'}, 400)
     code = generate_two_factor_code()
@@ -34234,14 +34204,14 @@ def _pub_2fa_set_pending(user_id, code, purpose, next_url=None):
     if next_url is not None:
         session['pub_2fa_next_url'] = next_url
     # Stamp send time for cooldown enforcement
-    pub_user = PublicUser.query.get(user_id)
+    pub_user = db.session.get(PublicUser, user_id)
     if pub_user:
         pub_user.two_factor_last_sent_at = datetime.now(timezone.utc).replace(tzinfo=None)
         db.session.commit()
 
 
 def _pub_2fa_recently_sent(user_id, cooldown_seconds=10):
-    pub_user = PublicUser.query.get(user_id)
+    pub_user = db.session.get(PublicUser, user_id)
     if not pub_user or not pub_user.two_factor_last_sent_at:
         return False
     elapsed = (datetime.now(timezone.utc).replace(tzinfo=None) - pub_user.two_factor_last_sent_at).total_seconds()
@@ -41916,7 +41886,7 @@ def public_post_detail(collection_slug, post_slug, prefix=None):
         return redirect(url_for('public_login', website_prefix=website.url_prefix, next=request.url))
     comments_data = []
     for c in comments:
-        pu = PublicUser.query.get(c.public_user_id) if c.public_user_id else None
+        pu = db.session.get(PublicUser, c.public_user_id) if c.public_user_id else None
         # If the author still has an active account, use their current public
         # display name (so display-name changes propagate retroactively).
         # Otherwise fall back to the snapshot stored when the comment was made.
@@ -42170,21 +42140,46 @@ def _section_conflict(section, supplied_version):
     if supplied == current:
         return None
 
+    # Whoever last wrote THIS section. Falling back to the page's last editor —
+    # which is what this used to do — names whoever last touched anything on the
+    # page, so a person editing alone was told they had raced themselves.
     who = None
-    page = db.session.get(PublicPageContent, section.page_content_id)
-    if page is not None and getattr(page, 'last_edited_by_id', None):
-        who = db.session.get(User, page.last_edited_by_id)
+    if section.updated_by_id:
+        who = db.session.get(User, section.updated_by_id)
+
+    # Two tabs, or a retry, of the SAME person. Still worth stopping (the other
+    # tab's edit would be lost either way) but "someone else changed this" is
+    # simply false, and it is the sentence that makes this look broken.
+    is_self = bool(who and current_user.is_authenticated and who.id == current_user.id)
+    if is_self:
+        message = ('You changed this section in another tab or window. Your copy '
+                   'here is out of date.')
+    else:
+        message = (f'{who.username if who else "Someone else"} changed this section '
+                   f'while you were editing it. Your copy is out of date.')
     return jsonify({
         'status': 'conflict',
         'conflict': True,
-        'error': (f'{who.username if who else "Someone else"} changed this section '
-                  f'while you were editing it. Your copy is out of date.'),
+        'error': message,
+        'self_conflict': is_self,
         'saved_by': (who.username if who else None),
         'saved_at': (section.updated_at.isoformat() if section.updated_at else None),
         'current_version': current,
         'section_id': section.id,
         'section_type': section.section_type,
     }), 409
+
+
+def _record_section_author(section):
+    """Note who wrote this section, for the conflict message.
+
+    Wrapped because a save can legitimately happen outside a login context and
+    attribution is never worth failing a save over."""
+    try:
+        if current_user.is_authenticated:
+            section.updated_by_id = current_user.id
+    except Exception:
+        pass
 
 
 def _bump_version(obj):
@@ -47711,7 +47706,7 @@ def _quiz_best_score(quiz_id, public_user, visitor_hash):
 def _live_website_for(model_obj):
     """Resolve the live Website that owns a quiz/guide, or abort 404. Avoids
     URL-prefix ambiguity — the owning site is derived from the object itself."""
-    website = Website.query.get(model_obj.website_id)
+    website = db.session.get(Website, model_obj.website_id)
     if not website or not website.is_live:
         abort(404)
     return website
@@ -47785,7 +47780,7 @@ def public_resource_bundle(bid):
         blocks.append({'resource': r, 'inline': inline,
                        'items': items, 'videos': videos})
 
-    category = (ResourceCategory.query.get(bundle.category_id)
+    category = (db.session.get(ResourceCategory, bundle.category_id)
                 if bundle.category_id else None)
     return render_template('public_bundle_page.html', website=website,
                            bundle=bundle, category=category, resources=resources,
@@ -48279,7 +48274,7 @@ def _mark_lesson_complete_if_passed(node, public_user, visitor_hash):
     if not quiz_ids:
         return False
     for qid in quiz_ids:
-        quiz = Quiz.query.get(qid)
+        quiz = db.session.get(Quiz, qid)
         if not quiz:
             return False  # missing quiz can't be passed
         questions = quiz.questions.all()
@@ -48350,10 +48345,10 @@ def public_quiz_submit(qid):
     # Done = every embedded quiz has a passing best-score for this identity.
     progress_summary = None
     if node_id is not None:
-        node = GuideNode.query.get(node_id)
+        node = db.session.get(GuideNode, node_id)
         if node and node.node_type == 'lesson':
             _mark_lesson_complete_if_passed(node, public_user, visitor_hash)
-            guide = Guide.query.get(node.guide_id)
+            guide = db.session.get(Guide, node.guide_id)
             if guide and guide.track_progress:
                 progress_summary = _guide_progress_summary(guide, public_user, visitor_hash)
 
@@ -48607,7 +48602,7 @@ def _member_guide_progress(target_user, website):
             slot['completed'].add(r.guide_node_id)
     out = []
     for gid, data in by_guide.items():
-        guide = Guide.query.get(gid)
+        guide = db.session.get(Guide, gid)
         if not guide or guide.website_id != website.id or guide.status != 'published':
             continue
         order = _guide_reading_order(guide)
@@ -54554,7 +54549,7 @@ def _get_channel_for_admin(cid):
 
 def _get_rule_for_admin(rid):
     """Rule scoped to the current admin's owned channels."""
-    rule = NotificationRule.query.get(rid)
+    rule = db.session.get(NotificationRule, rid)
     if not rule:
         return None
     if not _get_channel_for_admin(rule.channel_id):

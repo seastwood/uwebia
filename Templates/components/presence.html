@@ -196,6 +196,20 @@ window.UwebiaConflict = (function () {
         var who = d.saved_by || 'Someone else';
         var label = opts.label || 'item';
 
+        // The same person in another tab. Saying "someone changed this while
+        // you were editing" to the only editor is what made this read as a
+        // bug; the server sends d.error already worded for the case, so use it.
+        if (d.self_conflict) {
+            var overwrite = confirm(
+                (d.error || 'You changed this ' + label + ' in another tab.') + '\n\n'
+                + 'Nothing was overwritten.\n\n'
+                + 'OK      — reload and start from the newer version\n'
+                + 'Cancel  — keep what is on screen (Save again to overwrite it)');
+            if (overwrite) { window.location.reload(); }
+            else if (opts.armForce) { opts.armForce(); }
+            return;
+        }
+
         // Without applyTheirs there is no way to show their copy in place —
         // a page section's content is arbitrary JSON, not one text body you
         // can paste into an editor. Reloading is the honest option there.

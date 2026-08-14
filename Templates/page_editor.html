@@ -2116,6 +2116,9 @@
     }
 
     /* ── Editor Toast ── */
+    /* Toasts carry a severity now. An error that fades in 2.4s like a success
+       is a message you can miss entirely, which is what the old blocking
+       dialogs were solving badly — so errors stay until dismissed. */
     .editor-toast {
         position: fixed;
         bottom: 28px;
@@ -2131,8 +2134,25 @@
         transition: opacity 0.25s, transform 0.25s;
         z-index: 9999999;
         pointer-events: none;
-        white-space: nowrap;
+        max-width: min(560px, calc(100vw - 40px));
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        text-align: left;
+        line-height: 1.45;
+        white-space: pre-line;   /* messages with line breaks stay readable */
     }
+    .editor-toast[data-kind="success"] { border-color: rgba(94,238,200,0.4); color: #8af5b0; }
+    .editor-toast[data-kind="error"] {
+        border-color: rgba(255,138,138,0.45); color: #ff9b9b;
+        pointer-events: auto;    /* so it can be dismissed */
+    }
+    .editor-toast-close {
+        background: none; border: none; color: inherit; opacity: 0.6;
+        font-size: 1rem; line-height: 1; cursor: pointer; padding: 0 0 0 4px;
+        flex-shrink: 0;
+    }
+    .editor-toast-close:hover { opacity: 1; }
 
     .editor-toast-show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -9342,7 +9362,7 @@ document.getElementById("refreshButton").addEventListener("click", function () {
                                     body: JSON.stringify({name: tname.trim()})
                                 }).then(r => r.json()).then(d => {
                                     if (d.success) showEditorToast('Saved as template');
-                                    else alert(d.error || 'Failed');
+                                    else notify(d.error || 'Failed', 'error');
                                 });
                             });
                         } else {
@@ -9801,6 +9821,16 @@ document.getElementById("refreshButton").addEventListener("click", function () {
             </form>
         </div>
         <style>
+        /* Per-section save state. Deliberately inline on the card rather than a
+           modal: saving happens constantly, and a dialog for it is what made
+           the editor feel like it was interrupting rather than working. */
+        .section-save-state { font-size: 0.72rem; font-weight: 600; margin-left: 10px;
+                              white-space: nowrap; opacity: 0.9; }
+        .section-save-state[data-state="saving"]   { color: rgba(255,255,255,0.45); }
+        .section-save-state[data-state="saved"]    { color: #5eeec8; }
+        .section-save-state[data-state="failed"]   { color: #ff8a8a; }
+        .section-save-state[data-state="conflict"] { color: #ffc454; }
+
             .buttons-section-form .btns-fieldset {
                 border: 1px solid rgba(255,255,255,0.13);
                 border-radius: 10px;
@@ -12490,7 +12520,7 @@ setTimeout(() => {
                             populateSections();
                             reloadIframe();
                         } else {
-                            alert(data.error || 'Failed to delete row.');
+                            notify(data.error || 'Failed to delete row.', 'error');
                         }
                     })
                     .catch(error => {
@@ -13385,7 +13415,7 @@ setTimeout(() => {
 
             colorElement.addEventListener('click', () => {
                 copyToClipboard(color);
-                alert(`Copied ${color} to clipboard!`);
+                notify(`Copied ${color} to clipboard!`, 'success');
             });
 
             savedColorsContainer.appendChild(colorElement);
@@ -13410,9 +13440,9 @@ setTimeout(() => {
             if (!res.file) {
                 // No image, no permission, or no clipboard API at all (plain
                 // http) — say which, rather than appearing to do nothing.
-                alert(res.reason === 'empty'
+                notify(res.reason === 'empty'
                     ? 'There is no image on the clipboard — copy one first.'
-                    : ClipboardImage.hint());
+                    : ClipboardImage.hint(), 'error');
                 return;
             }
             await uploadImageIntoSection(sectionId, res.file, btn);
@@ -13430,7 +13460,7 @@ setTimeout(() => {
                 const up = await fetch('/admin/assets/upload', { method: 'POST', body: fd });
                 const upd = await up.json();
                 if (upd.status !== 'success' || !(upd.assets || []).length) {
-                    alert(upd.error || 'Upload failed.');
+                    notify(upd.error || 'Upload failed.', 'error');
                     return;
                 }
                 // Attach it exactly the way the picker does.
@@ -13447,7 +13477,7 @@ setTimeout(() => {
                     })
                 });
                 if (!add.ok) {
-                    alert('The image uploaded, but could not be added to the section.');
+                    notify('The image uploaded, but could not be added to the section.', 'error');
                     return;
                 }
                 if (typeof loadUploadedImages === 'function') {
@@ -13455,7 +13485,7 @@ setTimeout(() => {
                 }
                 if (typeof reloadIframe === 'function') reloadIframe();
             } catch (e) {
-                alert('Paste failed: ' + e.message);
+                notify('Paste failed: ' + e.message, 'error');
             } finally {
                 if (btn) {
                     btn.disabled = false;
@@ -13466,7 +13496,7 @@ setTimeout(() => {
 
         function openLibraryPicker(sectionId) {
             if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
-                alert('Asset library modal is not loaded.');
+                notify('Asset library modal is not loaded.', 'error');
                 return;
             }
 
@@ -13481,7 +13511,7 @@ setTimeout(() => {
 
         function openGroupBackgroundLibraryPicker() {
             if (!window.PhotoLibraryModal || typeof window.PhotoLibraryModal.open !== 'function') {
-                alert('Asset library modal is not loaded.');
+                notify('Asset library modal is not loaded.', 'error');
                 return;
             }
 
@@ -14131,11 +14161,11 @@ setTimeout(() => {
         function showMessage(message) {
             var messageElement = document.getElementById('message');
             var messageContent = document.getElementById('messageContent');
-
-            // Set message content
+            // Degrade rather than throw: a missing element must not take the
+            // caller down with it, which is how a failed save used to become a
+            // silent one.
+            if (!messageElement || !messageContent) { console.warn(message); return; }
             messageContent.textContent = message;
-
-            // Show the message
             messageElement.style.display = 'block';
         }
 
@@ -14149,9 +14179,10 @@ setTimeout(() => {
         const codeMirrorEditors = [];
 
 
-        function showMessage(message) {
-            alert(message);
-        }
+        // NOTE: this used to be a second definition of showMessage that
+        // shadowed the one above, turning every message into a blocking
+        // alert() and leaving the #message element in the markup unused.
+        // Removed — the inline version above is what the page was built for.
 
         function handleSubmit(classSelector, endpoint) {
             if (document.body.dataset.updateSectionSubmitReady === 'true') return;
@@ -14173,45 +14204,9 @@ setTimeout(() => {
                 const formData = new FormData(form);
                 formData.set("section_id", form.dataset.sectionId);
                 formData.set("section_type", form.dataset.sectionType);
-
-                // Optimistic locking: include the version we last saw
-                const card = document.querySelector(`.section-card[data-section-id="${form.dataset.sectionId}"]`);
-                if (card) formData.set("_version", card.dataset.sectionVersion ?? '');
-                if (_takeForce(sectionId)) formData.set('_force', '1');
-
-                fetch(endpoint, {
-                    method: "POST",
-                    body: formData
-                })
-                    .then(async response => {
-                        const data = await response.json();
-                        if (response.status === 409 && data.conflict) {
-                            if (data.version !== undefined && card) card.dataset.sectionVersion = data.version;
-                            UwebiaConflict.handle(data, {
-                                label: 'section',
-                                armForce: function () { _armForce(sectionId); },
-                            });
-                            return null;
-                        }
-                        if (!response.ok) {
-                            throw new Error(data.message || data.error || 'Failed to save section.');
-                        }
-                        return data;
-                    })
-                    .then(data => {
-                        if (!data) return;
-                        // Keep the card version in sync for future conflict detection
-                        if (data.version !== undefined && card) {
-                            card.dataset.sectionVersion = data.version;
-                        }
-                        if (data.status !== 'success') {
-                            showMessage(data.message || 'Section did not save.');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error saving section:', error);
-                        showMessage(error.message || 'Error saving section.');
-                    });
+                // Everything about queueing, versions, conflicts, the two
+                // reply dialects and reporting failure lives in saveSection.
+                saveSection(sectionId, { body: formData, endpoint: endpoint });
             });
         }
 
@@ -14361,7 +14356,7 @@ setTimeout(() => {
                 const calendarSelect = document.getElementById('calendar-select');
                 const calendarId = calendarSelect ? parseInt(calendarSelect.value) : null;
                 if (!calendarId) {
-                    alert('Please select a calendar. If you have no calendars, create one first in the Calendars admin page.');
+                    notify('Please select a calendar. If you have no calendars, create one first in the Calendars admin page.', 'error');
                     return;
                 }
                 content = { calendar_id: calendarId };
@@ -14390,7 +14385,7 @@ setTimeout(() => {
                 const colSel = document.getElementById('af-collection');
                 const colId  = colSel ? parseInt(colSel.value) : null;
                 if (!colId) {
-                    alert('Please select a collection. If you have none, create one first in the Posts admin page.');
+                    notify('Please select a collection. If you have none, create one first in the Posts admin page.', 'error');
                     return;
                 }
                 content = {
@@ -14408,7 +14403,7 @@ setTimeout(() => {
                 const calSel = document.getElementById('cb-calendar');
                 const calId  = calSel ? parseInt(calSel.value) : null;
                 if (!calId) {
-                    alert('Please select a calendar.');
+                    notify('Please select a calendar.', 'error');
                     return;
                 }
                 content = {
@@ -14422,7 +14417,7 @@ setTimeout(() => {
                 const rvSel = document.getElementById('rvp-board');
                 const rvId  = rvSel ? parseInt(rvSel.value) : null;
                 if (!rvId) {
-                    alert('Please select a review board. If you have none, create one first in Reviews admin.');
+                    notify('Please select a review board. If you have none, create one first in Reviews admin.', 'error');
                     return;
                 }
                 content = {
@@ -14442,7 +14437,7 @@ setTimeout(() => {
                 const nsSel = document.getElementById('ns-newsletter');
                 const nsId  = nsSel ? parseInt(nsSel.value) : null;
                 if (!nsId) {
-                    alert('Please select a newsletter. If you have none, create one first in Newsletters admin.');
+                    notify('Please select a newsletter. If you have none, create one first in Newsletters admin.', 'error');
                     return;
                 }
                 content = {
@@ -14456,7 +14451,7 @@ setTimeout(() => {
                 const nfSel = document.getElementById('nf-newsletter');
                 const nfId = nfSel ? parseInt(nfSel.value) : null;
                 if (!nfId) {
-                    alert('Please select a newsletter to list issues from.');
+                    notify('Please select a newsletter to list issues from.', 'error');
                     return;
                 }
                 content = {
@@ -14511,7 +14506,7 @@ setTimeout(() => {
                             populateSections();
                         }, 100);
                     } else {
-                        alert('Failed to add section');
+                        notify('Failed to add section', 'error');
                     }
                 })
                 .catch(error => {
@@ -14564,6 +14559,153 @@ setTimeout(() => {
             const c = _sectionCard(id);
             if (c && v !== undefined && v !== null) c.dataset.sectionVersion = v;
         }
+        // ── One save at a time, per section ──────────────────────────
+        // Several things save the same section: the Save button, and the
+        // image/calendar/product autosaves that call requestSubmit() or post
+        // directly. If two are in flight at once the second one carries the
+        // version it read BEFORE the first reply landed, so the server
+        // correctly calls it stale — and the person gets a conflict with
+        // themselves. Sending the newest version doesn't help: the value is
+        // only fresh once the previous response has been applied.
+        //
+        // So: one request per section at a time, and only the LAST queued save
+        // runs afterwards (the ones in between are superseded by it anyway).
+        // The payload is built inside the runner, not when it is queued, so it
+        // always reads the version the previous response just wrote.
+        const _sectionSaveInFlight = {};
+        const _sectionSavePending = {};
+        function queueSectionSave(id, run) {
+            if (_sectionSaveInFlight[id]) {
+                _sectionSavePending[id] = run;
+                return _sectionSaveInFlight[id];
+            }
+            const done = () => {
+                delete _sectionSaveInFlight[id];
+                const next = _sectionSavePending[id];
+                if (next) {
+                    delete _sectionSavePending[id];
+                    queueSectionSave(id, next);
+                }
+            };
+            let p;
+            try {
+                p = Promise.resolve(run());
+            } catch (e) {
+                done();
+                throw e;
+            }
+            // Chain the bookkeeping without swallowing the runner's result:
+            // a caller may await this to read the response.
+            _sectionSaveInFlight[id] = p.then(
+                v => { done(); return v; },
+                e => { done(); throw e; });
+            return _sectionSaveInFlight[id];
+        }
+
+        // ── One way to save a section ────────────────────────────────
+        // Four paths used to save sections, each with its own idea of what a
+        // reply looks like and its own idea of whether to tell you anything.
+        // Everything goes through saveSection() now.
+
+        // Routes speak two dialects — {status:'success'|'error', message} and
+        // {success:true|false, error} — across roughly 275 call sites. Rather
+        // than rewrite them all, both are understood here, once. A reply with
+        // neither key is taken at its HTTP word, which is what the older
+        // version-only responses rely on.
+        function _readSaveReply(httpOk, d) {
+            if (d === null || typeof d !== 'object') {
+                return { ok: httpOk, version: undefined, conflict: false,
+                         error: httpOk ? null : 'The server sent an unreadable reply.',
+                         raw: d };
+            }
+            const said_no = (d.success === false) || (d.status === 'error');
+            const said_yes = (d.success === true) || (d.status === 'success');
+            return {
+                ok: httpOk && !said_no && (said_yes || (d.success === undefined
+                                                        && d.status === undefined)),
+                version: d.version,
+                conflict: !!d.conflict,
+                error: d.error || d.message || null,
+                raw: d,
+            };
+        }
+
+        // A section says how its own last save went, in its own card. No modal
+        // for something that happens every few seconds.
+        function _setSaveState(id, state, extra) {
+            const card = _sectionCard(id);
+            if (!card) return;
+            let el = card.querySelector('.section-save-state');
+            if (!el) {
+                el = document.createElement('span');
+                el.className = 'section-save-state';
+                const head = card.querySelector('.section-card-header') || card;
+                head.appendChild(el);
+            }
+            const text = {
+                saving: 'Saving…',
+                saved: 'Saved',
+                failed: extra ? `Not saved — ${extra}` : 'Not saved',
+                conflict: 'Not saved — someone else changed this',
+            }[state] || '';
+            el.textContent = text;
+            el.dataset.state = state;
+            if (state === 'saved') {
+                clearTimeout(el._clear);
+                el._clear = setTimeout(() => {
+                    if (el.dataset.state === 'saved') el.textContent = '';
+                }, 2500);
+            }
+        }
+
+        /**
+         * Save one section. The single entry point.
+         *   body     FormData (version and force are stamped on at send time)
+         *   endpoint defaults to /update_section
+         *   quiet    true for autosaves that shouldn't announce success
+         * Returns {ok, version, conflict, error, raw} — never throws.
+         */
+        function saveSection(id, { body, endpoint = '/update_section',
+                                   label = 'section', quiet = false } = {}) {
+            return queueSectionSave(id, async () => {
+                if (body instanceof FormData) {
+                    // Read at send time, not queue time — see queueSectionSave.
+                    body.set('_version', _sectionVersion(id));
+                    if (_takeForce(id)) body.set('_force', '1');
+                }
+                if (!quiet) _setSaveState(id, 'saving');
+                let r, d = null;
+                try {
+                    r = await fetch(endpoint, { method: 'POST', body });
+                    d = await r.json().catch(() => null);
+                } catch (netErr) {
+                    // The old code logged this to the console and moved on, so
+                    // a dropped connection looked exactly like a successful save.
+                    console.error('[saveSection] network error', id, netErr);
+                    _setSaveState(id, 'failed', 'no connection');
+                    return { ok: false, version: undefined, conflict: false,
+                             error: 'No connection', raw: null };
+                }
+                const res = _readSaveReply(r.ok, d);
+                if (res.version !== undefined) _setSectionVersion(id, res.version);
+                if (r.status === 409 && res.conflict) {
+                    _setSaveState(id, 'conflict');
+                    UwebiaConflict.handle(res.raw, {
+                        label: label,
+                        armForce: function () { _armForce(id); },
+                    });
+                    return res;
+                }
+                if (!res.ok) {
+                    console.error('[saveSection] failed', id, res.error || d);
+                    _setSaveState(id, 'failed', res.error);
+                    return res;
+                }
+                _setSaveState(id, quiet ? 'saved' : 'saved');
+                return res;
+            });
+        }
+
         function _armForce(id) {
             const c = _sectionCard(id);
             if (c) c.dataset.forceNextSave = '1';
@@ -14591,16 +14733,9 @@ setTimeout(() => {
                 const form = document.getElementById(`calStyleForm-${sectionId}`);
                 if (!form) return;
                 if (_sectionConflicted[sectionId]) return;
-                const data = new FormData(form);
-                data.set('_version', _sectionVersion(sectionId));
-                if (_takeForce(sectionId)) data.set('_force', '1');
-                fetch('/update_section', { method: 'POST', body: data })
-                    .then(async r => {
-                        const d = await r.json().catch(() => null);
-                        if (r.status === 409 && d) { _reportSectionConflict(sectionId, d); return; }
-                        if (d && d.version !== undefined) _setSectionVersion(sectionId, d.version);
-                    })
-                    .catch(err => console.error('Failed to save calendar styles:', err));
+                // An autosave: quiet on success, but a failure is still shown
+                // rather than swallowed into the console the way it used to be.
+                saveSection(sectionId, { body: new FormData(form), quiet: true });
             }, 600);
         }
 
@@ -14772,25 +14907,16 @@ setTimeout(() => {
             }
             status.textContent = 'Saving…'; status.style.color = 'rgba(255,255,255,0.4)';
             try {
-                const fd = new FormData(form);
-                fd.set('_version', _sectionVersion(sectionId));
-                if (_takeForce(sectionId)) fd.set('_force', '1');
-                const r = await fetch('/update_section', { method: 'POST', body: fd });
-                const d = await r.json();
-                if (r.status === 409 && d.conflict) {
+                const res = await saveSection(sectionId, { body: new FormData(form) });
+                // This panel keeps its own inline line as well, since it sits
+                // far from the section header where the shared one renders.
+                if (res.conflict) {
                     status.style.color = '#ffc454'; status.textContent = 'Someone else changed this';
-                    UwebiaConflict.handle(d, {
-                        label: 'section',
-                        armForce: function () { _armForce(sectionId); },
-                    });
-                    return;
-                }
-                if (d.version !== undefined) _setSectionVersion(sectionId, d.version);
-                if (d.status === 'success') {
+                } else if (res.ok) {
                     status.style.color = '#5eeec8'; status.textContent = 'Saved';
                     setTimeout(() => status.textContent = '', 2500);
                 } else {
-                    status.style.color = '#f88'; status.textContent = d.message || 'Error';
+                    status.style.color = '#f88'; status.textContent = res.error || 'Error';
                 }
             } catch(err) {
                 status.style.color = '#f88'; status.textContent = 'Request failed';
@@ -15462,7 +15588,7 @@ setTimeout(() => {
                     if (data.success) {
                         populateSections();
                     } else {
-                        alert(data.error || 'Failed to add row to group.');
+                        notify(data.error || 'Failed to add row to group.', 'error');
                     }
                 })
                 .catch(error => console.error('Error adding row to group:', error));
@@ -15486,7 +15612,7 @@ setTimeout(() => {
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) populateSections();
-                    else alert(data.error || 'Failed to create section group.');
+                    else notify(data.error || 'Failed to create section group.', 'error');
                 })
                 .catch(err => console.error('Error creating section group:', err));
         }
@@ -15568,7 +15694,7 @@ setTimeout(() => {
                 });
                 const data = await r.json();
                 if (data.success) populateSections();
-                else alert(data.error || 'Failed to create group from template.');
+                else notify(data.error || 'Failed to create group from template.', 'error');
             } catch(e) {
                 console.error(e);
             }
@@ -15597,7 +15723,7 @@ setTimeout(() => {
                 });
                 const data = await r.json();
                 if (data.success) populateSections();
-                else alert(data.error || 'Failed to duplicate group.');
+                else notify(data.error || 'Failed to duplicate group.', 'error');
             } catch(e) { console.error(e); }
         }
 
@@ -15647,7 +15773,7 @@ setTimeout(() => {
         async function applySectionTemplate(templateId) {
             const rowId = document.getElementById('row-id-input').value;
             const colId = document.getElementById('column-id-input').value;
-            if (!rowId || !colId) { alert('Open a column\'s Add Section menu first, then switch to From Template.'); return; }
+            if (!rowId || !colId) { notify('Open a column\'s Add Section menu first, then switch to From Template.', 'error'); return; }
             const resp = await fetch(`/admin/section_template/${templateId}/apply`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
@@ -15658,7 +15784,7 @@ setTimeout(() => {
                 document.getElementById('add-section-modal').style.display = 'none';
                 populateSections();
             } else {
-                alert(rd.error || 'Failed to apply template');
+                notify(rd.error || 'Failed to apply template', 'error');
             }
         }
 
@@ -15671,14 +15797,14 @@ setTimeout(() => {
                 body: JSON.stringify({name: newName.trim()})
             }).then(r => r.json());
             if (d.success) loadSectionTemplateList();
-            else alert(d.error || 'Failed');
+            else notify(d.error || 'Failed', 'error');
         }
 
         async function deleteSectionTemplate(templateId) {
             if (!confirm('Delete this section template?')) return;
             const d = await fetch(`/admin/section_templates/${templateId}/delete`, {method:'POST'}).then(r=>r.json());
             if (d.success) loadSectionTemplateList();
-            else alert(d.error || 'Failed');
+            else notify(d.error || 'Failed', 'error');
         }
 
         /* ── Save as Template Modal ── */
@@ -15720,7 +15846,7 @@ setTimeout(() => {
                     closeSaveTemplateModal();
                     showEditorToast(`Template "${name}" saved`);
                 } else {
-                    alert(data.error || 'Failed to save template.');
+                    notify(data.error || 'Failed to save template.', 'error');
                 }
             } catch(e) {
                 console.error(e);
@@ -15730,14 +15856,45 @@ setTimeout(() => {
             }
         }
 
-        function showEditorToast(msg) {
+        /**
+         * Say something without stopping the page.
+         *
+         * This replaces alert(), which blocked the editor for every failure —
+         * including ones raised by a background autosave the person never
+         * asked for. Errors persist until dismissed because a message you can
+         * miss is barely better than the console; success fades on its own.
+         */
+        function notify(msg, kind) {
+            const text = (msg === undefined || msg === null || msg === '')
+                ? 'Something went wrong.' : String(msg);
             const t = document.createElement('div');
             t.className = 'editor-toast';
-            t.textContent = msg;
+            t.dataset.kind = kind || 'info';
+            const body = document.createElement('span');
+            body.textContent = text;
+            t.appendChild(body);
+
+            const dismiss = () => {
+                t.classList.remove('editor-toast-show');
+                setTimeout(() => t.remove(), 300);
+            };
+            if (kind === 'error') {
+                const x = document.createElement('button');
+                x.className = 'editor-toast-close';
+                x.type = 'button';
+                x.setAttribute('aria-label', 'Dismiss');
+                x.textContent = '\u00d7';
+                x.addEventListener('click', dismiss);
+                t.appendChild(x);
+            }
             document.body.appendChild(t);
             requestAnimationFrame(() => t.classList.add('editor-toast-show'));
-            setTimeout(() => { t.classList.remove('editor-toast-show'); setTimeout(() => t.remove(), 300); }, 2400);
+            if (kind !== 'error') setTimeout(dismiss, 2400);
+            return t;
         }
+
+        // Kept so the callers that already used it don't all have to change.
+        function showEditorToast(msg, kind) { return notify(msg, kind || 'info'); }
 
         function deleteSectionGroup(groupId) {
             const groupEl = document.querySelector(`.section-group[data-group-id="${groupId}"]`);
@@ -15771,7 +15928,7 @@ setTimeout(() => {
                         populateSections();
                         reloadIframe();
                     } else {
-                        alert(data.error || 'Failed to delete section group.');
+                        notify(data.error || 'Failed to delete section group.', 'error');
                     }
                 })
                 .catch(error => console.error('Error deleting section group:', error));
@@ -15946,7 +16103,7 @@ setTimeout(() => {
                         updateGroupRowCounts();
                         reloadIframe();
                     } else {
-                        alert(data.error || 'Failed to save editor order.');
+                        notify(data.error || 'Failed to save editor order.', 'error');
                         populateSections();
                     }
                 })
@@ -16202,7 +16359,7 @@ setTimeout(() => {
                         populateSections();
                         reloadIframe();
                     } else {
-                        alert(data.error || 'Failed to save group style.');
+                        notify(data.error || 'Failed to save group style.', 'error');
                     }
                 })
                 .catch(error => console.error('Error saving group style:', error));
@@ -16229,7 +16386,7 @@ setTimeout(() => {
                         populateSections();
                         reloadIframe();
                     } else {
-                        alert(data.error || 'Failed to save group label.');
+                        notify(data.error || 'Failed to save group label.', 'error');
                     }
                 })
                 .catch(error => console.error('Error saving group label:', error));
@@ -16282,7 +16439,7 @@ setTimeout(() => {
                         populateSections();
                         reloadIframe();
                     } else {
-                        alert(data.error || 'Failed to remove section.');
+                        notify(data.error || 'Failed to remove section.', 'error');
                     }
                 })
                 .catch(error => {
@@ -18014,12 +18171,12 @@ setTimeout(() => {
                         loadUploadedImages(sectionId);
                         reloadIframe();
                     } else {
-                        alert(data.error || data.message || 'Failed to remove image.');
+                        notify(data.error || data.message || 'Failed to remove image.', 'error');
                     }
                 })
                 .catch(error => {
                     console.error('Error removing image:', error);
-                    alert('Error removing image.');
+                    notify('Error removing image.', 'error');
                 });
         }
     </script>
@@ -18136,7 +18293,7 @@ setTimeout(() => {
                 return;
             }
 
-            alert('Photo library modal is not loaded.');
+            notify('Photo library modal is not loaded.', 'error');
         }
 
         function setLinkCardBackgroundImage(sectionId, imageUrl) {
@@ -18218,7 +18375,7 @@ setTimeout(() => {
 
         function openVideoLibraryPicker(sectionId) {
     if (!window.VideoLibraryModal || typeof window.VideoLibraryModal.open !== 'function') {
-        alert('Video library modal is not loaded.');
+        notify('Video library modal is not loaded.', 'error');
         return;
     }
 
@@ -18232,7 +18389,7 @@ setTimeout(() => {
 
         function openMusicLibraryPicker(sectionId) {
             if (!window.MusicLibraryModal || typeof window.MusicLibraryModal.open !== 'function') {
-                alert('Music library modal is not loaded.');
+                notify('Music library modal is not loaded.', 'error');
                 return;
             }
 
@@ -18361,7 +18518,7 @@ setTimeout(() => {
                         loadSectionMusic(sectionId);
                         reloadIframe();
                     } else {
-                        alert(data.message || data.error || 'Failed to remove track.');
+                        notify(data.message || data.error || 'Failed to remove track.', 'error');
                     }
                 });
         }
@@ -18498,7 +18655,7 @@ function removeVideoItem(sectionId, linkId) {
                 loadSectionVideos(sectionId);
                 reloadIframe();
             } else {
-                alert(data.message || data.error || 'Failed to remove video.');
+                notify(data.message || data.error || 'Failed to remove video.', 'error');
             }
         });
 }
@@ -18849,7 +19006,7 @@ function moderatePageComment(sectionId, commentId, action) {
         })
         .catch(error => {
             console.error(error);
-            alert(error.message || 'Could not update comment.');
+            notify(error.message || 'Could not update comment.', 'error');
         });
 }
 </script>
