@@ -3437,6 +3437,12 @@ class PageSection(db.Model):
     # the version it last saw — server rejects if it no longer matches.
     version = db.Column(db.Integer, nullable=False, default=0, server_default='0')
     updated_at = db.Column(db.DateTime, nullable=True)
+    # Who last wrote THIS section. The conflict message used to name the page's
+    # last editor — whoever last touched anything on the page, almost always the
+    # person reading the message, so it accused them of racing themselves.
+    # SET NULL so removing an admin doesn't delete their sections.
+    updated_by_id = db.Column(db.Integer, db.ForeignKey('user.id', ondelete='SET NULL'),
+                              nullable=True)
     messages = db.relationship('ContactMessage', backref='section', lazy=True, cascade='all, delete-orphan')
 
     # Define a one-to-one relationship with Column
@@ -24719,6 +24725,7 @@ def update_section():
         return jsonify({'status': 'error', 'message': 'Unknown section type'})
 
     section.version = (section.version or 0) + 1
+    _record_section_author(section)
     section.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
     _touch_page(section.page_content_id)
     db.session.commit()
@@ -29131,6 +29138,7 @@ def save_code_section(section_id):
         section.content = {'code': code, 'agent_id': agent_id}
         flag_modified(section, 'content')
         section.version = (section.version or 0) + 1
+        _record_section_author(section)
         section.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
         _touch_page(section.page_content_id)
         db.session.commit()
@@ -42170,21 +42178,46 @@ def _section_conflict(section, supplied_version):
     if supplied == current:
         return None
 
+    # Whoever last wrote THIS section. Falling back to the page's last editor —
+    # which is what this used to do — names whoever last touched anything on the
+    # page, so a person editing alone was told they had raced themselves.
     who = None
-    page = db.session.get(PublicPageContent, section.page_content_id)
-    if page is not None and getattr(page, 'last_edited_by_id', None):
-        who = db.session.get(User, page.last_edited_by_id)
+    if section.updated_by_id:
+        who = db.session.get(User, section.updated_by_id)
+
+    # Two tabs, or a retry, of the SAME person. Still worth stopping (the other
+    # tab's edit would be lost either way) but "someone else changed this" is
+    # simply false, and it is the sentence that makes this look broken.
+    is_self = bool(who and current_user.is_authenticated and who.id == current_user.id)
+    if is_self:
+        message = ('You changed this section in another tab or window. Your copy '
+                   'here is out of date.')
+    else:
+        message = (f'{who.username if who else "Someone else"} changed this section '
+                   f'while you were editing it. Your copy is out of date.')
     return jsonify({
         'status': 'conflict',
         'conflict': True,
-        'error': (f'{who.username if who else "Someone else"} changed this section '
-                  f'while you were editing it. Your copy is out of date.'),
+        'error': message,
+        'self_conflict': is_self,
         'saved_by': (who.username if who else None),
         'saved_at': (section.updated_at.isoformat() if section.updated_at else None),
         'current_version': current,
         'section_id': section.id,
         'section_type': section.section_type,
     }), 409
+
+
+def _record_section_author(section):
+    """Note who wrote this section, for the conflict message.
+
+    Wrapped because a save can legitimately happen outside a login context and
+    attribution is never worth failing a save over."""
+    try:
+        if current_user.is_authenticated:
+            section.updated_by_id = current_user.id
+    except Exception:
+        pass
 
 
 def _bump_version(obj):
