@@ -635,6 +635,59 @@
                            autocomplete="new-password"
                            placeholder="{% if github_login_available %}Leave blank to keep current secret{% else %}Paste the client secret{% endif %}">
                 </div>
+                <div class="settings-field">
+                    <label for="ghRequiredOrg">Require GitHub organization <span style="opacity:0.6;font-weight:400;">(optional)</span></label>
+                    {% if github_org_choices %}
+                    {# Just came back from the list round trip — offer what GitHub
+                       actually reported, with the stored value kept selectable
+                       even if this admin is not in it. #}
+                    <select id="ghRequiredOrgSelect" class="form-control"
+                            onchange="document.getElementById('ghRequiredOrg').value = this.value;">
+                        <option value="">No organization required</option>
+                        {% for o in github_org_choices %}
+                        <option value="{{ o }}" {% if github_required_org == o %}selected{% endif %}>{{ o }}</option>
+                        {% endfor %}
+                        {% if github_required_org and github_required_org not in github_org_choices %}
+                        <option value="{{ github_required_org }}" selected>{{ github_required_org }} (not one of yours)</option>
+                        {% endif %}
+                    </select>
+                    <input id="ghRequiredOrg" type="hidden" value="{{ github_required_org or '' }}">
+                    {% else %}
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <input id="ghRequiredOrg" type="text" class="form-control" style="flex:1;min-width:200px;"
+                               value="{{ github_required_org or '' }}" placeholder="your-team-org">
+                        {% if github_login_available %}
+                        <a class="uw-btn uw-btn-secondary" href="{{ url_for('github_list_orgs') }}"
+                           title="Authorize once so GitHub can tell us which organizations you belong to">
+                            <i class="fab fa-github"></i> List my organizations
+                        </a>
+                        {% endif %}
+                    </div>
+                    <p class="settings-help">
+                        Type the org name, or use <strong>List my organizations</strong> — that sends you to
+                        GitHub once to authorize reading your membership, then offers them as a dropdown.
+                        Uwebia has no GitHub account of its own, so there is no way to look this up without
+                        borrowing your sign-in for that one call. The token is discarded straight after.
+                    </p>
+                    {% endif %}
+                    <p class="settings-help">
+                        When set, an admin can only sign in with GitHub if they are an
+                        <strong>active member</strong> of this organization — checked with GitHub on every
+                        sign-in. Two things follow from that:
+                    </p>
+                    <ul class="settings-help" style="margin:6px 0 0 18px;line-height:1.7;">
+                        <li>Turn on <strong>Require two-factor authentication</strong> in that org's GitHub
+                            settings and GitHub enforces the second factor for you — continuously, removing
+                            members who drop it. Uwebia can't verify that setting from here, so switch it on
+                            in GitHub or the requirement means nothing.</li>
+                        <li>Removing someone from the org locks them out of the admin side here, without
+                            anyone having to remember to do it by hand.</li>
+                    </ul>
+                    <p class="settings-help">
+                        Setting this widens the OAuth request to <code>read:org</code> — membership only, still
+                        no profile data or email. Public member sign-in is not affected.
+                    </p>
+                </div>
                 <button type="button" class="settings-button" onclick="saveGithubSettings()">Save GitHub app</button>
                 <div class="settings-message" id="githubMessage"></div>
             </div>
@@ -1458,15 +1511,18 @@
         async function saveGithubSettings() {
             const clientId = document.getElementById('ghClientId').value.trim();
             const secret   = document.getElementById('ghClientSecret').value.trim();
+            const org      = document.getElementById('ghRequiredOrg').value.trim();
             try {
                 const r = await fetch('/admin/dashboard/settings/github', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ client_id: clientId, client_secret: secret })
+                    body: JSON.stringify({ client_id: clientId, client_secret: secret,
+                                           required_org: org })
                 });
                 const d = await r.json();
                 if (!d.success) { _msg('githubMessage', d.error || 'Could not save.', true); return; }
                 document.getElementById('ghClientSecret').value = '';
+                document.getElementById('ghRequiredOrg').value = d.required_org || '';
                 _msg('githubMessage', d.configured
                     ? 'Saved. GitHub sign-in is ready to enable.'
                     : 'Saved, but both a client ID and secret are needed before it can be used.', !d.configured);
