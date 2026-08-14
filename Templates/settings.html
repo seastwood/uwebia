@@ -978,8 +978,10 @@
     {% if can_edit_settings %}
     <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
         <h2 class="settings-section-title">Admin Navbar</h2>
-        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation bar for <strong>everyone</strong>, and <strong>drag the grip</strong> to set their order. Disabled items are hidden across all admins.</p>
+        <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation for <strong>everyone</strong>. <strong>Drag the grip</strong> to set the order, or drag a row into the <strong>&#9776; menu</strong> below to keep it off the bar &mdash; useful for things you reach rarely. Unticked items are hidden from all admins.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
+            <div style="font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;color:rgba(255,255,255,0.45);">On the navigation bar</div>
+            <div id="navZoneBar" data-zone="bar" style="display:flex;flex-direction:column;gap:10px;min-height:44px;">
             {% set _nd = anchor_navbar_disabled or [] %}
             {% set _no = anchor_navbar_order or [] %}
             {# Top-level (non-store) items, rendered in the saved order (unsaved
@@ -990,20 +992,36 @@
                 {'key':'forum',         'label':'Forum',                       'icon':'fa-comments'},
                 {'key':'calendars',     'label':'Calendars',                   'icon':'fa-calendar-alt'},
                 {'key':'reviews',       'label':'Reviews',                     'icon':'fa-star'},
-                {'key':'messages',      'label':'Messages',                    'icon':'fa-envelope'},
+                {'key':'messages',      'label':'Messages',                    'icon':'fa-envelope', 'fixed': True},
                 {'key':'palette',       'label':'Color Palette',               'icon':'fa-palette'},
                 {'key':'storage',       'label':'External Drives',             'icon':'fa-cloud'},
                 {'key':'notifications', 'label':'Notifications',               'icon':'fa-bell'},
                 {'key':'ai_agents',     'label':'AI Agents',                   'icon':'fa-robot'},
                 {'key':'plugins',       'label':'Plugins',                     'icon':'fa-puzzle-piece'},
+                {'key':'trash',         'label':'Trash',                       'icon':'fa-trash-can', 'nohide': True},
             ] %}
             {% for _it in _defs %}{% set _ = _it.update({'ord': (_no.index(_it.key) if _it.key in _no else 900)}) %}{% endfor %}
             {% for it in _defs | sort(attribute='ord') %}
-            <label data-navkey="{{ it.key }}" class="nav-vis-row" style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:7px 11px;">
+            {# `fixed` items live outside the reorderable part of the bar, so they
+               get no grip — a handle that silently does nothing is worse than
+               none. Their visibility toggle still works. #}
+            <label data-navkey="{{ it.key }}" class="nav-vis-row{% if it.get('fixed') %} nav-vis-row--fixed{% endif %}" style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:7px 11px;">
+                {% if it.get('fixed') %}
+                <i class="fas fa-thumbtack" style="color:rgba(255,255,255,0.2);width:14px;text-align:center;"
+                   title="Always sits on the right of the bar — position can't be changed"></i>
+                {% else %}
                 <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;" title="Drag to reorder"></i>
+                {% endif %}
+                {% if it.get('nohide') %}
+                {# No visibility tick: the way back from an accidental deletion
+                   should not be something a settings toggle can take away. #}
+                <i class="fas fa-lock" style="width:16px;text-align:center;color:rgba(255,255,255,0.25);"
+                   title="Trash can be moved, but not hidden"></i>
+                {% else %}
                 <input type="checkbox" class="nav-vis-check" data-key="{{ it.key }}"
                        {% if it.key not in _nd %}checked{% endif %}
                        style="width:16px;height:16px;cursor:pointer;accent-color:#5eeef8;">
+                {% endif %}
                 <i class="fas {{ it.icon }}" style="width:16px;text-align:center;color:rgba(255,255,255,0.5);"></i>
                 {{ it.label }}
             </label>
@@ -1079,6 +1097,16 @@
                     {% endfor %}
                 </div>
             </div>
+            </div>{# /#navZoneBar #}
+
+            {# Anything dropped here stays in the hamburger however much room the
+               bar has. Items keep their own order within the menu, so this is a
+               placement change rather than a second, separate list. #}
+            <div style="font-size:0.78rem;letter-spacing:0.04em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-top:6px;">
+                <i class="fas fa-bars" style="margin-right:6px;"></i>Always in the &#9776; menu
+            </div>
+            <div id="navZoneMenu" data-zone="menu" style="display:flex;flex-direction:column;gap:10px;min-height:52px;padding:8px;border:1px dashed rgba(255,255,255,0.14);border-radius:10px;background:rgba(255,255,255,0.015);"></div>
+            <p id="navZoneMenuEmpty" style="margin:-2px 0 0;font-size:0.78rem;color:rgba(255,255,255,0.32);font-style:italic;">Drag items here to keep them in the menu.</p>
         </div>
         <button type="button" class="settings-button" style="margin-top:16px;" onclick="saveNavbarVisibility()">Save Navbar Settings</button>
         <div id="navVisStatus" style="margin-top:8px;font-size:0.82rem;min-height:1em;"></div>
@@ -1354,13 +1382,20 @@
                 if (!form) { say('Save failed: the navbar list is missing from the page.', false); return; }
                 const disabled = [];
                 form.querySelectorAll('.nav-vis-check').forEach(c => { if (!c.checked) disabled.push(c.dataset.key); });
-                // Order = the current top-level row sequence (drag reorders these).
-                const order = Array.from(form.querySelectorAll(':scope > [data-navkey]')).map(el => el.dataset.navkey);
+                const keysIn = z => {
+                    const zone = form.querySelector(z);
+                    return zone ? Array.from(zone.querySelectorAll(':scope > [data-navkey]'))
+                                       .map(el => el.dataset.navkey) : [];
+                };
+                // Order spans both zones — an item keeps a position whichever
+                // one it sits in. `pinned` is what decides bar vs menu.
+                const pinned = keysIn('#navZoneMenu');
+                const order = keysIn('#navZoneBar').concat(pinned);
 
                 const r = await fetch('/admin/settings/navbar-visibility', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ disabled, order })
+                    body: JSON.stringify({ disabled, order, pinned })
                 });
                 let d = null;
                 try { d = await r.json(); } catch (e) { d = null; }
@@ -1377,20 +1412,41 @@
             }
         }
 
-        // Drag-to-reorder the navbar item rows. The store card renders last, so
-        // move it into its saved order slot, then enable Sortable.
+        // Drag to reorder the navbar rows, and to move them between the bar and
+        // the hamburger menu. Jinja renders every row into the bar zone (so the
+        // list is still correct if this never runs); the saved placement is
+        // applied here.
         (function initNavReorder() {
             const form = document.getElementById('navbarVisibilityForm');
-            if (!form) return;
+            const bar = document.getElementById('navZoneBar');
+            const menu = document.getElementById('navZoneMenu');
+            if (!form || !bar || !menu) return;
             const NAV_ORDER = {{ (anchor_navbar_order or []) | tojson }};
-            if (NAV_ORDER.length) {
-                const idx = k => { const i = NAV_ORDER.indexOf(k); return i === -1 ? 900 : i; };
-                Array.from(form.querySelectorAll(':scope > [data-navkey]'))
-                    .sort((a, b) => idx(a.dataset.navkey) - idx(b.dataset.navkey))
-                    .forEach(r => form.appendChild(r));
-            }
+            const NAV_PINNED = {{ (anchor_navbar_pinned or []) | tojson }};
+
+            const idx = k => { const i = NAV_ORDER.indexOf(k); return i === -1 ? 900 : i; };
+            Array.from(bar.querySelectorAll(':scope > [data-navkey]'))
+                .sort((a, b) => idx(a.dataset.navkey) - idx(b.dataset.navkey))
+                .forEach(r => (NAV_PINNED.indexOf(r.dataset.navkey) !== -1 ? menu : bar).appendChild(r));
+
+            const emptyHint = document.getElementById('navZoneMenuEmpty');
+            const syncHint = () => {
+                if (emptyHint) emptyHint.style.display =
+                    menu.querySelector('[data-navkey]') ? 'none' : '';
+            };
+            syncHint();
+
             if (window.Sortable) {
-                Sortable.create(form, { handle: '.nav-vis-grip', draggable: '[data-navkey]', animation: 150 });
+                // One shared group so a row can be dragged from either zone into
+                // the other. Messages is excluded: it lives in the fixed
+                // right-hand cluster, so neither zone would be truthful for it.
+                [bar, menu].forEach(zone => Sortable.create(zone, {
+                    group: 'navPlacement',
+                    handle: '.nav-vis-grip',
+                    draggable: '[data-navkey]:not(.nav-vis-row--fixed)',
+                    animation: 150,
+                    onSort: syncHint,
+                }));
             }
         })();
 

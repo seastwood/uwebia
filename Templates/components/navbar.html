@@ -234,13 +234,18 @@
     {# CSS flex `order` for each inline item, from the admin-configured sequence.
        Unordered keys get a high value so they trail in their default order. #}
     {%- macro _ord(k) -%}order:{{ _no.index(k) if k in _no else 900 }};{%- endmacro -%}
+    {# Placement: items listed here live in the hamburger menu instead of on the
+       bar, for things used too rarely to earn permanent width. Everything else
+       sits inline and only falls into the menu when the bar runs out of room. #}
+    {% set _pin = admin_navbar_pinned if admin_navbar_pinned is not none else ['trash'] %}
+    {%- macro _dcls(k) -%}nav-tools-item{% if k not in _pin %} nav-tools-item--responsive{% endif %}{%- endmacro -%}
     {% set _b = store_nav_badges | default({}) %}
     {% macro _badge(n) %}{% if n and n > 0 %}<span class="nav-item-badge">{{ n if n < 100 else '99+' }}</span>{% endif %}{% endmacro %}
     <!-- Inline tool shortcuts — only the "responsive" items that collapse into
          the dropdown when there's no horizontal space. Pinned items
          (Drives, AI Agents, Plugins) live only in the dropdown. -->
     <div id="navInlineItems" class="nav-inline-items">
-        {% if user_has_perm('posts.view') and 'posts' not in _nd %}
+        {% if user_has_perm('posts.view') and 'posts' not in _nd and 'posts' not in _pin %}
         <a href="{{ url_for('admin_posts_page') }}" class="nav-link-btn" title="Posts" style="{{ _ord('posts') }}"><i class="fas fa-newspaper"></i></a>
         {% endif %}
         {# Education umbrella — Guides / Quizzes / Resources / competencies under
@@ -252,7 +257,7 @@
         {% set _show_edu_resources = (not _hide_edu_all) and user_has_perm('resources.view') and 'resources' not in _nd %}
         {% set _show_edu_divisions = (not _hide_edu_all) and (user_has_perm('divisions.view') or user_has_perm('ksa.view')) and 'divisions' not in _nd %}
         {% set _has_education_group = _show_edu_guides or _show_edu_quizzes or _show_edu_resources or _show_edu_divisions %}
-        {% if _has_education_group %}
+        {% if _has_education_group and 'education' not in _pin %}
         <div class="store-dropdown education-dropdown" style="{{ _ord('education') }}">
             <button type="button" class="nav-link-btn store-dropdown-btn" title="Education">
                 <i class="fas fa-graduation-cap"></i>
@@ -273,16 +278,16 @@
             </div>
         </div>
         {% endif %}
-        {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
+        {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd and 'newsletters' not in _pin %}
         <a href="{{ url_for('admin_newsletters_page') }}" class="nav-link-btn" title="Newsletters" style="{{ _ord('newsletters') }}"><i class="fas fa-envelope-open-text"></i></a>
         {% endif %}
-        {% if user_has_perm('forum.view') and 'forum' not in _nd %}
+        {% if user_has_perm('forum.view') and 'forum' not in _nd and 'forum' not in _pin %}
         <a href="{{ url_for('admin_forum') }}" class="nav-link-btn" title="Forum" style="{{ _ord('forum') }}"><i class="fas fa-comments"></i></a>
         {% endif %}
-        {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
+        {% if user_has_perm('calendars.view') and 'calendars' not in _nd and 'calendars' not in _pin %}
         <a href="{{ url_for('admin_calendars_page') }}" class="nav-link-btn" title="Calendars" style="{{ _ord('calendars') }}"><i class="fas fa-calendar-alt"></i></a>
         {% endif %}
-        {% if user_has_perm('reviews.view') and 'reviews' not in _nd %}
+        {% if user_has_perm('reviews.view') and 'reviews' not in _nd and 'reviews' not in _pin %}
         <a href="{{ url_for('admin_reviews_page') }}" class="nav-link-btn" title="Reviews" style="{{ _ord('reviews') }}"><i class="fas fa-star"></i></a>
         {% endif %}
         {# Store umbrella — collapses Products / Orders / Shipping / Payments
@@ -300,7 +305,7 @@
         {% set _show_store_scan     = (not _hide_store_all) and user_has_perm('store.tickets.scan') and 'tickets_scan' not in _nd %}
         {% set _show_store_support  = (not _hide_store_all) and user_has_perm('store.support') and 'support' not in _nd %}
         {% set _has_store_group = _show_store_products or _show_store_orders or _show_store_returns or _show_store_shipping or _show_store_payments or _show_store_sales or _show_store_scan or _show_store_support %}
-        {% if _has_store_group %}
+        {% if _has_store_group and 'store' not in _pin %}
         <div class="store-dropdown" style="{{ _ord('store') }}">
             <button type="button" class="nav-link-btn store-dropdown-btn" title="Store">
                 <i class="fas fa-store"></i>
@@ -346,21 +351,43 @@
             </div>
         </div>
         {% endif %}
-        {% if 'palette' not in _nd %}
+        {# These four used to live ONLY in the hamburger, which sits at a fixed
+           spot at the end of the bar — so dragging one to "second" in Settings
+           ordered it correctly inside the dropdown while nothing moved out
+           here. They are ordinary inline items now; the dropdown keeps
+           --responsive copies for when the bar collapses. #}
+        {% if user_has_perm('storage.view') and 'storage' not in _nd and 'storage' not in _pin %}
+        <a href="{{ url_for('admin_storage_connections') }}" class="nav-link-btn" title="External Drives" style="{{ _ord('storage') }}"><i class="fas fa-cloud"></i></a>
+        {% endif %}
+        {% if user_has_perm('notifications.view') and 'notifications' not in _nd and 'notifications' not in _pin %}
+        <a href="{{ url_for('admin_notifications_page') }}" class="nav-link-btn" title="Notifications" style="{{ _ord('notifications') }}"><i class="fas fa-bell"></i></a>
+        {% endif %}
+        {% if 'ai_agents' not in _nd and 'ai_agents' not in _pin %}
+        <a href="{{ url_for('ai_agents_page') }}" class="nav-link-btn" title="AI Agents" style="{{ _ord('ai_agents') }}"><i class="fas fa-robot"></i></a>
+        {% endif %}
+        {% if 'plugins' not in _nd and 'plugins' not in _pin %}
+        <a href="{{ url_for('plugins_page') }}" class="nav-link-btn" title="Plugins" style="{{ _ord('plugins') }}"><i class="fas fa-puzzle-piece"></i></a>
+        {% endif %}
+        {% if 'palette' not in _nd and 'palette' not in _pin %}
         <button type="button" class="nav-link-btn" title="Color Palette" onclick="toggleGlobalColorPalette()" style="{{ _ord('palette') }}"><i class="fas fa-palette"></i></button>
+        {% endif %}
+        {# Trash is placeable like everything else now, but still cannot be
+           HIDDEN — the way back from an accidental deletion should not be
+           something a settings toggle can take away. #}
+        {% if user_has_perm('trash.view') and 'trash' not in _pin %}
+        <a href="{{ url_for('admin_trash_page') }}" class="nav-link-btn" title="Trash" style="{{ _ord('trash') }}"><i class="fas fa-trash-can"></i></a>
         {% endif %}
     </div>
 
     {# A dropdown with no always-pinned items is hidden in expanded mode (no point
        showing an empty hamburger). When responsive items collapse into it (compact
        mode), CSS reveals it again. #}
-    {% set _has_pinned_dropdown = (
-        user_has_perm('trash.view')
-        or (user_has_perm('storage.view') and 'storage' not in _nd)
-        or (user_has_perm('notifications.view') and 'notifications' not in _nd)
-        or 'ai_agents' not in _nd
-        or 'plugins' not in _nd
-    ) %}
+    {# Worth showing in expanded mode only if something is actually pinned into
+       it. An admin lacking permission for every pinned item would still see an
+       empty menu; that needs a per-key permission check and isn't worth the
+       complexity for the one case it covers. #}
+    {% set _has_pinned_dropdown = (_pin | length > 0)
+        and (_pin != ['trash'] or user_has_perm('trash.view')) %}
     <!-- Always-visible dropdown. Items tagged .nav-tools-item--responsive only
          show when their inline counterpart has collapsed (i.e. compact mode). -->
         <div class="nav-tools-dropdown{% if not _has_pinned_dropdown %} nav-tools-dropdown--no-pinned{% endif %}">
@@ -370,23 +397,25 @@
             <div class="nav-tools-dropdown-content" id="navToolsDropdownContent">
                 <div class="nav-tools-scroll-cue nav-tools-scroll-cue--top" aria-hidden="true">▲ more above</div>
                 {# ── Pinned items — always present in the dropdown ── #}
+                {# Only Trash lives here now. Everything else has an inline
+                   counterpart and appears here only once the bar collapses. #}
                 {% if user_has_perm('storage.view') and 'storage' not in _nd %}
-                <a href="{{ url_for('admin_storage_connections') }}" class="nav-tools-item">
+                <a href="{{ url_for('admin_storage_connections') }}" class="{{ _dcls('storage') }}" style="{{ _ord('storage') }}">
                     <i class="fas fa-cloud"></i><span>External Drives</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('notifications.view') and 'notifications' not in _nd %}
-                <a href="{{ url_for('admin_notifications_page') }}" class="nav-tools-item">
+                <a href="{{ url_for('admin_notifications_page') }}" class="{{ _dcls('notifications') }}" style="{{ _ord('notifications') }}">
                     <i class="fas fa-bell"></i><span>Notifications</span>
                 </a>
                 {% endif %}
                 {% if 'ai_agents' not in _nd %}
-                <a href="{{ url_for('ai_agents_page') }}" class="nav-tools-item">
+                <a href="{{ url_for('ai_agents_page') }}" class="{{ _dcls('ai_agents') }}" style="{{ _ord('ai_agents') }}">
                     <i class="fas fa-robot"></i><span>AI Agents</span>
                 </a>
                 {% endif %}
                 {% if 'plugins' not in _nd %}
-                <a href="{{ url_for('plugins_page') }}" class="nav-tools-item">
+                <a href="{{ url_for('plugins_page') }}" class="{{ _dcls('plugins') }}" style="{{ _ord('plugins') }}">
                     <i class="fas fa-puzzle-piece"></i><span>Plugins</span>
                 </a>
                 {% endif %}
@@ -394,7 +423,7 @@
                 {# ── Responsive items — duplicate of inline bar, shown only
                      when the bar collapsed into compact mode ── #}
                 {% if user_has_perm('posts.view') and 'posts' not in _nd %}
-                <a href="{{ url_for('admin_posts_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                <a href="{{ url_for('admin_posts_page') }}" class="{{ _dcls('posts') }}" style="{{ _ord('posts') }}">
                     <i class="fas fa-newspaper"></i><span>Posts</span>
                 </a>
                 {% endif %}
@@ -403,7 +432,7 @@
                    the current page is one of its members. #}
                 {% if _has_education_group %}
                 {% set _on_edu_page = request.endpoint in ['admin_education_page','admin_guides_page','guide_editor','admin_quizzes_page','quiz_editor','admin_resources_page','admin_divisions_page','admin_ksa_page'] %}
-                <div class="nav-tools-subgroup nav-tools-item--responsive{% if _on_edu_page %} open{% endif %}">
+                <div class="nav-tools-subgroup {{ _dcls('education') }}{% if _on_edu_page %} open{% endif %}" style="{{ _ord('education') }}">
                     <button type="button" class="nav-tools-item nav-tools-subgroup-toggle" onclick="toggleNavSubgroup(event)">
                         <i class="fas fa-graduation-cap"></i>
                         <span>Education</span>
@@ -426,22 +455,22 @@
                 </div>
                 {% endif %}
                 {% if user_has_perm('newsletters.view') and 'newsletters' not in _nd %}
-                <a href="{{ url_for('admin_newsletters_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                <a href="{{ url_for('admin_newsletters_page') }}" class="{{ _dcls('newsletters') }}" style="{{ _ord('newsletters') }}">
                     <i class="fas fa-envelope-open-text"></i><span>Newsletters</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('forum.view') and 'forum' not in _nd %}
-                <a href="{{ url_for('admin_forum') }}" class="nav-tools-item nav-tools-item--responsive">
+                <a href="{{ url_for('admin_forum') }}" class="{{ _dcls('forum') }}" style="{{ _ord('forum') }}">
                     <i class="fas fa-comments"></i><span>Forum</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('calendars.view') and 'calendars' not in _nd %}
-                <a href="{{ url_for('admin_calendars_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                <a href="{{ url_for('admin_calendars_page') }}" class="{{ _dcls('calendars') }}" style="{{ _ord('calendars') }}">
                     <i class="fas fa-calendar-alt"></i><span>Calendars</span>
                 </a>
                 {% endif %}
                 {% if user_has_perm('reviews.view') and 'reviews' not in _nd %}
-                <a href="{{ url_for('admin_reviews_page') }}" class="nav-tools-item nav-tools-item--responsive">
+                <a href="{{ url_for('admin_reviews_page') }}" class="{{ _dcls('reviews') }}" style="{{ _ord('reviews') }}">
                     <i class="fas fa-star"></i><span>Reviews</span>
                 </a>
                 {% endif %}
@@ -450,7 +479,7 @@
                    collapsed unless the current page is a store page. #}
                 {% if _has_store_group %}
                 {% set _on_store_page = request.endpoint in ['store_products','store_product_edit','store_product_new','admin_orders_page','admin_order_detail','admin_returns','admin_return_detail','admin_return_new','admin_shipping_page','admin_payments_page','admin_sales_analytics'] %}
-                <div class="nav-tools-subgroup nav-tools-item--responsive{% if _on_store_page %} open{% endif %}" id="navToolsStoreGroup">
+                <div class="nav-tools-subgroup {{ _dcls('store') }}{% if _on_store_page %} open{% endif %}" id="navToolsStoreGroup" style="{{ _ord('store') }}">
                     <button type="button" class="nav-tools-item nav-tools-subgroup-toggle"
                             onclick="toggleNavStoreSubgroup(event)">
                         <i class="fas fa-store"></i>
@@ -532,8 +561,18 @@
                    Deliberately not checked against admin_navbar_disabled: the
                    way back from an accidental deletion should not be something
                    a settings toggle can hide. #}
+                {% if 'palette' not in _nd %}
+                <button type="button" class="{{ _dcls('palette') }}"
+                        style="{{ _ord('palette') }}" onclick="toggleGlobalColorPalette()">
+                    <i class="fas fa-palette"></i><span>Color Palette</span>
+                </button>
+                {% endif %}
                 {% if user_has_perm('trash.view') %}
-                <a href="{{ url_for('admin_trash_page') }}" class="nav-tools-item nav-tools-item--last">
+                {# Trash is deliberately last; give it an order that beats any
+                   configured item but stays above the bottom scroll cue. #}
+                {# The --last separator only reads correctly while Trash actually anchors the
+                   bottom of the menu; once it is placed on the bar it is an ordinary item. #}
+                <a href="{{ url_for('admin_trash_page') }}" class="{{ _dcls('trash') }}{% if 'trash' in _pin %} nav-tools-item--last{% endif %}" style="{{ _ord('trash') }}">
                     <i class="fas fa-trash-can"></i><span>Trash</span>
                 </a>
                 {% endif %}

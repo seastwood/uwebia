@@ -551,9 +551,18 @@
 /* Up/down chevron indicators — placed inside the dropdown itself as sticky
    pseudo-elements via wrapper spans the JS injects. */
 .nav-tools-dropdown.open .nav-tools-dropdown-content {
-    display: block;
+    /* Flex column, not block, so the admin-configured order applies in here
+       too. The dropdown holds both the always-pinned items and the inline ones
+       once they collapse, and it used to present them in source order — so a
+       configured order was silently ignored the moment the bar got narrow. */
+    display: flex;
+    flex-direction: column;
     position: absolute;
 }
+/* The scroll hints are chrome, not items: keep them at the extremes whatever
+   order the items are given. */
+.nav-tools-scroll-cue--top    { order: -9999; }
+.nav-tools-scroll-cue--bottom { order: 9999; }
 .nav-tools-scroll-cue {
     position: sticky;
     left: 0; right: 0;

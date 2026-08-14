@@ -1,5 +1,8 @@
 {% set nav_style = website.public_navbar_style or {} %}
-{% set navbar_items = preview_navbar_items if (preview_navbar_items is defined and preview_navbar_items is not none) else (website.public_navbar_items or []) %}
+{# Switched-off entries are filtered out here, once, rather than at each of the
+   render sites below — this list is walked twice (desktop and mobile) and each
+   pass branches on link/system/group separately. #}
+{% set navbar_items = visible_navbar_items(preview_navbar_items if (preview_navbar_items is defined and preview_navbar_items is not none) else (website.public_navbar_items or [])) %}
 {% set navbar_margin = nav_style.get('margin', 0)|int %}
 {% set navbar_anchor_offset = 78 + navbar_margin %}
 {% set navbar_page_offset = 58 + navbar_margin %}

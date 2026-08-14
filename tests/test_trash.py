@@ -319,12 +319,19 @@ def main_test():
         check('so nothing was lost', main.TrashItem.query.count() > 0)
 
     navbar = open(os.path.join(_REPO, 'Templates', 'components', 'navbar.html')).read()
-    at = navbar.index('admin_trash_page')
-    block = navbar[at - 500:at + 200]
-    check('the navbar entry is not gated on the disable list',
-          "'trash' not in _nd" not in block)
-    check('and it lives in the dropdown, not the inline bar',
-          'nav-tools-item' in block)
+    # Trash is placeable between the bar and the hamburger now, so it has two
+    # entries. Neither may be gated on the disable list: it can be MOVED, but
+    # never hidden — the way back from an accidental deletion should not be
+    # something a settings toggle can take away.
+    spots = [m.start() for m in re.finditer('admin_trash_page', navbar)]
+    check(f'it appears both on the bar and in the menu ({len(spots)})',
+          len(spots) == 2)
+    for at in spots:
+        block = navbar[at - 500:at + 250]
+        check('that entry is not gated on the disable list',
+              "'trash' not in _nd" not in block)
+        check('but is gated on placement, so it can be moved',
+              "_pin" in block)
 
     # Pinned to the foot of the dropdown: it is where you go when something has
     # gone wrong, not somewhere to hit on the way past. Checked against the
