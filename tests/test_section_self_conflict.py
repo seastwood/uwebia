@@ -22,6 +22,7 @@ Two separate defects produced that one message.
 Copies main.py into a throwaway directory and imports it from there, so it
 builds its own SQLite database and cannot touch the real instance.
 """
+import atexit
 import os
 import re
 import shutil
@@ -33,6 +34,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-selfconflict-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 for _linked in ('Templates', 'icons'):
     _src = os.path.join(_REPO, _linked)

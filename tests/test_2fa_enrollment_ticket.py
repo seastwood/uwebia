@@ -13,6 +13,7 @@ imports it from there. It therefore builds its own SQLite database and CANNOT
 touch the real instance — which matters, because this exercises state-changing
 routes.
 """
+import atexit
 import os
 import shutil
 import sys
@@ -24,6 +25,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-2fa-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 for _linked in ('Templates', 'icons', 'static'):
     _src = os.path.join(_REPO, _linked)

@@ -18,6 +18,7 @@ builds its own SQLite database and cannot touch the real instance.
 """
 import io
 import json
+import atexit
 import os
 import re
 import shutil
@@ -29,6 +30,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-eduimg-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 # `static` is NOT symlinked: uploads_folder lives inside it, and this test
 # UPLOADS files. Through a symlink those land in the real instance's asset

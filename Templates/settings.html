@@ -62,6 +62,13 @@
     }
 
     .settings-card {
+        /* Spacing lives here so every card is separated identically. It used to
+           be an inline margin-top repeated on most cards and simply missing on
+           a few, which left those sitting flush against the card above.
+           (Deliberately not naming the affected cards: this stylesheet ships to
+           every admin, and some card titles are gated by permission — a comment
+           mentioning one makes the page claim it is present.) */
+        margin-top: 20px;
         background:
             linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.025)),
             #1e1d20;
@@ -72,6 +79,9 @@
             0 18px 40px rgba(0, 0, 0, 0.32),
             inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
+
+    /* The first card under a tab heading has the heading's own spacing above it. */
+    .settings-card:first-of-type { margin-top: 0; }
 
     .settings-section-title {
         margin: 0 0 12px;
@@ -130,6 +140,14 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        /* Anchors inherit the body line-height while <button> uses the UA's
+           `normal`, so the same class rendered two different heights; an icon
+           inside made it worse, because the icon font's own metrics set the
+           line box. Pinning line-height and the icon size makes the height
+           padding + content, identical for every variant. */
+        line-height: 1;
+        gap: 8px;
+        align-self: flex-start;
         min-height: 40px;
         padding: 10px 14px;
         color: #10251f;
@@ -139,6 +157,21 @@
         font-size: 0.86rem;
         font-weight: 850;
         cursor: pointer;
+    }
+
+    /* Without this the browser treats a drag starting on the grip as a scroll
+       and Sortable never sees the move — the rows simply would not drag on a
+       phone. It must sit on the handle only, so the rest of the list still
+       scrolls normally. */
+    .nav-vis-grip {
+        touch-action: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    .settings-button > i {
+        font-size: 1em;
+        line-height: 1;
     }
 
     @media (max-width: 700px) {
@@ -400,7 +433,7 @@
                tab script so a save never bounces you to the other half. #}
             <input type="hidden" name="active_tab" id="activeTabField" value="{{ active_tab }}">
 
-<div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
+<div class="settings-card" data-settings-tab="user" >
     <h2 class="settings-section-title">Account</h2>
 
     {% if admin_collect_names %}
@@ -497,7 +530,7 @@
 </div>
 
 
-            <div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="user" >
                 <h2 class="settings-section-title">Two-Factor Authentication</h2>
 
                 {% if two_factor_enabled %}
@@ -566,7 +599,7 @@
             {# Your own authenticator is not a site setting: it was gated on
                settings.edit, so a sub-admin without that permission had no way
                to set up the second factor the org may well require of them. #}
-            <div class="settings-card" data-settings-tab="user" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="user" >
                 <h2 class="settings-section-title">Authenticator App (TOTP)</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     A second factor that works without email — required for admins who
@@ -588,7 +621,7 @@
                credentials below are the org's. They used to share one card, so
                this button was behind settings.edit too. #}
             {% if github_login_available %}
-            <div class="settings-card" data-settings-tab="user" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="user" >
                 <h2 class="settings-section-title">GitHub Account</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     {% if current_user.github_user_id %}
@@ -604,7 +637,7 @@
             {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card" data-settings-tab="site" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="site" >
                 <h2 class="settings-section-title">Admin Access &amp; Policy</h2>
                 <p class="settings-help">
                     The settings that govern <strong>every admin account</strong> — requiring a second
@@ -617,7 +650,7 @@
                 </a>
             </div>
 
-            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" >
                 <h2 class="settings-section-title">GitHub Sign-In</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. Uwebia requests <strong>no scopes</strong> and stores only
@@ -695,7 +728,7 @@
                         {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" >
                 <h2 class="settings-section-title">Logging</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. The log file is size-capped and rotates automatically,
@@ -729,7 +762,7 @@
             {% endif %}
 
             {% if can_edit_settings %}
-            <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+            <div class="settings-card" data-settings-tab="site" >
                 <h2 class="settings-section-title">Visitor IP retention</h2>
                 <p class="settings-help" style="margin-top:-6px;">
                     Org-wide. An IP address is personal data. The app records one against
@@ -834,7 +867,7 @@
             </div>
             {% endif %}
 
-            <div class="settings-card" data-settings-tab="user" style="margin-top: 20px;">
+            <div class="settings-card" data-settings-tab="user" >
                 <h2 class="settings-section-title">Date and Time</h2>
 
                 <div class="settings-field">
@@ -976,7 +1009,7 @@
 
     <!-- Admin Navbar Visibility (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Admin Navbar</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Choose which items appear in the admin navigation for <strong>everyone</strong>. <strong>Drag the grip</strong> to set the order, or drag a row into the <strong>&#9776; menu</strong> below to keep it off the bar &mdash; useful for things you reach rarely. Unticked items are hidden from all admins.</p>
         <div id="navbarVisibilityForm" style="display:flex;flex-direction:column;gap:10px;">
@@ -1010,7 +1043,12 @@
                 <i class="fas fa-thumbtack" style="color:rgba(255,255,255,0.2);width:14px;text-align:center;"
                    title="Always sits on the right of the bar — position can't be changed"></i>
                 {% else %}
-                <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;" title="Drag to reorder"></i>
+                {# Each row is a <label>, so any tap inside it activates the
+                   checkbox. On a phone that fired on touch-release at the end of
+                   a drag, flipping the item's visibility as a side effect of
+                   reordering it. #}
+                <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;"
+                   title="Drag to reorder" onclick="event.preventDefault();event.stopPropagation();"></i>
                 {% endif %}
                 {% if it.get('nohide') %}
                 {# No visibility tick: the way back from an accidental deletion
@@ -1030,7 +1068,8 @@
             {# Education dropdown — master toggle + per-item under a divider. #}
             <div data-navkey="education" style="padding:12px 14px;background:rgba(180,140,255,0.06);border:1px solid rgba(180,140,255,0.18);border-radius:10px;">
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
-                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;" title="Drag to reorder"></i>
+                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;"
+                       title="Drag to reorder" onclick="event.preventDefault();event.stopPropagation();"></i>
                     <input type="checkbox" class="nav-vis-check" data-key="education"
                            {% if 'education' not in _nd %}checked{% endif %}
                            onchange="onEducationMasterToggle(this)"
@@ -1063,7 +1102,8 @@
             {# Store dropdown — master toggle + per-item under a divider. #}
             <div data-navkey="store" style="padding:12px 14px;background:rgba(94,238,248,0.05);border:1px solid rgba(94,238,248,0.15);border-radius:10px;">
                 <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;color:rgba(255,255,255,0.85);font-weight:600;">
-                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;" title="Drag to reorder"></i>
+                    <i class="fas fa-grip-vertical nav-vis-grip" style="color:rgba(255,255,255,0.28);cursor:grab;font-weight:400;"
+                       title="Drag to reorder" onclick="event.preventDefault();event.stopPropagation();"></i>
                     <input type="checkbox" class="nav-vis-check" data-key="store"
                            {% if 'store' not in _nd %}checked{% endif %}
                            onchange="onStoreMasterToggle(this)"
@@ -1115,7 +1155,7 @@
 
     <!-- Public address (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Public address</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">
             Org-wide — the address visitors use to reach this site. Anything that has to link to your site
@@ -1142,7 +1182,7 @@
 
     <!-- Admin Branding (org-wide; needs settings.edit) -->
     {% if can_edit_settings %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Admin Branding</h2>
         <p class="settings-subtitle" style="margin-bottom:16px;">Org-wide — sets the name &amp; icon shown on the admin navbar and the admin login page for <strong>everyone</strong>. Leave blank to use the default uwebia branding.</p>
 
@@ -1446,6 +1486,16 @@
                     draggable: '[data-navkey]:not(.nav-vis-row--fixed)',
                     animation: 150,
                     onSort: syncHint,
+                    // Touch only: a short hold distinguishes "drag this row"
+                    // from "scroll the page", and the fallback drag image is
+                    // what actually follows a finger on mobile browsers.
+                    delay: 120,
+                    delayOnTouchOnly: true,
+                    touchStartThreshold: 4,
+                    forceFallback: true,
+                    fallbackTolerance: 3,
+                    scroll: true,
+                    scrollSensitivity: 60,
                 }));
             }
         })();
@@ -1688,7 +1738,7 @@
     }
     </style>
     {% if can_moderate_posts %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Content Moderation</h2>
 
         <div class="settings-field">
@@ -1791,7 +1841,7 @@
     {% endif %}
 
     {% if can_backup %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Backup &amp; Restore</h2>
 
         <div class="settings-field">
@@ -1858,7 +1908,7 @@
     </div>
 
     {% set ab = auto_backup %}
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Automatic Backups</h2>
         <p class="settings-help" style="margin-bottom:14px;">
             Write a full backup ZIP to a folder on the server on a schedule, keeping only the
@@ -2110,7 +2160,7 @@
 
     {% if current_user.is_full_admin %}
     <!-- Database Settings (full admins only) -->
-    <div class="settings-card" data-settings-tab="site" style="margin-top:20px;">
+    <div class="settings-card" data-settings-tab="site" >
         <h2 class="settings-section-title">Database</h2>
 
         <div class="settings-field">
