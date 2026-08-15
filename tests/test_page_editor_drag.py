@@ -34,6 +34,7 @@ same moveOrSwapSection the mouse path uses.
 Browser checks skip when Chrome isn't on PATH.
 """
 import json
+import atexit
 import os
 import re
 import shutil
@@ -46,6 +47,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-editordrag-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 for _linked in ('Templates', 'icons', 'static'):
     _src = os.path.join(_REPO, _linked)
@@ -141,8 +145,21 @@ def _chrome():
     return None
 
 
+
+def _render_dir(prefix):
+    """A temp dir for one headless-Chrome render, removed when the run ends.
+
+    Every render gets its own --user-data-dir, and nothing ever deleted them:
+    1679 abandoned Chrome profiles totalling ~5 GB had built up in /tmp. atexit
+    rather than a try/finally because the helper has several return points, and
+    the directory has to outlive the subprocess call either way.
+    """
+    d = tempfile.mkdtemp(prefix=prefix)
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+    return d
+
 def _run_page(chrome, html, budget=6000):
-    d = tempfile.mkdtemp(prefix='uwebia-editordrag-run-')
+    d = _render_dir('uwebia-editordrag-run-')
     f = os.path.join(d, 'p.html')
     with open(f, 'w') as fh:
         fh.write(html)

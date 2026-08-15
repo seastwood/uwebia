@@ -22,6 +22,7 @@ The rules now live in one stylesheet all four editors link. The check that
 matters most is the last one: every value an editor registers with Quill must
 have a rule, or the catch-all silently comes back for it.
 """
+import atexit
 import os
 import re
 import shutil
@@ -143,6 +144,19 @@ def _chrome():
     return None
 
 
+
+def _render_dir(prefix):
+    """A temp dir for one headless-Chrome render, removed when the run ends.
+
+    Every render gets its own --user-data-dir, and nothing ever deleted them:
+    1679 abandoned Chrome profiles totalling ~5 GB had built up in /tmp. atexit
+    rather than a try/finally because the helper has several return points, and
+    the directory has to outlive the subprocess call either way.
+    """
+    d = tempfile.mkdtemp(prefix=prefix)
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+    return d
+
 def test_rendered():
     print('\n[5] and a real browser reads them as distinct')
     chrome = _chrome()
@@ -164,7 +178,7 @@ def test_rendered():
                 skip('rendered dropdown check', f'could not fetch {fname}')
                 return
 
-    work = tempfile.mkdtemp(prefix='uwebia-quill-probe-')
+    work = _render_dir('uwebia-quill-probe-')
     for fname in assets:
         shutil.copy2(os.path.join(cache, fname), work)
     shutil.copy2(CSS_PATH, work)

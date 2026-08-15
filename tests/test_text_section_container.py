@@ -22,6 +22,7 @@ Copies main.py into a throwaway directory and imports it from there, so it
 builds its own SQLite database and cannot touch the real instance.
 """
 import json
+import atexit
 import os
 import re
 import shutil
@@ -34,6 +35,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-textbox-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 for _linked in ('Templates', 'icons', 'static'):
     _src = os.path.join(_REPO, _linked)
@@ -256,6 +260,19 @@ def _seed_and_serve():
     return None
 
 
+
+def _render_dir(prefix):
+    """A temp dir for one headless-Chrome render, removed when the run ends.
+
+    Every render gets its own --user-data-dir, and nothing ever deleted them:
+    1679 abandoned Chrome profiles totalling ~5 GB had built up in /tmp. atexit
+    rather than a try/finally because the helper has several return points, and
+    the directory has to outlive the subprocess call either way.
+    """
+    d = tempfile.mkdtemp(prefix=prefix)
+    atexit.register(shutil.rmtree, d, ignore_errors=True)
+    return d
+
 def test_layout():
     print('\n[6] and the published page lays out that way')
     chrome = _chrome()
@@ -267,7 +284,7 @@ def test_layout():
         skip('container layout', 'test server did not start')
         return
 
-    d = tempfile.mkdtemp(prefix='uwebia-textbox-render-')
+    d = _render_dir('uwebia-textbox-render-')
     out = subprocess.run(
         [chrome, '--headless=new', '--disable-gpu', '--no-sandbox',
          f'--user-data-dir={os.path.join(d, "profile")}',

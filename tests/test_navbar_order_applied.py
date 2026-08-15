@@ -28,6 +28,7 @@ Trash) still do.
 Copies main.py into a throwaway directory and imports it from there, so it
 builds its own SQLite database and cannot touch the real instance.
 """
+import atexit
 import os
 import re
 import shutil
@@ -39,6 +40,9 @@ os.environ.setdefault('UWEBIA_COOKIE_SECURE', '0')
 
 _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SCRATCH = tempfile.mkdtemp(prefix='uwebia-navorder-test-')
+# Each of these holds a ~2.5 MB copy of main.py and a SQLite database; nothing
+# removed them, so repeated suite runs left GBs behind in /tmp.
+atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
 for _linked in ('Templates', 'icons'):
     _src = os.path.join(_REPO, _linked)
@@ -336,8 +340,72 @@ def placement_test():
     check('and the save posts the placement', "pinned })" in src or 'pinned }' in src)
 
 
+def settings_chrome_test():
+    """The settings page's own presentation: spacing, button size, touch drag."""
+    ids = setup()
+    c = app.test_client()
+    with c.session_transaction() as s2:
+        s2['_user_id'] = str(ids['owner'])
+        s2['_fresh'] = True
+        s2['admin_website_id'] = ids['site']
+    from bs4 import BeautifulSoup
+    r = c.get('/admin/dashboard/settings')
+    soup = BeautifulSoup(r.get_data(as_text=True), 'html.parser')
+    src = open(os.path.join(_REPO, 'Templates', 'settings.html')).read()
+
+    print('\n[14] every card is spaced the same way')
+    # Most cards carried an inline margin-top and a few simply did not, so
+    # Site Features, Admin URL Key and Public Display Names sat flush against
+    # the card above. One stylesheet rule instead of a repeated inline style.
+    cards = soup.select('.settings-card')
+    check(f'the cards render ({len(cards)})', len(cards) > 10)
+    inline = [d for d in cards if 'margin-top' in (d.get('style') or '')]
+    check(f'none set their own margin any more ({len(inline)})', not inline)
+    rule = src.split('.settings-card {')[1]
+    rule = rule[:rule.index('}')]          # the declaration block, not a guessed window
+    check('the stylesheet spaces them',
+          'margin-top: 20px;' in rule)
+    check('and the first one under a heading is not pushed down',
+          '.settings-card:first-of-type { margin-top: 0; }' in src)
+
+    print('\n[15] one button height, whatever the element or its contents')
+    # `.settings-button` is used on both <a> and <button>. Anchors inherit the
+    # body line-height while buttons use the UA's `normal`, and an icon inside
+    # let the icon font's metrics set the line box — which is why "Open Admin
+    # Users" stood taller than everything else.
+    block = src[src.index('.settings-button {'):]
+    block = block[:block.index('}')]
+    check('the line box is pinned rather than inherited', 'line-height: 1;' in block)
+    check('icons are spaced by gap, not a literal space', 'gap:' in block)
+    check("and cannot stretch in a flex parent", 'align-self: flex-start;' in block)
+    check('the icon itself is pinned too',
+          '.settings-button > i {' in src
+          and 'line-height: 1;' in src.split('.settings-button > i {')[1][:120])
+    btns = soup.select('.settings-button')
+    check(f'the class is shared by both element types ({len(btns)})',
+          {b.name for b in btns} == {'a', 'button'})
+
+    print('\n[16] the drag handles work on a phone')
+    check('the handle does not hand the gesture to the scroller',
+          '.nav-vis-grip {' in src
+          and 'touch-action: none;' in src.split('.nav-vis-grip {')[1][:200])
+    # Each row is a <label>, so a tap anywhere in it toggles the checkbox —
+    # including the release at the end of a drag.
+    grips = soup.select('.nav-vis-grip')
+    guarded = [g for g in grips if g.get('onclick')]
+    check(f'every grip stops the label toggling ({len(guarded)}/{len(grips)})',
+          grips and len(guarded) == len(grips))
+    check('including the Education and Store group rows',
+          all(soup.select_one(f'[data-navkey="{k}"] .nav-vis-grip[onclick]')
+              for k in ('education', 'store')))
+    for opt in ('delayOnTouchOnly: true', 'forceFallback: true',
+                'touchStartThreshold', 'scroll: true'):
+        check(f'Sortable is configured for touch ({opt.split(":")[0]})', opt in src)
+
+
 if __name__ == '__main__':
     main_test()
     placement_test()
+    settings_chrome_test()
     print('\n' + ('ALL PASSED' if not FAILURES else f'{len(FAILURES)} FAILED: {FAILURES}'))
     sys.exit(1 if FAILURES else 0)
