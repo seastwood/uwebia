@@ -580,12 +580,20 @@
 .nav-tools-dropdown-content.has-overflow-top    .nav-tools-scroll-cue--top    { display: block; }
 .nav-tools-dropdown-content.has-overflow-bottom .nav-tools-scroll-cue--bottom { display: block; }
 
+/* Used on both <a> and <button> rows, so it carries the button reset itself —
+   without it a <button> row renders the UA's grey buttonface and looks
+   permanently highlighted next to its <a> siblings. */
 .nav-tools-item {
     display: flex;
     align-items: center;
     gap: 10px;
     color: #eaeaea;
     text-decoration: none;
+    background: transparent;
+    border: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
     padding: 10px 12px;
     border-radius: 8px;
     transition: background 0.2s ease, color 0.2s ease;
