@@ -140,11 +140,15 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        /* Anchors inherit the body line-height while <button> uses the UA's
-           `normal`, so the same class rendered two different heights; an icon
-           inside made it worse, because the icon font's own metrics set the
-           line box. Pinning line-height and the icon size makes the height
-           padding + content, identical for every variant. */
+        /* This class is used on both <a> and <button>, and the UA stylesheet
+           gives form controls box-sizing: border-box while everything else
+           gets content-box. min-height: 40px therefore meant 40px INCLUDING
+           padding on a button, but 40px of content PLUS 20px padding and 2px
+           border on an anchor — 62px against 40px, measured. Stating the box
+           model is what makes the two agree; the line-height below only keeps
+           the natural (pre-min-height) size from depending on inherited
+           leading. */
+        box-sizing: border-box;
         line-height: 1;
         gap: 8px;
         align-self: flex-start;
