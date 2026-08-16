@@ -34,16 +34,31 @@ _SCRATCH = tempfile.mkdtemp(prefix='uwebia-search-test-')
 # removed them, so repeated suite runs left GBs behind in /tmp.
 atexit.register(shutil.rmtree, _SCRATCH, ignore_errors=True)
 shutil.copy2(os.path.join(_REPO, 'main.py'), os.path.join(_SCRATCH, 'main.py'))
-for _linked in ('Templates', 'icons', 'static'):
+for _linked in ('Templates', 'icons'):
     _src = os.path.join(_REPO, _linked)
     if os.path.exists(_src):
         os.symlink(_src, os.path.join(_SCRATCH, _linked))
+# static is rebuilt child by child rather than symlinked whole: uploads_folder
+# lives inside it, and a symlink points main.py's file writes AND DELETES at the
+# real project's static/uploads. A backup import run that way once destroyed 18
+# of the live instance's images permanently.
+os.mkdir(os.path.join(_SCRATCH, 'static'))
+for _child in os.listdir(os.path.join(_REPO, 'static')):
+    if _child != 'uploads':
+        os.symlink(os.path.join(_REPO, 'static', _child),
+                   os.path.join(_SCRATCH, 'static', _child))
+os.makedirs(os.path.join(_SCRATCH, 'static', 'uploads'), exist_ok=True)
 
 sys.path.insert(0, _SCRATCH)
 import main  # noqa: E402
 
 assert os.path.dirname(os.path.abspath(main.__file__)) == _SCRATCH, \
     'refusing to run against the real checkout'
+# The uploads folder must resolve inside the scratch dir. This is the guard that
+# would have caught the symlink above: without it, any delete path a test reaches
+# operates on the real instance's files.
+assert os.path.realpath(main.uploads_folder).startswith(os.path.realpath(_SCRATCH)), \
+    'uploads folder escapes the scratch directory'
 
 app, db = main.app, main.db
 FAILURES = []

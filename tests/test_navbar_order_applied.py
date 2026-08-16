@@ -368,14 +368,20 @@ def settings_chrome_test():
     check('and the first one under a heading is not pushed down',
           '.settings-card:first-of-type { margin-top: 0; }' in src)
 
-    print('\n[15] one button height, whatever the element or its contents')
-    # `.settings-button` is used on both <a> and <button>. Anchors inherit the
-    # body line-height while buttons use the UA's `normal`, and an icon inside
-    # let the icon font's metrics set the line box — which is why "Open Admin
-    # Users" stood taller than everything else.
+    print('\n[15] one button height, whatever the element it is put on')
+    # `.settings-button` is used on both <a> and <button>. The UA stylesheet
+    # gives form controls box-sizing:border-box and everything else
+    # content-box, so `min-height: 40px` meant 40px INCLUDING padding on a
+    # button but 40px of CONTENT plus 20px padding and 2px border on an
+    # anchor. Measured in Chrome: anchors 62px, buttons 40px; with box-sizing
+    # stated, all four are 40px. (The icon was a red herring — the anchor
+    # without one was equally tall.)
     block = src[src.index('.settings-button {'):]
     block = block[:block.index('}')]
-    check('the line box is pinned rather than inherited', 'line-height: 1;' in block)
+    check('the box model is stated, not left to the UA default',
+          'box-sizing: border-box;' in block)
+    check('the line box does not depend on inherited leading',
+          'line-height: 1;' in block)
     check('icons are spaced by gap, not a literal space', 'gap:' in block)
     check("and cannot stretch in a flex parent", 'align-self: flex-start;' in block)
     check('the icon itself is pinned too',
