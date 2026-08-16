@@ -555,9 +555,11 @@
                 </div>
                 {% endif %}
                 {% if 'palette' not in _nd %}
-                <a href="#" class="nav-tools-item nav-tools-item--responsive" onclick="toggleGlobalColorPalette(); closeNavToolsDropdown(); return false;">
+                <button type="button" class="{{ _dcls('palette') }}"
+                        style="{{ _ord('palette') }}"
+                        onclick="toggleGlobalColorPalette(); closeNavToolsDropdown();">
                     <i class="fas fa-palette"></i><span>Color Palette</span>
-                </a>
+                </button>
                 {% endif %}
                 {# Always last. Trash is where you go when something has gone
                    wrong, not something to reach for by accident on the way to
@@ -567,12 +569,6 @@
                    Deliberately not checked against admin_navbar_disabled: the
                    way back from an accidental deletion should not be something
                    a settings toggle can hide. #}
-                {% if 'palette' not in _nd %}
-                <button type="button" class="{{ _dcls('palette') }}"
-                        style="{{ _ord('palette') }}" onclick="toggleGlobalColorPalette()">
-                    <i class="fas fa-palette"></i><span>Color Palette</span>
-                </button>
-                {% endif %}
                 {% if user_has_perm('trash.view') %}
                 {# Trash is deliberately last; give it an order that beats any
                    configured item but stays above the bottom scroll cue. #}
